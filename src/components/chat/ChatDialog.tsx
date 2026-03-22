@@ -657,7 +657,10 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-lg">
-      <div className="relative w-[96vw] h-[94vh] bg-[hsl(220,15%,7%)] border border-white/[0.06] rounded-2xl flex shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+      <div className={cn(
+        "relative bg-[hsl(220,15%,7%)] border border-white/[0.06] rounded-2xl flex shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200",
+        devMode ? "w-[99vw] h-[98vh]" : "w-[96vw] h-[94vh]"
+      )}>
 
         {/* Left sidebar - conversations */}
         {showSidebar && (
