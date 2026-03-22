@@ -92,6 +92,8 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
   const [driveSearchMode, setDriveSearchMode] = useState(false);
   const [brainConnected, setBrainConnected] = useState<boolean | null>(null);
   const [reasoningMode, setReasoningMode] = useState(false);
+  const [devMode, setDevMode] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState("http://localhost:8080");
   const abortControllerRef = useRef<AbortController | null>(null);
 
   const voiceBaseRef = useRef("");
@@ -746,6 +748,19 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
                 </button>
               )}
               <button
+                onClick={() => setDevMode(!devMode)}
+                title="Dev Mode — live preview"
+                className={cn(
+                  "h-7 px-2.5 rounded-lg flex items-center gap-1.5 text-[10px] transition-colors",
+                  devMode
+                    ? "bg-violet-500/20 text-violet-400 ring-1 ring-violet-500/30"
+                    : "bg-white/[0.06] text-white/40 hover:text-violet-400 hover:bg-violet-500/10"
+                )}
+              >
+                <Code2 className="w-3 h-3" />
+                Dev
+              </button>
+              <button
                 onClick={onClose}
                 className="w-8 h-8 rounded-lg flex items-center justify-center text-white/30 hover:text-white hover:bg-white/[0.06] transition-colors"
               >
@@ -1127,6 +1142,42 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
           </>
         )}
       </div>
+
+        {/* Dev Mode — Live Preview Panel */}
+        {devMode && !isMobile && (
+          <div className="w-[50%] border-l border-white/[0.06] flex flex-col bg-[hsl(220,12%,5%)] shrink-0">
+            <div className="px-4 py-2.5 border-b border-white/[0.06] flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Code2 className="w-3.5 h-3.5 text-violet-400/70" />
+                <span className="text-xs font-medium text-white/60">Live Preview</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  value={previewUrl}
+                  onChange={e => setPreviewUrl(e.target.value)}
+                  className="text-[10px] bg-white/[0.06] text-white/50 rounded-md px-2 py-1 w-52 border border-white/[0.06] focus:outline-none focus:border-violet-500/40"
+                  placeholder="http://localhost:8080"
+                />
+                <button
+                  onClick={() => {
+                    const iframe = document.getElementById('dev-preview') as HTMLIFrameElement;
+                    if (iframe) { iframe.src = iframe.src; }
+                  }}
+                  className="text-[10px] px-2 py-1 rounded-md bg-violet-500/10 text-violet-400 hover:bg-violet-500/20 transition-colors"
+                >
+                  ↻
+                </button>
+              </div>
+            </div>
+            <iframe
+              id="dev-preview"
+              src={previewUrl}
+              className="flex-1 w-full border-0"
+              title="Live Preview"
+            />
+          </div>
+        )}
+
     </div>
   );
 };

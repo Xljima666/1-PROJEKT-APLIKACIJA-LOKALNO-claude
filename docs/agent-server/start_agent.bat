@@ -5,7 +5,7 @@ echo ========================================
 echo   GeoTerra Agent Server - Start
 echo ========================================
 
-set "AGENT_WORKSPACE=D:\Stellan Brain"
+set "AGENT_WORKSPACE=D:\1 PROJEKT APLIKACIJA LOKALNO\1 PROJEKT APLIKACIJA LOKALNO claude"
 set "AGENT_API_KEY=promijeni-me-na-siguran-kljuc-123"
 
 :: Idi u folder gdje je skripta
