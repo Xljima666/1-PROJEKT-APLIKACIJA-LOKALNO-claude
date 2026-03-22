@@ -133,6 +133,9 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
   const [reasoningMode, setReasoningMode] = useState(false);
   const [devMode, setDevMode] = useState(false);
   const [previewUrl, setPreviewUrl] = useState("http://localhost:8080");
+  const [isDeploying, setIsDeploying] = useState(false);
+  const [deployStatus, setDeployStatus] = useState<"idle" | "success" | "error">("idle");
+  const [isStartingAgent, setIsStartingAgent] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
 
   const voiceBaseRef = useRef("");
@@ -689,6 +692,39 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
     }
   };
 
+  const handleDeploy = async () => {
+    setIsDeploying(true);
+    setDeployStatus("idle");
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error("No session");
+      const res = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/agent-health`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+            apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ action: "git_push", message: "deploy via Stellan" }),
+        }
+      );
+      setDeployStatus(res.ok ? "success" : "error");
+    } catch {
+      setDeployStatus("error");
+    } finally {
+      setIsDeploying(false);
+      setTimeout(() => setDeployStatus("idle"), 4000);
+    }
+  };
+
+  const handleStartAgent = () => {
+    // Otvori instrukcije u novom prozoru ili kopiraj poruku u chat
+    setInput("Pokreni agent server naredbom: cd 'D:\\1 PROJEKT APLIKACIJA LOKALNO\\1 PROJEKT APLIKACIJA LOKALNO claude\\docs\\agent-server' i pokreni start_agent.bat");
+    setTimeout(() => inputRef.current?.focus(), 100);
+  };
+
   if (!open) return null;
 
   const hasMessages = messages.length > 0;
@@ -1192,6 +1228,32 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
               <div className="flex items-center gap-2">
                 <div className="w-2 h-2 rounded-full bg-violet-400 animate-pulse" />
                 <span className="text-xs font-medium text-white/60">Live Preview</span>
+                {/* Deploy button */}
+                <button
+                  onClick={handleDeploy}
+                  disabled={isDeploying}
+                  title="Git push → Netlify auto deploy"
+                  className={cn(
+                    "flex items-center gap-1.5 px-3 py-1 rounded-lg text-[11px] font-medium transition-all",
+                    isDeploying
+                      ? "bg-amber-500/20 text-amber-400 cursor-wait"
+                      : deployStatus === "success"
+                      ? "bg-emerald-500/20 text-emerald-400"
+                      : deployStatus === "error"
+                      ? "bg-red-500/20 text-red-400"
+                      : "bg-violet-500/15 text-violet-300 hover:bg-violet-500/25"
+                  )}
+                >
+                  {isDeploying ? "⏳ Deploying..." : deployStatus === "success" ? "✅ Deployed!" : deployStatus === "error" ? "❌ Greška" : "🚀 Deploy"}
+                </button>
+                {/* Start Agent button */}
+                <button
+                  onClick={handleStartAgent}
+                  title="Pokreni agent server"
+                  className="flex items-center gap-1.5 px-3 py-1 rounded-lg text-[11px] font-medium bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 transition-all"
+                >
+                  ⚡ Pokreni Agent
+                </button>
               </div>
               <div className="flex items-center gap-2">
                 <input
