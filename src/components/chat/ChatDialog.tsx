@@ -703,7 +703,7 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
         )}
 
         {/* Main chat area - LEFT (70%) */}
-        <div className="flex-1 flex flex-col min-w-0 relative">
+        <div className={cn("flex flex-col min-w-0 relative", devMode ? "w-[340px] shrink-0" : "flex-1")}>
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/[0.06]">
             <div className="flex items-center gap-2">
@@ -1145,17 +1145,17 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
 
         {/* Dev Mode — Live Preview Panel */}
         {devMode && !isMobile && (
-          <div className="w-[50%] border-l border-white/[0.06] flex flex-col bg-[hsl(220,12%,5%)] shrink-0">
-            <div className="px-4 py-2.5 border-b border-white/[0.06] flex items-center justify-between">
+          <div className="flex-1 border-l border-white/[0.06] flex flex-col bg-[hsl(220,12%,4%)]">
+            <div className="px-4 py-2 border-b border-white/[0.06] flex items-center justify-between shrink-0">
               <div className="flex items-center gap-2">
-                <Code2 className="w-3.5 h-3.5 text-violet-400/70" />
+                <div className="w-2 h-2 rounded-full bg-violet-400 animate-pulse" />
                 <span className="text-xs font-medium text-white/60">Live Preview</span>
               </div>
               <div className="flex items-center gap-2">
                 <input
                   value={previewUrl}
                   onChange={e => setPreviewUrl(e.target.value)}
-                  className="text-[10px] bg-white/[0.06] text-white/50 rounded-md px-2 py-1 w-52 border border-white/[0.06] focus:outline-none focus:border-violet-500/40"
+                  className="text-[11px] bg-white/[0.06] text-white/60 rounded-lg px-3 py-1.5 w-72 border border-white/[0.06] focus:outline-none focus:border-violet-500/40 focus:text-white/80"
                   placeholder="http://localhost:8080"
                 />
                 <button
@@ -1163,9 +1163,17 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
                     const iframe = document.getElementById('dev-preview') as HTMLIFrameElement;
                     if (iframe) { iframe.src = iframe.src; }
                   }}
-                  className="text-[10px] px-2 py-1 rounded-md bg-violet-500/10 text-violet-400 hover:bg-violet-500/20 transition-colors"
+                  title="Osvježi"
+                  className="w-7 h-7 rounded-lg flex items-center justify-center bg-violet-500/10 text-violet-400 hover:bg-violet-500/20 transition-colors text-sm"
                 >
                   ↻
+                </button>
+                <button
+                  onClick={() => window.open(previewUrl, '_blank')}
+                  title="Otvori u novom tabu"
+                  className="w-7 h-7 rounded-lg flex items-center justify-center bg-white/[0.06] text-white/40 hover:text-white/70 hover:bg-white/[0.1] transition-colors text-xs"
+                >
+                  ↗
                 </button>
               </div>
             </div>
