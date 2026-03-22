@@ -1144,7 +1144,6 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
             </div>
           </>
         )}
-      </div>
 
         {/* Dev Mode — Live Preview Panel */}
         {devMode && !isMobile && (
@@ -1189,6 +1188,7 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
           </div>
         )}
 
+      </div>
     </div>
   );
 };
