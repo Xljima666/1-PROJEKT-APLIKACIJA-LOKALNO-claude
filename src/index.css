@@ -1,0 +1,264 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* GeoTerrainInfo - Zelenkasti geodetski design system */
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 150 10% 12%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 150 10% 12%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 150 10% 12%;
+
+    /* Green Primary - matching GEO TERRA logo */
+    --primary: 145 63% 42%;
+    --primary-foreground: 0 0% 100%;
+
+    /* Dark Green Secondary */
+    --secondary: 150 30% 25%;
+    --secondary-foreground: 0 0% 100%;
+
+    /* Light muted for backgrounds */
+    --muted: 140 14% 96%;
+    --muted-foreground: 150 9% 46%;
+
+    /* Teal Accent */
+    --accent: 168 50% 38%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    /* Success green */
+    --success: 142 76% 36%;
+    --success-foreground: 0 0% 100%;
+
+    /* Warning orange */
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 100%;
+
+    --border: 140 13% 91%;
+    --input: 140 13% 91%;
+    --ring: 145 63% 42%;
+
+    --radius: 0.75rem;
+
+    /* Sidebar */
+    --sidebar-background: 140 10% 98%;
+    --sidebar-foreground: 150 5% 26%;
+    --sidebar-primary: 145 63% 42%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 150 30% 25%;
+    --sidebar-accent-foreground: 0 0% 100%;
+    --sidebar-border: 140 13% 91%;
+    --sidebar-ring: 145 63% 42%;
+
+    /* Gradients */
+    --gradient-primary: linear-gradient(135deg, hsl(145 63% 42%) 0%, hsl(150 30% 25%) 100%);
+    --gradient-accent: linear-gradient(135deg, hsl(168 50% 38%) 0%, hsl(145 63% 42%) 100%);
+    --gradient-warm: linear-gradient(135deg, hsl(38 92% 50%) 0%, hsl(0 84% 60%) 100%);
+    --gradient-hero: linear-gradient(135deg, hsl(145 63% 42%) 0%, hsl(150 30% 25%) 50%, hsl(168 50% 38%) 100%);
+
+    /* Kanban label colors */
+    --label-red: 0 84% 60%;
+    --label-orange: 38 92% 50%;
+    --label-yellow: 48 96% 53%;
+    --label-green: 142 76% 36%;
+    --label-teal: 168 84% 39%;
+    --label-blue: 217 91% 60%;
+    --label-purple: 262 83% 58%;
+    --label-pink: 330 81% 60%;
+  }
+
+  .dark {
+    --background: 150 12% 10%;
+    --foreground: 140 13% 95%;
+
+    --card: 150 12% 13%;
+    --card-foreground: 140 13% 95%;
+
+    --popover: 150 12% 13%;
+    --popover-foreground: 140 13% 95%;
+
+    --primary: 145 63% 42%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 150 30% 25%;
+    --secondary-foreground: 0 0% 100%;
+
+    --muted: 150 15% 18%;
+    --muted-foreground: 140 10% 60%;
+
+    --accent: 168 50% 38%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 142 76% 36%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 100%;
+
+    --border: 150 15% 20%;
+    --input: 150 15% 20%;
+    --ring: 145 63% 42%;
+
+    --sidebar-background: 150 12% 8%;
+    --sidebar-foreground: 140 13% 90%;
+    --sidebar-primary: 145 63% 42%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 150 30% 25%;
+    --sidebar-accent-foreground: 0 0% 100%;
+    --sidebar-border: 150 15% 18%;
+    --sidebar-ring: 145 63% 42%;
+  }
+}
+
+  /* Dashboard blue theme override */
+  .dark.dashboard-theme {
+    --background: 220 30% 12%;
+    --foreground: 210 20% 96%;
+
+    --card: 220 27% 14%;
+    --card-foreground: 210 20% 96%;
+
+    --popover: 220 27% 14%;
+    --popover-foreground: 210 20% 96%;
+
+    --primary: 217 91% 60%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 221 39% 28%;
+    --secondary-foreground: 0 0% 100%;
+
+    --muted: 220 24% 18%;
+    --muted-foreground: 215 14% 72%;
+
+    --accent: 199 89% 48%;
+    --accent-foreground: 0 0% 100%;
+
+    --border: 220 20% 24%;
+    --input: 220 20% 24%;
+    --ring: 217 91% 60%;
+
+    --sidebar-background: 220 30% 10%;
+    --sidebar-foreground: 210 20% 92%;
+    --sidebar-primary: 217 91% 60%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 221 39% 28%;
+    --sidebar-accent-foreground: 0 0% 100%;
+    --sidebar-border: 220 20% 20%;
+    --sidebar-ring: 217 91% 60%;
+
+    --gradient-primary: linear-gradient(135deg, hsl(217 91% 60%) 0%, hsl(222 47% 31%) 100%);
+    --gradient-accent: linear-gradient(135deg, hsl(199 89% 48%) 0%, hsl(217 91% 60%) 100%);
+  }
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+  }
+}
+
+@layer utilities {
+  .gradient-primary {
+    background: var(--gradient-primary);
+  }
+
+  .gradient-accent {
+    background: var(--gradient-accent);
+  }
+
+  .gradient-warm {
+    background: var(--gradient-warm);
+  }
+
+  .gradient-hero {
+    background: var(--gradient-hero);
+  }
+
+  .text-gradient {
+    background: var(--gradient-primary);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .glass {
+    backdrop-filter: blur(16px);
+    background: rgba(255, 255, 255, 0.8);
+  }
+
+  .glass-dark {
+    backdrop-filter: blur(16px);
+    background: rgba(0, 0, 0, 0.4);
+  }
+}
+
+@layer utilities {
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* Subtle dark scrollbar for kanban columns */
+.scrollbar-subtle {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(220 15% 25% / 0.5) transparent;
+}
+.scrollbar-subtle::-webkit-scrollbar {
+  width: 4px;
+}
+.scrollbar-subtle::-webkit-scrollbar-track {
+  background: transparent;
+}
+.scrollbar-subtle::-webkit-scrollbar-thumb {
+  background: hsl(220 15% 30% / 0.4);
+  border-radius: 4px;
+}
+.scrollbar-subtle::-webkit-scrollbar-thumb:hover {
+  background: hsl(220 15% 40% / 0.6);
+}
+
+/* Hide scrollbar globally but keep scroll */
+html, body {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+html::-webkit-scrollbar,
+body::-webkit-scrollbar {
+  display: none;
+}
+
+/* Hide caret everywhere except actual input fields */
+.dashboard-theme {
+  caret-color: transparent;
+}
+.dashboard-theme input,
+.dashboard-theme textarea,
+.dashboard-theme [contenteditable="true"] {
+  caret-color: auto;
+}
+
+/* Stellan emerald heading hover effects */
+.prose h1, .prose h2, .prose h3 {
+  transition: color 0.2s ease, background-color 0.2s ease, border-color 0.2s ease;
+}
+.prose h1:hover { color: #34d399 !important; background-color: rgba(16, 185, 129, 0.12) !important; border-color: #34d399 !important; }
+.prose h2:hover { color: #6ee7b7 !important; background-color: rgba(16, 185, 129, 0.1) !important; border-color: #6ee7b7 !important; }
+.prose h3:hover { color: #a7f3d0 !important; background-color: rgba(16, 185, 129, 0.08) !important; border-color: #a7f3d0 !important; }

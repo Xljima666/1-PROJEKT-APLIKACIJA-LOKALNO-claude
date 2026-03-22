@@ -1,0 +1,1 @@
+ALTER TABLE public.company_settings ADD COLUMN IF NOT EXISTS ai_budget_usd numeric DEFAULT 10, ADD COLUMN IF NOT EXISTS ai_credits_remaining numeric DEFAULT 10;

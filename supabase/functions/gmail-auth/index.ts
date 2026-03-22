@@ -1,0 +1,152 @@
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+};
+
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") {
+    return new Response(null, { headers: corsHeaders });
+  }
+
+  const GOOGLE_CLIENT_ID = Deno.env.get("GOOGLE_CLIENT_ID");
+  const GOOGLE_CLIENT_SECRET = Deno.env.get("GOOGLE_CLIENT_SECRET");
+  const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+  const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
+
+  if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) {
+    return new Response(JSON.stringify({ error: "Google OAuth not configured" }), {
+      status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
+  const url = new URL(req.url);
+  const action = url.searchParams.get("action");
+
+  const allowedAppOrigins = [
+    "https://geoterrainfo.com",
+    "https://geoterrainfo.lovable.app",
+  ];
+
+  const parseState = (rawState: string | null): { userId: string; appOrigin: string } | null => {
+    if (!rawState) return null;
+
+    // Backward compatibility: old format had plain userId in state
+    if (/^[0-9a-fA-F-]{36}$/.test(rawState)) {
+      return { userId: rawState, appOrigin: "https://geoterrainfo.com" };
+    }
+
+    try {
+      const decoded = atob(rawState);
+      const parsed = JSON.parse(decoded) as { userId?: string; appOrigin?: string };
+
+      if (!parsed.userId) return null;
+
+      const appOrigin = allowedAppOrigins.includes(parsed.appOrigin || "")
+        ? (parsed.appOrigin as string)
+        : "https://geoterrainfo.com";
+
+      return { userId: parsed.userId, appOrigin };
+    } catch {
+      return null;
+    }
+  };
+
+  // Step 1: Generate auth URL
+  if (action === "auth-url") {
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: corsHeaders });
+    }
+
+    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      global: { headers: { Authorization: authHeader } },
+    });
+    const { data: { user }, error } = await supabase.auth.getUser();
+    if (error || !user) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: corsHeaders });
+    }
+
+    // Use the edge function URL as redirect
+    const redirectUri = `${SUPABASE_URL}/functions/v1/gmail-auth?action=callback`;
+
+    const requestOrigin = req.headers.get("origin") || "";
+    const appOrigin = allowedAppOrigins.includes(requestOrigin)
+      ? requestOrigin
+      : "https://geoterrainfo.com";
+
+    const state = btoa(JSON.stringify({ userId: user.id, appOrigin }));
+
+    const params = new URLSearchParams({
+      client_id: GOOGLE_CLIENT_ID,
+      redirect_uri: redirectUri,
+      response_type: "code",
+      scope: "https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/drive.readonly",
+      access_type: "offline",
+      prompt: "consent",
+      state,
+      login_hint: "geoterra@geoterrainfo.net",
+    });
+
+    return new Response(JSON.stringify({ url: `https://accounts.google.com/o/oauth2/v2/auth?${params}` }), {
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
+  // Step 2: OAuth callback - exchange code for tokens
+  if (action === "callback" || (url.searchParams.get("code") && url.searchParams.get("state"))) {
+    const code = url.searchParams.get("code");
+    const stateData = parseState(url.searchParams.get("state"));
+
+    if (!code || !stateData?.userId) {
+      return new Response("Missing code or state", { status: 400 });
+    }
+
+    const { userId, appOrigin } = stateData;
+
+    const redirectUri = `${SUPABASE_URL}/functions/v1/gmail-auth?action=callback`;
+
+    const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        code,
+        client_id: GOOGLE_CLIENT_ID,
+        client_secret: GOOGLE_CLIENT_SECRET,
+        redirect_uri: redirectUri,
+        grant_type: "authorization_code",
+      }),
+    });
+
+    const tokens = await tokenRes.json();
+    console.log("Token exchange response:", JSON.stringify(tokens));
+    if (!tokenRes.ok) {
+      console.error("Token exchange FAILED:", JSON.stringify(tokens));
+      return new Response(`Token exchange failed: ${JSON.stringify(tokens)}`, { status: 400 });
+    }
+    console.log("Token exchange SUCCESS, saving tokens for user:", userId);
+
+    const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const supabaseAdmin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
+
+    const expiresAt = new Date(Date.now() + tokens.expires_in * 1000).toISOString();
+
+    await supabaseAdmin.from("google_tokens").upsert({
+      user_id: userId,
+      access_token: tokens.access_token,
+      refresh_token: tokens.refresh_token,
+      expires_at: expiresAt,
+    }, { onConflict: "user_id" });
+
+    // Redirect back to the same app origin where OAuth was initiated
+    return new Response(null, {
+      status: 302,
+      headers: { Location: `${appOrigin}/settings?google=connected&_cb=${Date.now()}` },
+    });
+  }
+
+  return new Response(JSON.stringify({ error: "Unknown action" }), {
+    status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+});

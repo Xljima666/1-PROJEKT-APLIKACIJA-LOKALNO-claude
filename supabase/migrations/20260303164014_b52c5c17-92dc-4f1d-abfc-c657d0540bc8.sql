@@ -1,0 +1,1 @@
+ALTER TABLE public.workspace_items ADD COLUMN is_private boolean NOT NULL DEFAULT false;
