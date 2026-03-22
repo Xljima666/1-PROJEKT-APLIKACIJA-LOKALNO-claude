@@ -71,6 +71,45 @@ const mergeTranscriptWithOverlap = (acc: string, segment: string) => {
   return `${left} ${right}`.trim();
 };
 
+// Agent status badge - checks agent health
+const AgentStatusBadge = () => {
+  const [agentOk, setAgentOk] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    const check = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) return;
+        const res = await fetch(
+          `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/agent-health`,
+          { headers: { Authorization: `Bearer ${session.access_token}`, apikey: import.meta.env.VITE_SUPABASE_ANON_KEY } }
+        );
+        setAgentOk(res.ok);
+      } catch {
+        setAgentOk(false);
+      }
+    };
+    check();
+  }, []);
+
+  return (
+    <div className={cn(
+      "flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-medium border",
+      agentOk === true
+        ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+        : agentOk === false
+        ? "bg-red-500/10 text-red-400 border-red-500/20"
+        : "bg-white/[0.04] text-white/30 border-white/[0.06]"
+    )}>
+      <div className={cn(
+        "w-1.5 h-1.5 rounded-full",
+        agentOk === true ? "bg-emerald-400 animate-pulse" : agentOk === false ? "bg-red-400" : "bg-white/20"
+      )} />
+      Agent {agentOk === true ? "online" : agentOk === false ? "offline" : "..."}
+    </div>
+  );
+};
+
 const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
   const { user } = useAuth();
   const isMobile = useIsMobile();
@@ -1148,6 +1187,7 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
         {/* Dev Mode — Live Preview Panel */}
         {devMode && !isMobile && (
           <div className="flex-1 border-l border-white/[0.06] flex flex-col bg-[hsl(220,12%,4%)]">
+            {/* Top bar - URL + controls */}
             <div className="px-4 py-2 border-b border-white/[0.06] flex items-center justify-between shrink-0">
               <div className="flex items-center gap-2">
                 <div className="w-2 h-2 rounded-full bg-violet-400 animate-pulse" />
@@ -1179,6 +1219,41 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
                 </button>
               </div>
             </div>
+
+            {/* Status bar - tools & agent */}
+            <div className="px-4 py-2 border-b border-white/[0.04] flex items-center gap-2 flex-wrap shrink-0 bg-white/[0.01]">
+              {/* Agent status */}
+              <AgentStatusBadge />
+              {/* Brain */}
+              <div className={cn(
+                "flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-medium border",
+                brainConnected
+                  ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+                  : "bg-white/[0.04] text-white/30 border-white/[0.06]"
+              )}>
+                <div className={cn("w-1.5 h-1.5 rounded-full", brainConnected ? "bg-emerald-400" : "bg-white/20")} />
+                Mozak
+              </div>
+              {/* Static tools */}
+              {[
+                { label: "GPT-4o", color: "emerald" },
+                { label: "Internet", color: "blue" },
+                { label: "SDGE", color: "amber" },
+                { label: "Gmail", color: "red" },
+                { label: "Drive", color: "blue" },
+                { label: "OIB", color: "purple" },
+                { label: "Trello", color: "sky" },
+              ].map(tool => (
+                <div key={tool.label} className={cn(
+                  "flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-medium border",
+                  `bg-${tool.color}-500/10 text-${tool.color}-400 border-${tool.color}-500/20`
+                )}>
+                  <div className={`w-1.5 h-1.5 rounded-full bg-${tool.color}-400`} />
+                  {tool.label}
+                </div>
+              ))}
+            </div>
+
             <iframe
               id="dev-preview"
               src={previewUrl}
