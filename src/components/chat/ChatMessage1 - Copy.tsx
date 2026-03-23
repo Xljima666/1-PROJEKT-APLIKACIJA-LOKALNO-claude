@@ -100,6 +100,7 @@ const ChatMessage = memo(({ role, content, isLatest, codeBlocks, hasCode, onShow
                     const isBlock = match;
                     if (isBlock) {
                       const lang = match?.[1] || "code";
+                      // Samo java i code idu u panel, ostalo inline
                       const panelLanguages = ["java", "code"];
                       const blockIndex = codeBlocks.findIndex(
                         (cb) => cb.code.trim() === codeStr.trim()
@@ -115,6 +116,7 @@ const ChatMessage = memo(({ role, content, isLatest, codeBlocks, hasCode, onShow
                           </button>
                         );
                       }
+                      // Svi ostali kodovi — direktno inline
                       return (
                         <div className="relative group my-3" style={{maxWidth: "680px"}}>
                           <div className="flex items-center justify-between px-4 py-2 bg-[#161b22] border-b border-[#30363d] rounded-t-xl">
@@ -134,25 +136,21 @@ const ChatMessage = memo(({ role, content, isLatest, codeBlocks, hasCode, onShow
                     }
                     return <code className={className} {...props}>{children}</code>;
                   },
-
-                  // === NOVO: zeleni header bar kao na slici ===
                   h1({ children }) {
                     return (
                       <h1 style={{
-                        backgroundColor: "#052e16",
-                        borderLeft: "5px solid #00ff95",
-                        padding: "14px 20px",
-                        borderRadius: "12px",
-                        marginBottom: "18px",
-                        marginTop: "8px",
+                        background: "linear-gradient(90deg,#00ff9525,transparent)",
+                        borderLeft: "4px solid #00ff95",
+                        padding: "8px 16px",
+                        borderRadius: "0 10px 10px 0",
+                        marginBottom: "14px",
+                        marginTop: "18px",
                         fontSize: "19px",
-                        fontWeight: 600,
+                        fontWeight: 500,
                         color: "#00ff95",
-                        width: "100%",
                       }}>{children}</h1>
                     );
                   },
-
                   h2({ children }) {
                     return (
                       <h2 style={{
@@ -204,20 +202,21 @@ const ChatMessage = memo(({ role, content, isLatest, codeBlocks, hasCode, onShow
                       }}>{children}</h4>
                     );
                   },
-
-                  // === NOVO: green inline highlight umjesto plave pill ===
                   strong({ children }) {
                     return (
                       <strong style={{
-                        background: "#00ff9520",
-                        color: "#00ff95",
-                        padding: "2px 7px",
-                        borderRadius: "6px",
-                        fontWeight: 600,
+                        display: "inline-flex",
+                        alignItems: "center",
+                        background: "#0066ff20",
+                        border: "1px solid #0066ff70",
+                        borderRadius: "20px",
+                        padding: "3px 14px",
+                        fontSize: "14px",
+                        fontWeight: 500,
+                        color: "#3399ff",
                       }}>{children}</strong>
                     );
                   },
-
                   p({ children }) {
                     return <p style={{margin:"10px 0", lineHeight:"1.85", fontSize:"15px", color:"rgba(255,255,255,0.85)"}}>{children}</p>;
                   },
