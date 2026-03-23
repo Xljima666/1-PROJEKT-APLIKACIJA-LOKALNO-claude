@@ -205,11 +205,15 @@ const ChatMessage = memo(({ role, content, isLatest, codeBlocks, hasCode, onShow
                   strong({ children }) {
                     return (
                       <strong style={{
-                        background: "#00ff9518",
-                        color: "#00ff95",
-                        padding: "1px 6px",
-                        borderRadius: "4px",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        background: "#0066ff20",
+                        border: "1px solid #0066ff70",
+                        borderRadius: "20px",
+                        padding: "3px 14px",
+                        fontSize: "14px",
                         fontWeight: 500,
+                        color: "#3399ff",
                       }}>{children}</strong>
                     );
                   },
@@ -217,13 +221,13 @@ const ChatMessage = memo(({ role, content, isLatest, codeBlocks, hasCode, onShow
                     return <p style={{margin:"10px 0", lineHeight:"1.85", fontSize:"15px", color:"rgba(255,255,255,0.85)"}}>{children}</p>;
                   },
                   ul({ children }) {
-                    return <ul style={{margin:"10px 0", paddingLeft:"20px", display:"flex", flexDirection:"column", gap:"6px"}}>{children}</ul>;
+                    return <ul style={{margin:"10px 0", paddingLeft:"0", display:"flex", flexDirection:"column", gap:"10px", listStyle:"none"}}>{children}</ul>;
                   },
                   ol({ children }) {
-                    return <ol style={{margin:"10px 0", paddingLeft:"20px", display:"flex", flexDirection:"column", gap:"6px"}}>{children}</ol>;
+                    return <ol style={{margin:"10px 0", paddingLeft:"0", display:"flex", flexDirection:"column", gap:"10px", listStyle:"none"}}>{children}</ol>;
                   },
                   li({ children }) {
-                    return <li style={{fontSize:"15px", lineHeight:"1.8", color:"rgba(255,255,255,0.80)"}}>{children}</li>;
+                    return <li style={{fontSize:"15px", lineHeight:"1.8", color:"rgba(255,255,255,0.80)", display:"flex", flexDirection:"column", gap:"4px"}}>{children}</li>;
                   },
                   blockquote({ children }) {
                     return (
