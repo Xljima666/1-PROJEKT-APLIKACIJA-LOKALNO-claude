@@ -2,7 +2,7 @@ import { createRoot } from "react-dom/client";
 import App from "./App.tsx";
 import "./index.css";
 
-const APP_BUILD_VERSION = "2026032305"; // INCREMENT ON EACH DEPLOY
+const APP_BUILD_VERSION = "2026032306"; // INCREMENT ON EACH DEPLOY
 const VERSION_KEY = "__app_build_version__";
 const PREVIEW_CACHE_BUST_GUARD_KEY = "__preview_cache_bust_done__";
 const previewHost = window.location.hostname;

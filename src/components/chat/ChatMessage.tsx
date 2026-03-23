@@ -82,7 +82,6 @@ const ChatMessage = memo(({ role, content, isLatest, codeBlocks, hasCode, onShow
         "flex flex-col gap-1.5",
         role === "user" ? "items-end max-w-[80%]" : "items-start flex-1 min-w-0"
       )}>
-        {/* Message bubble */}
         <div className={cn(
           "text-[15px] leading-[1.75]",
           role === "user"
@@ -135,7 +134,6 @@ const ChatMessage = memo(({ role, content, isLatest, codeBlocks, hasCode, onShow
                     return <code className={className} {...props}>{children}</code>;
                   },
 
-                  // === NOVO: zeleni header bar kao na slici ===
                   h1({ children }) {
                     return (
                       <h1 style={{
@@ -161,11 +159,11 @@ const ChatMessage = memo(({ role, content, isLatest, codeBlocks, hasCode, onShow
                         background: "#0066ff20",
                         border: "1px solid #0066ff70",
                         borderRadius: "20px",
-                        padding: "4px 16px",
-                        marginBottom: "10px",
-                        marginTop: "14px",
+                        padding: "6px 18px",
+                        marginBottom: "12px",
+                        marginTop: "16px",
                         fontSize: "16px",
-                        fontWeight: 500,
+                        fontWeight: 600,
                         color: "#3399ff",
                       }}>{children}</h2>
                     );
@@ -178,7 +176,7 @@ const ChatMessage = memo(({ role, content, isLatest, codeBlocks, hasCode, onShow
                         background: "#0066ff14",
                         border: "1px solid #0066ff50",
                         borderRadius: "20px",
-                        padding: "3px 14px",
+                        padding: "4px 16px",
                         marginBottom: "8px",
                         marginTop: "12px",
                         fontSize: "14px",
@@ -195,7 +193,7 @@ const ChatMessage = memo(({ role, content, isLatest, codeBlocks, hasCode, onShow
                         background: "#0066ff10",
                         border: "1px solid #0066ff40",
                         borderRadius: "20px",
-                        padding: "2px 12px",
+                        padding: "3px 14px",
                         marginBottom: "6px",
                         marginTop: "10px",
                         fontSize: "13px",
@@ -205,22 +203,33 @@ const ChatMessage = memo(({ role, content, isLatest, codeBlocks, hasCode, onShow
                     );
                   },
 
-                  // === NOVO: green inline highlight umjesto plave pill ===
                   strong({ children }) {
                     return (
                       <strong style={{
                         background: "#00ff9520",
                         color: "#00ff95",
-                        padding: "2px 7px",
+                        padding: "2px 8px",
                         borderRadius: "6px",
                         fontWeight: 600,
                       }}>{children}</strong>
                     );
                   },
 
+                  // === POPRAVLJENO: paragrafi više ne pucaju ===
                   p({ children }) {
-                    return <p style={{margin:"10px 0", lineHeight:"1.85", fontSize:"15px", color:"rgba(255,255,255,0.85)"}}>{children}</p>;
+                    return (
+                      <p style={{
+                        margin: "10px 0",
+                        lineHeight: "1.85",
+                        fontSize: "15px",
+                        color: "rgba(255,255,255,0.85)",
+                        whiteSpace: "pre-line"
+                      }}>
+                        {children}
+                      </p>
+                    );
                   },
+
                   ul({ children }) {
                     return <ul style={{margin:"10px 0", paddingLeft:"0", display:"flex", flexDirection:"column", gap:"10px", listStyle:"none"}}>{children}</ul>;
                   },
@@ -314,7 +323,6 @@ const ChatMessage = memo(({ role, content, isLatest, codeBlocks, hasCode, onShow
           )}
         </div>
 
-        {/* Action row - shown on hover */}
         <div className={cn(
           "flex items-center gap-1 transition-all duration-150",
           showActions ? "opacity-100" : "opacity-0 pointer-events-none"
@@ -326,9 +334,7 @@ const ChatMessage = memo(({ role, content, isLatest, codeBlocks, hasCode, onShow
                 onClick={() => onReaction(messageIndex, "up")}
                 className={cn(
                   "w-7 h-7 rounded-lg flex items-center justify-center transition-all",
-                  reaction === "up"
-                    ? "bg-emerald-500/20 text-emerald-400"
-                    : "bg-white/[0.06] text-white/30 hover:bg-emerald-500/10 hover:text-emerald-400"
+                  reaction === "up" ? "bg-emerald-500/20 text-emerald-400" : "bg-white/[0.06] text-white/30 hover:bg-emerald-500/10 hover:text-emerald-400"
                 )}
                 title="Korisno"
               >
@@ -338,9 +344,7 @@ const ChatMessage = memo(({ role, content, isLatest, codeBlocks, hasCode, onShow
                 onClick={() => onReaction(messageIndex, "down")}
                 className={cn(
                   "w-7 h-7 rounded-lg flex items-center justify-center transition-all",
-                  reaction === "down"
-                    ? "bg-red-500/20 text-red-400"
-                    : "bg-white/[0.06] text-white/30 hover:bg-red-500/10 hover:text-red-400"
+                  reaction === "down" ? "bg-red-500/20 text-red-400" : "bg-white/[0.06] text-white/30 hover:bg-red-500/10 hover:text-red-400"
                 )}
                 title="Nije korisno"
               >
