@@ -90,22 +90,7 @@ const ChatMessage = memo(({ role, content, isLatest, codeBlocks, hasCode, onShow
             : "text-white/90 w-full"
         )}>
           {role === "assistant" ? (
-            <div className="prose prose-base prose-invert max-w-none
-              prose-p:my-2.5 prose-p:leading-[1.85] prose-p:text-[15px] prose-p:text-white/85
-              prose-headings:font-medium prose-headings:tracking-tight prose-headings:text-inherit prose-headings:bg-none
-              prose-h1:text-inherit prose-h2:text-inherit prose-h3:text-inherit prose-h4:text-inherit
-              prose-ul:my-3 prose-ul:space-y-2 prose-ol:my-3 prose-ol:space-y-2
-              prose-li:text-[15px] prose-li:leading-[1.8] prose-li:text-white/80
-              prose-code:text-[#00ff95]/90 prose-code:bg-white/[0.08] prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-md prose-code:text-[13px] prose-code:font-medium
-              prose-pre:bg-white/[0.04] prose-pre:border prose-pre:border-white/[0.06] prose-pre:rounded-xl
-              prose-a:text-[#3399ff] prose-a:underline prose-a:underline-offset-2
-              prose-hr:border-white/[0.08]
-              prose-table:border-collapse
-              prose-th:border prose-th:border-white/[0.1] prose-th:bg-white/[0.06] prose-th:px-3 prose-th:py-2 prose-th:text-left prose-th:text-[13px] prose-th:font-semibold prose-th:text-white/80
-              prose-td:border prose-td:border-white/[0.08] prose-td:px-3 prose-td:py-2 prose-td:text-[13px] prose-td:text-white/70
-              [&_h1]:text-[#00ff95] [&_h1]:bg-none [&_h1]:border-none [&_h1]:p-0 [&_h1]:m-0
-              [&_h2]:text-[#3399ff] [&_h2]:bg-none [&_h2]:border-none [&_h2]:p-0 [&_h2]:m-0
-              [&_h3]:text-[#3399ff] [&_h3]:bg-none [&_h3]:border-none [&_h3]:p-0 [&_h3]:m-0">
+            <div style={{fontSize:"15px", lineHeight:"1.85", color:"rgba(255,255,255,0.85)"}}>
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
                 components={{
@@ -162,8 +147,7 @@ const ChatMessage = memo(({ role, content, isLatest, codeBlocks, hasCode, onShow
                         marginTop: "18px",
                         fontSize: "19px",
                         fontWeight: 500,
-                        color: "#00ff95 !important" as any,
-                        display: "block",
+                        color: "#00ff95",
                       }}>{children}</h1>
                     );
                   },
@@ -229,6 +213,18 @@ const ChatMessage = memo(({ role, content, isLatest, codeBlocks, hasCode, onShow
                       }}>{children}</strong>
                     );
                   },
+                  p({ children }) {
+                    return <p style={{margin:"10px 0", lineHeight:"1.85", fontSize:"15px", color:"rgba(255,255,255,0.85)"}}>{children}</p>;
+                  },
+                  ul({ children }) {
+                    return <ul style={{margin:"10px 0", paddingLeft:"20px", display:"flex", flexDirection:"column", gap:"6px"}}>{children}</ul>;
+                  },
+                  ol({ children }) {
+                    return <ol style={{margin:"10px 0", paddingLeft:"20px", display:"flex", flexDirection:"column", gap:"6px"}}>{children}</ol>;
+                  },
+                  li({ children }) {
+                    return <li style={{fontSize:"15px", lineHeight:"1.8", color:"rgba(255,255,255,0.80)"}}>{children}</li>;
+                  },
                   blockquote({ children }) {
                     return (
                       <div style={{
@@ -253,7 +249,7 @@ const ChatMessage = memo(({ role, content, isLatest, codeBlocks, hasCode, onShow
                         <button
                           type="button"
                           onClick={() => onScrollToCode(idx)}
-                          className="inline-flex items-center gap-1 text-emerald-400 hover:text-emerald-300 underline underline-offset-2 font-medium transition-colors cursor-pointer"
+                          style={{color:"#00ff95", textDecoration:"underline", fontWeight:500, cursor:"pointer", display:"inline-flex", alignItems:"center", gap:"4px"}}
                         >
                           <Code2 className="w-3 h-3" />
                           {children}
@@ -266,7 +262,7 @@ const ChatMessage = memo(({ role, content, isLatest, codeBlocks, hasCode, onShow
                         href={safeHref}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="inline text-primary hover:text-primary/80 underline underline-offset-2 transition-colors cursor-pointer"
+                        style={{color:"#3399ff", textDecoration:"underline", textUnderlineOffset:"2px", cursor:"pointer"}}
                         onClick={(e) => {
                           e.preventDefault();
                           const w = window.top || window;
@@ -279,10 +275,16 @@ const ChatMessage = memo(({ role, content, isLatest, codeBlocks, hasCode, onShow
                   },
                   table({ children }) {
                     return (
-                      <div className="my-4 overflow-x-auto rounded-xl border border-white/[0.08]">
-                        <table className="w-full">{children}</table>
+                      <div style={{margin:"16px 0", overflowX:"auto", borderRadius:"12px", border:"1px solid rgba(255,255,255,0.08)"}}>
+                        <table style={{width:"100%", borderCollapse:"collapse"}}>{children}</table>
                       </div>
                     );
+                  },
+                  th({ children }) {
+                    return <th style={{border:"1px solid rgba(255,255,255,0.1)", background:"rgba(255,255,255,0.06)", padding:"8px 12px", textAlign:"left", fontSize:"13px", fontWeight:600, color:"rgba(255,255,255,0.8)"}}>{children}</th>;
+                  },
+                  td({ children }) {
+                    return <td style={{border:"1px solid rgba(255,255,255,0.08)", padding:"8px 12px", fontSize:"13px", color:"rgba(255,255,255,0.7)"}}>{children}</td>;
                   },
                   img({ src, alt }) {
                     return (
