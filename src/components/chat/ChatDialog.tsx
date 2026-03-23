@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
-import { X, Send, Sparkles, Plus, MessageSquare, Trash2, Code2, PanelLeftClose, PanelLeftOpen, PanelRightClose, Mic, Square, ClipboardList, Brain, Upload, Camera, Image, File, Paperclip, HardDrive, ArrowDown } from "lucide-react";
+import { X, Send, Sparkles, Plus, MessageSquare, Trash2, Code2, PanelLeftClose, PanelLeftOpen, PanelRightClose, Mic, Square, ClipboardList, Brain, Upload, Camera, Image, File, Paperclip, HardDrive, ArrowDown, Search, Download } from "lucide-react";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -136,6 +136,8 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
   const [isDeploying, setIsDeploying] = useState(false);
   const [deployStatus, setDeployStatus] = useState<"idle" | "success" | "error">("idle");
   const [isStartingAgent, setIsStartingAgent] = useState(false);
+  const [reactions, setReactions] = useState<Record<number, "up" | "down">>({});
+  const [sidebarSearch, setSidebarSearch] = useState("");
   const abortControllerRef = useRef<AbortController | null>(null);
 
   const voiceBaseRef = useRef("");
@@ -720,9 +722,31 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
   };
 
   const handleStartAgent = () => {
-    // Otvori instrukcije u novom prozoru ili kopiraj poruku u chat
     setInput("Pokreni agent server naredbom: cd 'D:\\1 PROJEKT APLIKACIJA LOKALNO\\1 PROJEKT APLIKACIJA LOKALNO claude\\docs\\agent-server' i pokreni start_agent.bat");
     setTimeout(() => inputRef.current?.focus(), 100);
+  };
+
+  const handleReaction = (index: number, reaction: "up" | "down") => {
+    setReactions(prev => ({
+      ...prev,
+      [index]: prev[index] === reaction ? undefined as any : reaction,
+    }));
+  };
+
+  const handleExport = () => {
+    if (!messages.length) return;
+    const lines = messages.map(m => {
+      const role = m.role === "user" ? "👤 Vi" : "🤖 Stellan";
+      return `${role}:\n${m.content}\n`;
+    });
+    const text = `# Razgovor sa Stellanom\n${new Date().toLocaleString("hr-HR")}\n\n---\n\n${lines.join("\n---\n\n")}`;
+    const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `stellan-razgovor-${Date.now()}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   if (!open) return null;
@@ -756,8 +780,20 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
                 <PanelLeftClose className="w-3.5 h-3.5" />
               </button>
             </div>
+            {/* Search box */}
+            <div className="px-2 pb-2">
+              <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white/[0.04] border border-white/[0.06] focus-within:border-primary/30">
+                <Search className="w-3 h-3 text-white/30 shrink-0" />
+                <input
+                  value={sidebarSearch}
+                  onChange={e => setSidebarSearch(e.target.value)}
+                  placeholder="Traži razgovore..."
+                  className="flex-1 bg-transparent text-[11px] text-white/60 placeholder-white/25 focus:outline-none"
+                />
+              </div>
+            </div>
             <div className="flex-1 overflow-y-auto scrollbar-hide">
-              {conversations.map((conv) => (
+              {conversations.filter(c => !sidebarSearch || c.title.toLowerCase().includes(sidebarSearch.toLowerCase())).map((conv) => (
                 <div
                   key={conv.id}
                   onClick={() => selectConversation(conv)}
@@ -838,6 +874,16 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
                 <Code2 className="w-3 h-3" />
                 Dev
               </button>
+              {hasMessages && (
+                <button
+                  onClick={handleExport}
+                  title="Exportaj razgovor"
+                  className="h-7 px-2.5 rounded-lg flex items-center gap-1.5 text-[10px] bg-white/[0.06] text-white/40 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors"
+                >
+                  <Download className="w-3 h-3" />
+                  Export
+                </button>
+              )}
               <button
                 onClick={onClose}
                 className="w-8 h-8 rounded-lg flex items-center justify-center text-white/30 hover:text-white hover:bg-white/[0.06] transition-colors"
@@ -864,13 +910,33 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
               </div>
             )}
             {!hasMessages ? (
-              <div className="flex flex-col items-center justify-center h-full px-6 gap-4">
-                <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center">
+              <div className="flex flex-col items-center justify-center h-full px-6 gap-6">
+                <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center shadow-xl shadow-primary/10">
                   <Sparkles className="w-8 h-8 text-primary/60" />
                 </div>
                 <div className="text-center space-y-1.5">
-                <p className="text-white/90 text-2xl font-semibold tracking-tight">Kako vam mogu pomoći?</p>
-                   <p className="text-white/35 text-base max-w-lg leading-relaxed">Pamtim razgovore, koristim znanje iz mozga na Google Driveu i pretražujem internet.</p>
+                  <p className="text-white/90 text-2xl font-semibold tracking-tight">Kako vam mogu pomoći?</p>
+                  <p className="text-white/35 text-base max-w-lg leading-relaxed">Pamtim razgovore, koristim znanje iz mozga na Google Driveu i pretražujem internet.</p>
+                </div>
+                {/* Suggested questions */}
+                <div className="grid grid-cols-2 gap-2 w-full max-w-lg">
+                  {[
+                    { icon: "🔍", text: "Pretraži SDGE portal", prompt: "Pretraži SDGE portal za najnovije zahtjeve" },
+                    { icon: "📁", text: "Pretraži Google Drive", prompt: "Pretraži firmeni Google Drive za dokumente" },
+                    { icon: "📧", text: "Pretraži Gmail", prompt: "Pretraži Gmail inbox za nepročitane poruke" },
+                    { icon: "📊", text: "Status projekata", prompt: "Pokaži mi status aktivnih projekata u GeoTerra aplikaciji" },
+                    { icon: "🧾", text: "Provjeri račune", prompt: "Pretraži Solo fakturiranje za posljednje račune" },
+                    { icon: "🔎", text: "Provjeri OIB", prompt: "Provjeri OIB za osobu ili tvrtku" },
+                  ].map((s) => (
+                    <button
+                      key={s.text}
+                      onClick={() => { setInput(s.prompt); setTimeout(() => inputRef.current?.focus(), 50); }}
+                      className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.06] hover:border-primary/20 text-left transition-all group"
+                    >
+                      <span className="text-base">{s.icon}</span>
+                      <span className="text-[12px] text-white/50 group-hover:text-white/70 transition-colors">{s.text}</span>
+                    </button>
+                  ))}
                 </div>
               </div>
             ) : (
@@ -885,6 +951,9 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
                     hasCode={hasCode}
                     onShowCodePanel={() => setShowCodePanel(true)}
                     onScrollToCode={scrollToCode}
+                    messageIndex={i}
+                    onReaction={handleReaction}
+                    reaction={reactions[i] ?? null}
                   />
                 ))}
                 {isLoading && messages[messages.length - 1]?.role === "user" && (
