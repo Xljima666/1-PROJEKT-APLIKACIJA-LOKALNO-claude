@@ -129,7 +129,7 @@ const ChatMessage = memo(({ role, content, isLatest, codeBlocks, hasCode, onShow
                       }
                       // Svi ostali kodovi — direktno inline
                       return (
-                        <div className="relative group my-4">
+                        <div className="relative group my-3" style={{maxWidth: "680px"}}>
                           <div className="flex items-center justify-between px-4 py-2 bg-[#161b22] border-b border-[#30363d] rounded-t-xl">
                             <span className="text-[11px] font-mono text-[#7d8590] uppercase tracking-wider">{lang}</span>
                             <CopyButton text={codeStr} />
@@ -137,7 +137,7 @@ const ChatMessage = memo(({ role, content, isLatest, codeBlocks, hasCode, onShow
                           <SyntaxHighlighter
                             language={match?.[1] || "text"}
                             style={oneDark}
-                            customStyle={{ margin: 0, borderTopLeftRadius: 0, borderTopRightRadius: 0, background: "#0d1117", fontSize: "13px", lineHeight: "1.7", borderRadius: "0 0 10px 10px" }}
+                            customStyle={{ margin: 0, borderTopLeftRadius: 0, borderTopRightRadius: 0, background: "#0d1117", fontSize: "13px", lineHeight: "1.7", borderRadius: "0 0 10px 10px", maxWidth: "100%" }}
                             wrapLongLines
                           >
                             {codeStr}
