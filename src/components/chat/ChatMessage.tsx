@@ -111,10 +111,12 @@ const ChatMessage = memo(({ role, content, isLatest, codeBlocks, hasCode, onShow
                     const isBlock = match;
                     if (isBlock) {
                       const lang = match?.[1] || "code";
+                      // Samo java i code idu u panel, ostalo inline
+                      const panelLanguages = ["java", "code"];
                       const blockIndex = codeBlocks.findIndex(
                         (cb) => cb.code.trim() === codeStr.trim()
                       );
-                      if (hasCode && blockIndex !== -1) {
+                      if (hasCode && blockIndex !== -1 && panelLanguages.includes(lang.toLowerCase())) {
                         return (
                           <button
                             onClick={() => handleCodeClick(blockIndex)}
@@ -125,16 +127,17 @@ const ChatMessage = memo(({ role, content, isLatest, codeBlocks, hasCode, onShow
                           </button>
                         );
                       }
+                      // Svi ostali kodovi — direktno inline
                       return (
                         <div className="relative group my-4">
-                          <div className="flex items-center justify-between px-4 py-2 bg-white/[0.06] border-b border-white/[0.06] rounded-t-xl">
-                            <span className="text-[10px] font-mono text-primary/60 uppercase tracking-wider">{lang}</span>
+                          <div className="flex items-center justify-between px-4 py-2 bg-[#161b22] border-b border-[#30363d] rounded-t-xl">
+                            <span className="text-[11px] font-mono text-[#7d8590] uppercase tracking-wider">{lang}</span>
                             <CopyButton text={codeStr} />
                           </div>
                           <SyntaxHighlighter
                             language={match?.[1] || "text"}
                             style={oneDark}
-                            customStyle={{ margin: 0, borderTopLeftRadius: 0, borderTopRightRadius: 0, background: "rgba(255,255,255,0.03)", fontSize: "13px", lineHeight: "1.7" }}
+                            customStyle={{ margin: 0, borderTopLeftRadius: 0, borderTopRightRadius: 0, background: "#0d1117", fontSize: "13px", lineHeight: "1.7", borderRadius: "0 0 10px 10px" }}
                             wrapLongLines
                           >
                             {codeStr}
