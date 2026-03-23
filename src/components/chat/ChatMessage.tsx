@@ -92,7 +92,8 @@ const ChatMessage = memo(({ role, content, isLatest, codeBlocks, hasCode, onShow
           {role === "assistant" ? (
             <div className="prose prose-base prose-invert max-w-none
               prose-p:my-2.5 prose-p:leading-[1.85] prose-p:text-[15px] prose-p:text-white/85
-              prose-headings:font-medium prose-headings:tracking-tight
+              prose-headings:font-medium prose-headings:tracking-tight prose-headings:text-inherit prose-headings:bg-none
+              prose-h1:text-inherit prose-h2:text-inherit prose-h3:text-inherit prose-h4:text-inherit
               prose-ul:my-3 prose-ul:space-y-2 prose-ol:my-3 prose-ol:space-y-2
               prose-li:text-[15px] prose-li:leading-[1.8] prose-li:text-white/80
               prose-code:text-[#00ff95]/90 prose-code:bg-white/[0.08] prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-md prose-code:text-[13px] prose-code:font-medium
@@ -101,7 +102,10 @@ const ChatMessage = memo(({ role, content, isLatest, codeBlocks, hasCode, onShow
               prose-hr:border-white/[0.08]
               prose-table:border-collapse
               prose-th:border prose-th:border-white/[0.1] prose-th:bg-white/[0.06] prose-th:px-3 prose-th:py-2 prose-th:text-left prose-th:text-[13px] prose-th:font-semibold prose-th:text-white/80
-              prose-td:border prose-td:border-white/[0.08] prose-td:px-3 prose-td:py-2 prose-td:text-[13px] prose-td:text-white/70">
+              prose-td:border prose-td:border-white/[0.08] prose-td:px-3 prose-td:py-2 prose-td:text-[13px] prose-td:text-white/70
+              [&_h1]:text-[#00ff95] [&_h1]:bg-none [&_h1]:border-none [&_h1]:p-0 [&_h1]:m-0
+              [&_h2]:text-[#3399ff] [&_h2]:bg-none [&_h2]:border-none [&_h2]:p-0 [&_h2]:m-0
+              [&_h3]:text-[#3399ff] [&_h3]:bg-none [&_h3]:border-none [&_h3]:p-0 [&_h3]:m-0">
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
                 components={{
@@ -158,7 +162,8 @@ const ChatMessage = memo(({ role, content, isLatest, codeBlocks, hasCode, onShow
                         marginTop: "18px",
                         fontSize: "19px",
                         fontWeight: 500,
-                        color: "#00ff95",
+                        color: "#00ff95 !important" as any,
+                        display: "block",
                       }}>{children}</h1>
                     );
                   },
