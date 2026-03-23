@@ -254,11 +254,3 @@ body::-webkit-scrollbar {
 .dashboard-theme [contenteditable="true"] {
   caret-color: auto;
 }
-
-/* Stellan emerald heading hover effects */
-.prose h1, .prose h2, .prose h3 {
-  transition: color 0.2s ease, background-color 0.2s ease, border-color 0.2s ease;
-}
-.prose h1:hover { color: #34d399 !important; background-color: rgba(16, 185, 129, 0.12) !important; border-color: #34d399 !important; }
-.prose h2:hover { color: #6ee7b7 !important; background-color: rgba(16, 185, 129, 0.1) !important; border-color: #6ee7b7 !important; }
-.prose h3:hover { color: #a7f3d0 !important; background-color: rgba(16, 185, 129, 0.08) !important; border-color: #a7f3d0 !important; }
