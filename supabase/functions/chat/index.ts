@@ -14,7 +14,7 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const BRAIN_FOLDER_NAME = "Stellan Brain";
+const BRAIN_FOLDER_NAME = "1 PROJEKT APLIKACIJA LOKALNO claude";
 const BRAIN_PRIORITY_FILES = ["memory.md", "upute.md", "projekti.md"];
 const BRAIN_MAX_TOTAL_CHARS = 30000;
 const BRAIN_FULL_LOAD_FILES = ["memory.md"];

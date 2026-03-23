@@ -92,18 +92,12 @@ const ChatMessage = memo(({ role, content, isLatest, codeBlocks, hasCode, onShow
           {role === "assistant" ? (
             <div className="prose prose-base prose-invert max-w-none
               prose-p:my-2.5 prose-p:leading-[1.85] prose-p:text-[15px] prose-p:text-white/85
-              prose-headings:font-semibold prose-headings:tracking-tight
-              prose-h1:text-2xl prose-h1:my-5 prose-h1:text-emerald-400
-              prose-h2:text-xl prose-h2:my-4 prose-h2:text-emerald-400
-              prose-h3:text-lg prose-h3:my-3 prose-h3:text-emerald-500
-              prose-h4:text-base prose-h4:my-2.5
+              prose-headings:font-medium prose-headings:tracking-tight
               prose-ul:my-3 prose-ul:space-y-2 prose-ol:my-3 prose-ol:space-y-2
               prose-li:text-[15px] prose-li:leading-[1.8] prose-li:text-white/80
-              prose-code:text-primary/90 prose-code:bg-white/[0.08] prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-md prose-code:text-[13px] prose-code:font-medium
+              prose-code:text-[#00ff95]/90 prose-code:bg-white/[0.08] prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-md prose-code:text-[13px] prose-code:font-medium
               prose-pre:bg-white/[0.04] prose-pre:border prose-pre:border-white/[0.06] prose-pre:rounded-xl
-              prose-a:text-primary prose-a:underline prose-a:underline-offset-2
-              prose-strong:text-white prose-strong:font-semibold
-              prose-blockquote:border-l-primary/40 prose-blockquote:text-white/60 prose-blockquote:bg-white/[0.02] prose-blockquote:py-1 prose-blockquote:rounded-r-lg
+              prose-a:text-[#3399ff] prose-a:underline prose-a:underline-offset-2
               prose-hr:border-white/[0.08]
               prose-table:border-collapse
               prose-th:border prose-th:border-white/[0.1] prose-th:bg-white/[0.06] prose-th:px-3 prose-th:py-2 prose-th:text-left prose-th:text-[13px] prose-th:font-semibold prose-th:text-white/80
@@ -151,16 +145,96 @@ const ChatMessage = memo(({ role, content, isLatest, codeBlocks, hasCode, onShow
                     return <code className={className} {...props}>{children}</code>;
                   },
                   h1({ children }) {
-                    return <h1 className="bg-gradient-to-r from-emerald-500/[0.12] to-transparent border-l-[3px] border-emerald-400 pl-4 pr-3 py-2.5 rounded-r-lg w-full">{children}</h1>;
+                    return (
+                      <h1 style={{
+                        background: "linear-gradient(90deg,#00ff9525,transparent)",
+                        borderLeft: "4px solid #00ff95",
+                        padding: "8px 16px",
+                        borderRadius: "0 10px 10px 0",
+                        marginBottom: "14px",
+                        marginTop: "18px",
+                        fontSize: "19px",
+                        fontWeight: 500,
+                        color: "#00ff95",
+                      }}>{children}</h1>
+                    );
                   },
                   h2({ children }) {
-                    return <h2 className="bg-gradient-to-r from-emerald-500/[0.08] to-transparent border-l-[3px] border-emerald-500 pl-4 pr-3 py-2 rounded-r-lg w-full">{children}</h2>;
+                    return (
+                      <h2 style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        background: "#0066ff20",
+                        border: "1px solid #0066ff70",
+                        borderRadius: "20px",
+                        padding: "4px 16px",
+                        marginBottom: "10px",
+                        marginTop: "14px",
+                        fontSize: "16px",
+                        fontWeight: 500,
+                        color: "#3399ff",
+                      }}>{children}</h2>
+                    );
                   },
                   h3({ children }) {
-                    return <h3 className="bg-gradient-to-r from-emerald-500/[0.05] to-transparent border-l-[2px] border-emerald-600 pl-3 pr-3 py-1.5 rounded-r-lg w-full">{children}</h3>;
+                    return (
+                      <h3 style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        background: "#0066ff14",
+                        border: "1px solid #0066ff50",
+                        borderRadius: "20px",
+                        padding: "3px 14px",
+                        marginBottom: "8px",
+                        marginTop: "12px",
+                        fontSize: "14px",
+                        fontWeight: 500,
+                        color: "#3399ff",
+                      }}>{children}</h3>
+                    );
+                  },
+                  h4({ children }) {
+                    return (
+                      <h4 style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        background: "#0066ff10",
+                        border: "1px solid #0066ff40",
+                        borderRadius: "20px",
+                        padding: "2px 12px",
+                        marginBottom: "6px",
+                        marginTop: "10px",
+                        fontSize: "13px",
+                        fontWeight: 500,
+                        color: "#3399ffcc",
+                      }}>{children}</h4>
+                    );
                   },
                   strong({ children }) {
-                    return <strong className="text-white font-semibold">{children}</strong>;
+                    return (
+                      <strong style={{
+                        background: "#00ff9518",
+                        color: "#00ff95",
+                        padding: "1px 6px",
+                        borderRadius: "4px",
+                        fontWeight: 500,
+                      }}>{children}</strong>
+                    );
+                  },
+                  blockquote({ children }) {
+                    return (
+                      <div style={{
+                        background: "#EF9F2710",
+                        border: "1px solid #EF9F2740",
+                        borderLeft: "4px solid #EF9F27",
+                        borderRadius: "10px",
+                        padding: "10px 16px",
+                        margin: "12px 0",
+                        fontSize: "13px",
+                        color: "rgba(255,255,255,0.7)",
+                        lineHeight: "1.7",
+                      }}>{children}</div>
+                    );
                   },
                   a({ href, children }) {
                     const safeHref = typeof href === "string" ? href.trim() : "";
