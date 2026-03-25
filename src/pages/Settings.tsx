@@ -57,8 +57,12 @@ const Settings = () => {
   const handleConnectGoogle = async () => {
     const session = (await supabase.auth.getSession()).data.session;
     if (!session) return;
+
+    // Dinamički uzimamo trenutnu domenu da uvijek bude ispravan redirect
+    const redirectUri = `${window.location.origin}/auth/callback`;
+
     const res = await fetch(
-      `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/gmail-auth?action=auth-url`,
+      `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/gmail-auth?action=auth-url&redirect_uri=${encodeURIComponent(redirectUri)}`,
       {
         headers: {
           Authorization: `Bearer ${session.access_token}`,
