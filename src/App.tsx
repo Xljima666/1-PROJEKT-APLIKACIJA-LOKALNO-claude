@@ -23,6 +23,7 @@ import NotFound from "./pages/NotFound";
 import TokenUsage from "./pages/TokenUsage";
 import Software from "./pages/Software";
 import Stellan from "./pages/Stellan";
+import AuthCallback from "./pages/AuthCallback";
 
 const queryClient = new QueryClient();
 
@@ -41,6 +42,7 @@ const App = () => (
             <Route path="/software" element={<Software />} />
             <Route path="/login" element={<Login />} />
             <Route path="/signup" element={<Signup />} />
+            <Route path="/auth/callback" element={<AuthCallback />} />
             <Route
               path="/dashboard"
               element={
