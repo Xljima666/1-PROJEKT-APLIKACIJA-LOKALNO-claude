@@ -42,11 +42,10 @@ const App = () => (
             <Route path="/software" element={<Software />} />
             <Route path="/login" element={<Login />} />
             <Route path="/signup" element={<Signup />} />
-            <Route path="/auth/callback" element={<AuthCallback />} />
             <Route
               path="/dashboard"
               element={
-                <ProtectedRoute requiredPermission="organizator">
+                <ProtectedRoute>
                   <Dashboard />
                 </ProtectedRoute>
               }
@@ -70,7 +69,7 @@ const App = () => (
             <Route
               path="/calendar"
               element={
-                <ProtectedRoute requiredPermission="organizator">
+                <ProtectedRoute>
                   <Calendar />
                 </ProtectedRoute>
               }
@@ -131,6 +130,7 @@ const App = () => (
                 </ProtectedRoute>
               }
             />
+            <Route path="/auth/callback" element={<AuthCallback />} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFound />} />
           </Routes>

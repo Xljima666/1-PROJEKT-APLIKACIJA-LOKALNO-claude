@@ -17,50 +17,57 @@ const ProtectedRoute = ({ children, requireAdmin = false, requiredPermission }: 
   const location = useLocation();
   const [permChecked, setPermChecked] = useState(false);
   const [hasPermission, setHasPermission] = useState(false);
+  const [isStellanOnly, setIsStellanOnly] = useState(false);
 
   useEffect(() => {
     if (isLoading) return;
 
-    if (!requiredPermission) {
+    // Admin always has full access
+    if (isAdmin && !isImpersonating) {
       setHasPermission(true);
+      setIsStellanOnly(false);
       setPermChecked(true);
       return;
     }
 
-    // When impersonating, check the impersonated user's permissions
-    if (isImpersonating && impersonatedUser && isAdmin) {
-      const check = async () => {
-        const { data } = await supabase
-          .from("user_tab_permissions")
-          .select("id")
-          .eq("user_id", impersonatedUser.id)
-          .eq("tab_key", requiredPermission)
-          .maybeSingle();
-        setHasPermission(!!data);
-        setPermChecked(true);
-      };
-      check();
-      return;
-    }
+    const targetUserId = isImpersonating && impersonatedUser && isAdmin
+      ? impersonatedUser.id
+      : user?.id;
 
-    // Admin always has access
-    if (isAdmin) {
-      setHasPermission(true);
+    if (!targetUserId) {
       setPermChecked(true);
       return;
     }
 
-    if (!user) {
-      setPermChecked(true);
-      return;
-    }
-
-    // Non-admin: check DB permission
     const check = async () => {
+      // Check "samo-stellan" flag
+      const { data: stellanOnly } = await supabase
+        .from("user_tab_permissions")
+        .select("id")
+        .eq("user_id", targetUserId)
+        .eq("tab_key", "samo-stellan")
+        .maybeSingle();
+
+      if (stellanOnly) {
+        setIsStellanOnly(true);
+        setHasPermission(false);
+        setPermChecked(true);
+        return;
+      }
+
+      setIsStellanOnly(false);
+
+      if (!requiredPermission) {
+        setHasPermission(true);
+        setPermChecked(true);
+        return;
+      }
+
+      // Check specific permission
       const { data } = await supabase
         .from("user_tab_permissions")
         .select("id")
-        .eq("user_id", user.id)
+        .eq("user_id", targetUserId)
         .eq("tab_key", requiredPermission)
         .maybeSingle();
       setHasPermission(!!data);
@@ -88,8 +95,13 @@ const ProtectedRoute = ({ children, requireAdmin = false, requiredPermission }: 
     return <Navigate to="/stellan" replace />;
   }
 
-  if (requiredPermission && !hasPermission) {
+  // If user is "samo-stellan" and not on /stellan, redirect there
+  if (isStellanOnly && location.pathname !== "/stellan") {
     return <Navigate to="/stellan" replace />;
+  }
+
+  if (requiredPermission && !hasPermission) {
+    return <Navigate to="/dashboard" replace />;
   }
 
   return <>{children}</>;

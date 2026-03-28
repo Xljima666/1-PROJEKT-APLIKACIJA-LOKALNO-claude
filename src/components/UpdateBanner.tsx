@@ -1,20 +1,35 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { RefreshCw } from "lucide-react";
 
-const APP_VERSION = Date.now().toString(); // Changes on each build
+const RELOAD_GUARD_KEY = "__update_reload_ts__";
+const RELOAD_COOLDOWN_MS = 30000; // Don't reload more than once per 30s
 
 export function UpdateBanner() {
   const [showUpdate, setShowUpdate] = useState(false);
   const [waitingWorker, setWaitingWorker] = useState<ServiceWorker | null>(null);
   const [countdown, setCountdown] = useState(5);
+  const handledRef = useRef(false);
 
   useEffect(() => {
     if (!("serviceWorker" in navigator)) return;
 
+    // Guard against reload loops
+    const isInCooldown = () => {
+      const lastReload = parseInt(sessionStorage.getItem(RELOAD_GUARD_KEY) || "0", 10);
+      return Date.now() - lastReload < RELOAD_COOLDOWN_MS;
+    };
+
+    const doReload = () => {
+      if (isInCooldown()) return;
+      sessionStorage.setItem(RELOAD_GUARD_KEY, String(Date.now()));
+      window.location.reload();
+    };
+
     const handleNewSW = (worker: ServiceWorker) => {
+      if (handledRef.current || isInCooldown()) return;
+      handledRef.current = true;
       setWaitingWorker(worker);
       setShowUpdate(true);
-      // Auto-update after 5 seconds
       let count = 5;
       const timer = setInterval(() => {
         count--;
@@ -22,7 +37,7 @@ export function UpdateBanner() {
         if (count <= 0) {
           clearInterval(timer);
           worker.postMessage({ type: "SKIP_WAITING" });
-          window.location.reload();
+          doReload();
         }
       }, 1000);
     };
@@ -30,7 +45,7 @@ export function UpdateBanner() {
     navigator.serviceWorker.getRegistration().then((reg) => {
       if (!reg) return;
 
-      if (reg.waiting) {
+      if (reg.waiting && !isInCooldown()) {
         handleNewSW(reg.waiting);
         return;
       }
@@ -45,16 +60,15 @@ export function UpdateBanner() {
         });
       });
 
-      // Force check for updates every 30 seconds
+      // Check for updates every 60 seconds
       const interval = setInterval(() => {
         reg.update().catch(() => {});
-      }, 30000);
+      }, 60000);
       return () => clearInterval(interval);
     });
 
-    // Listen for controller change (another tab triggered update)
     navigator.serviceWorker.addEventListener("controllerchange", () => {
-      window.location.reload();
+      doReload();
     });
   }, []);
 
@@ -62,6 +76,7 @@ export function UpdateBanner() {
     if (waitingWorker) {
       waitingWorker.postMessage({ type: "SKIP_WAITING" });
     }
+    sessionStorage.setItem(RELOAD_GUARD_KEY, String(Date.now()));
     window.location.reload();
   };
 

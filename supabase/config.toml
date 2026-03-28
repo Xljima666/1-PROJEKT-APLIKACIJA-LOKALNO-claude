@@ -41,3 +41,7 @@ verify_jwt = false
 
 [functions.sdge-povratnice]
 verify_jwt = false
+
+[functions.agent-health]
+verify_jwt = false
+

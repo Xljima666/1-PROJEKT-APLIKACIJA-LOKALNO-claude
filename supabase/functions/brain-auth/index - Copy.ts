@@ -26,11 +26,6 @@ Deno.serve(async (req) => {
   const action = url.searchParams.get("action");
   const supabaseAdmin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 
-  const allowedAppOrigins = [
-    "https://geoterrainfo.com",
-    "https://www.geoterrainfo.com",
-    ];
-
   // Step 1: Generate auth URL with nonce-based CSRF protection
   if (action === "auth-url") {
     const authHeader = req.headers.get("Authorization");
@@ -46,17 +41,11 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: corsHeaders });
     }
 
-    // Generate cryptographic nonce and store mapping to user_id + origin
+    // Generate cryptographic nonce and store mapping to user_id
     const nonce = crypto.randomUUID();
     
     // Clean up expired nonces first
     await supabaseAdmin.rpc("cleanup_expired_nonces");
-
-    // Determine the app origin the user came from
-    const requestOrigin = req.headers.get("origin") || "";
-    const appOrigin = allowedAppOrigins.includes(requestOrigin)
-      ? requestOrigin
-      : "https://geoterrainfo.com";
     
     // Store nonce -> user_id mapping (expires in 10 min via cleanup function)
     await supabaseAdmin.from("oauth_nonces").insert({
@@ -66,9 +55,6 @@ Deno.serve(async (req) => {
 
     const redirectUri = `${SUPABASE_URL}/functions/v1/brain-auth?action=callback`;
 
-    // Encode appOrigin into the state alongside nonce
-    const state = btoa(JSON.stringify({ nonce, appOrigin }));
-
     const params = new URLSearchParams({
       client_id: GOOGLE_CLIENT_ID,
       redirect_uri: redirectUri,
@@ -76,7 +62,7 @@ Deno.serve(async (req) => {
       scope: "https://www.googleapis.com/auth/drive",
       access_type: "offline",
       prompt: "consent",
-      state,
+      state: nonce, // Send nonce instead of user_id
       login_hint: "markopetronijevic666@gmail.com",
     });
 
@@ -88,29 +74,10 @@ Deno.serve(async (req) => {
   // Step 2: OAuth callback - verify nonce and exchange code for tokens
   if (action === "callback") {
     const code = url.searchParams.get("code");
-    const rawState = url.searchParams.get("state");
+    const nonce = url.searchParams.get("state");
 
-    if (!code || !rawState) {
+    if (!code || !nonce) {
       return new Response("Missing code or state", { status: 400 });
-    }
-
-    // Parse state to extract nonce and appOrigin
-    let nonce: string;
-    let appOrigin = "https://geoterrainfo.com";
-
-    try {
-      const parsed = JSON.parse(atob(rawState));
-      nonce = parsed.nonce;
-      if (allowedAppOrigins.includes(parsed.appOrigin || "")) {
-        appOrigin = parsed.appOrigin;
-      }
-    } catch {
-      // Backward compat: raw state might be just the nonce UUID
-      nonce = rawState;
-    }
-
-    if (!nonce) {
-      return new Response("Invalid state", { status: 400 });
     }
 
     // Look up nonce to get the real user_id (server-side verification)
@@ -152,7 +119,6 @@ Deno.serve(async (req) => {
 
     const tokens = await tokenRes.json();
     if (!tokenRes.ok) {
-      console.error("Brain token exchange FAILED:", JSON.stringify(tokens));
       return new Response(`Token exchange failed: ${JSON.stringify(tokens)}`, { status: 400 });
     }
 
@@ -165,10 +131,9 @@ Deno.serve(async (req) => {
       expires_at: expiresAt,
     }, { onConflict: "user_id" });
 
-    // Redirect back to the same app origin where OAuth was initiated
     return new Response(null, {
       status: 302,
-      headers: { Location: `${appOrigin}/settings?brain=connected&_cb=${Date.now()}` },
+      headers: { Location: "https://geoterrainfo.lovable.app/dashboard" },
     });
   }
 

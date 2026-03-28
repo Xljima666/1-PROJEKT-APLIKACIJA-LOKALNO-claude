@@ -82,7 +82,7 @@ const AgentStatusBadge = () => {
         if (!session) return;
         const res = await fetch(
           `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/agent-health`,
-          { headers: { Authorization: `Bearer ${session.access_token}`, apikey: import.meta.env.VITE_SUPABASE_ANON_KEY } }
+          { headers: { Authorization: `Bearer ${session.access_token}`, apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY } }
         );
         setAgentOk(res.ok);
       } catch {
@@ -138,6 +138,7 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
   const [isStartingAgent, setIsStartingAgent] = useState(false);
   const [reactions, setReactions] = useState<Record<number, "up" | "down">>({});
   const [sidebarSearch, setSidebarSearch] = useState("");
+  const [thinkingStatus, setThinkingStatus] = useState<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
 
   const voiceBaseRef = useRef("");
@@ -310,6 +311,27 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
         try {
           setMessages(prev => [...prev, { role: "assistant", content: `⏳ Parsiram PDF: **${file.name}**...` }]);
           const arrayBuffer = await file.arrayBuffer();
+
+          // Upload PDF to storage so Stellan can reference it by URL
+          let pdfStorageUrl = "";
+          try {
+            const timestamp = Date.now();
+            const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+            const storagePath = `${user.id}/${timestamp}_${safeName}`;
+            const { data: uploadData, error: uploadError } = await supabase.storage
+              .from("chat-pdfs")
+              .upload(storagePath, new Uint8Array(arrayBuffer), {
+                contentType: "application/pdf",
+                upsert: false,
+              });
+            if (!uploadError && uploadData) {
+              const { data: urlData } = supabase.storage.from("chat-pdfs").getPublicUrl(storagePath);
+              pdfStorageUrl = urlData?.publicUrl || "";
+            }
+          } catch (storageErr) {
+            console.error("PDF storage upload error:", storageErr);
+          }
+
           const pdfjsLib = await import("pdfjs-dist");
           pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
           const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
@@ -327,10 +349,11 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
           }
           if (fullText.length > 30000) fullText = fullText.slice(0, 30000) + "\n...[skraćeno]";
           const pageInfo = pdf.numPages > 50 ? ` (prikazano 50/${pdf.numPages} stranica)` : ` (${pdf.numPages} str.)`;
+          const urlLine = pdfStorageUrl ? `\n\n🔗 PDF URL za uređivanje: ${pdfStorageUrl}` : "";
           // Remove the "parsing" message and add real content
           setMessages(prev => {
             const filtered = prev.filter(m => !m.content.includes(`Parsiram PDF: **${file.name}**`));
-            return [...filtered, { role: "user", content: `📄 PDF: **${file.name}**${pageInfo} (${(file.size / 1024).toFixed(1)} KB)\n\n${fullText.trim() || "_Nema tekstualnog sadržaja (skenirani dokument)_"}` }];
+            return [...filtered, { role: "user", content: `📄 PDF: **${file.name}**${pageInfo} (${(file.size / 1024).toFixed(1)} KB)${urlLine}\n\n${fullText.trim() || "_Nema tekstualnog sadržaja (skenirani dokument)_"}` }];
           });
           setInput(prev => prev + (prev ? "\n" : "") + `[Priložen PDF: ${file.name}]`);
         } catch (err) {
@@ -481,7 +504,7 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages, scrollToBottom]);
+  }, [messages, thinkingStatus, scrollToBottom]);
 
   useEffect(() => {
     if (inputRef.current) {
@@ -524,6 +547,7 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
     setInput("");
     setDriveSearchMode(false);
     setIsLoading(true);
+    forceScrollToBottom();
 
     let convId = activeConversationId;
 
@@ -616,8 +640,15 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
           }
           try {
             const parsed = JSON.parse(jsonStr);
+            // Handle status events (thinking indicator)
+            if (parsed.status) {
+              setThinkingStatus(parsed.status);
+              continue;
+            }
             const content = parsed.choices?.[0]?.delta?.content;
             if (content) {
+              // Clear thinking status when actual content starts streaming
+              setThinkingStatus(null);
               assistantSoFar += content;
               // Throttle DOM updates to ~30fps for smooth rendering
               if (!updateScheduled) {
@@ -648,6 +679,7 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
 
     abortControllerRef.current = null;
     isStreamingRef.current = false;
+    setThinkingStatus(null);
 
     if (convId && assistantSoFar) {
       await supabase.from("chat_messages").insert({
@@ -662,12 +694,12 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
     setIsLoading(false);
   };
 
-  // Check brain connection status
+  // Check brain connection status - verify token exists AND has a refresh_token (not just expired access)
   useEffect(() => {
     if (!user || !open) return;
-    // Brain is a shared resource - check if ANY user has connected it
-    supabase.from("google_brain_tokens").select("id").limit(1).maybeSingle().then(({ data }) => {
-      setBrainConnected(!!data);
+    supabase.from("google_brain_tokens").select("id, refresh_token, expires_at").limit(1).maybeSingle().then(({ data }) => {
+      // Connected if we have a row with a refresh_token (refresh handles expiry automatically)
+      setBrainConnected(!!data?.refresh_token);
     });
   }, [user, open]);
 
@@ -706,7 +738,7 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
           method: "POST",
           headers: {
             Authorization: `Bearer ${session.access_token}`,
-            apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
+            apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
             "Content-Type": "application/json",
           },
           body: JSON.stringify({ action: "git_push", message: "deploy via Stellan" }),
@@ -838,15 +870,18 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
               </div>
             </div>
             <div className="flex items-center gap-1.5">
-              {brainConnected === false && (
-                <button
-                  onClick={connectBrain}
-                  className="h-7 px-2.5 rounded-lg flex items-center gap-1.5 text-[10px] bg-amber-500/20 text-amber-400 hover:bg-amber-500/30 transition-colors"
-                >
-                  <Brain className="w-3 h-3" />
-                  Poveži mozak
-                </button>
-              )}
+              <button
+                onClick={connectBrain}
+                className={cn(
+                  "h-7 px-2.5 rounded-lg flex items-center gap-1.5 text-[10px] transition-colors",
+                  brainConnected
+                    ? "bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20"
+                    : "bg-amber-500/20 text-amber-400 hover:bg-amber-500/30"
+                )}
+              >
+                <Brain className="w-3 h-3" />
+                {brainConnected ? "Mozak ✓" : "Poveži mozak"}
+              </button>
               {hasCode && (
                 <button
                   onClick={() => setShowCodePanel(!showCodePanel)}
@@ -971,11 +1006,29 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
                     >
                       <Sparkles className="w-3 h-3 text-primary-foreground" />
                     </motion.div>
-                    <div className="flex items-center gap-1 py-2">
-                      <span className="w-1.5 h-1.5 rounded-full bg-white/30 animate-pulse" style={{ animationDelay: "0ms" }} />
-                      <span className="w-1.5 h-1.5 rounded-full bg-white/30 animate-pulse" style={{ animationDelay: "150ms" }} />
-                      <span className="w-1.5 h-1.5 rounded-full bg-white/30 animate-pulse" style={{ animationDelay: "300ms" }} />
+                    <div className="flex flex-col gap-1.5 py-1.5">
+                      <div className="flex items-center gap-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-white/30 animate-pulse" style={{ animationDelay: "0ms" }} />
+                        <span className="w-1.5 h-1.5 rounded-full bg-white/30 animate-pulse" style={{ animationDelay: "150ms" }} />
+                        <span className="w-1.5 h-1.5 rounded-full bg-white/30 animate-pulse" style={{ animationDelay: "300ms" }} />
+                      </div>
                     </div>
+                  </motion.div>
+                )}
+                {thinkingStatus && isLoading && (
+                  <motion.div
+                    key={thinkingStatus}
+                    initial={{ opacity: 0, y: 6 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.2 }}
+                    className="flex items-center gap-2 ml-8.5 py-1"
+                  >
+                    <motion.div
+                      animate={{ rotate: 360 }}
+                      transition={{ duration: 1.2, repeat: Infinity, ease: "linear" }}
+                      className="w-3.5 h-3.5 rounded-full border-2 border-primary/30 border-t-primary"
+                    />
+                    <span className="text-xs text-white/40 italic">{thinkingStatus}</span>
                   </motion.div>
                 )}
                 <div ref={messagesEndRef} />
@@ -1356,15 +1409,18 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
               {/* Agent status */}
               <AgentStatusBadge />
               {/* Brain */}
-              <div className={cn(
-                "flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-medium border",
-                brainConnected
-                  ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
-                  : "bg-white/[0.04] text-white/30 border-white/[0.06]"
-              )}>
-                <div className={cn("w-1.5 h-1.5 rounded-full", brainConnected ? "bg-emerald-400" : "bg-white/20")} />
-                Mozak
-              </div>
+              <button
+                onClick={connectBrain}
+                className={cn(
+                  "flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-medium border cursor-pointer transition-colors",
+                  brainConnected
+                    ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/20"
+                    : "bg-amber-500/10 text-amber-400 border-amber-500/20 hover:bg-amber-500/20"
+                )}
+              >
+                <div className={cn("w-1.5 h-1.5 rounded-full", brainConnected ? "bg-emerald-400" : "bg-amber-400")} />
+                {brainConnected ? "Mozak ✓" : "Poveži mozak"}
+              </button>
               {/* Static tools */}
               {[
                 { label: "GPT-4o", color: "emerald" },

@@ -48,8 +48,6 @@ export default defineConfig(({ mode }) => ({
       workbox: {
         navigateFallbackDenylist: [/^\/~oauth/],
         cleanupOutdatedCaches: true,
-        skipWaiting: true,
-        clientsClaim: true,
         importScripts: ['/sw-push-handler.js'],
         maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
       },

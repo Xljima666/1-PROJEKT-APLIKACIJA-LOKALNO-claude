@@ -203,17 +203,41 @@ const ChatMessage = memo(({ role, content, isLatest, codeBlocks, hasCode, onShow
                     );
                   },
                   strong({ children }) {
+                    const text = typeof children === "string" ? children : 
+                      Array.isArray(children) ? children.filter(c => typeof c === "string").join("") : "";
+                    const upper = text.toUpperCase().trim();
+                    // Blockquote labele
+                    const isLabel = ["NAPOMENA", "SAVJET", "GOTOVO", "UPOZORENJE", "VAŽNO", "INFO"].includes(upper);
+                    if (isLabel) {
+                      const labelColors: Record<string, string> = {
+                        "NAPOMENA": "#EF9F27", "SAVJET": "#EF9F27", "UPOZORENJE": "#ef4444",
+                        "GOTOVO": "#00ff95", "VAŽNO": "#ef4444", "INFO": "#3399ff",
+                      };
+                      const color = labelColors[upper] || "#EF9F27";
+                      return (
+                        <strong style={{
+                          display: "block",
+                          fontSize: "13px",
+                          fontWeight: 700,
+                          color,
+                          letterSpacing: "0.5px",
+                          textTransform: "uppercase",
+                          marginTop: "8px",
+                        }}>{children}</strong>
+                      );
+                    }
+                    // Inline highlight — kompaktan emerald stil kao na Claude screenshotu
                     return (
                       <strong style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        background: "#0066ff20",
-                        border: "1px solid #0066ff70",
-                        borderRadius: "20px",
-                        padding: "3px 14px",
-                        fontSize: "14px",
-                        fontWeight: 500,
-                        color: "#3399ff",
+                        display: "inline",
+                        background: "rgba(0, 255, 149, 0.12)",
+                        border: "1px solid rgba(0, 255, 149, 0.35)",
+                        borderRadius: "6px",
+                        padding: "1px 8px",
+                        fontWeight: 600,
+                        color: "#00e887",
+                        fontSize: "inherit",
+                        lineHeight: "inherit",
                       }}>{children}</strong>
                     );
                   },

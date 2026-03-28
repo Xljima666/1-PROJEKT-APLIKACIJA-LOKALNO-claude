@@ -10,9 +10,9 @@ import { Separator } from "@/components/ui/separator";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
-import {
-  User,
-  Lock,
+import { 
+  User, 
+  Lock, 
   Bell,
   Save,
   Mail,
@@ -44,9 +44,11 @@ const Settings = () => {
     }
   }, [user]);
 
+  // Detect OAuth callback redirect and re-check connection
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get("google") === "connected" || params.get("brain") === "connected") {
+      // Re-check after a brief delay to allow DB write to propagate
       const timer = setTimeout(() => {
         checkGoogleConnection();
         toast({
@@ -54,92 +56,51 @@ const Settings = () => {
           description: "Provjera povezanosti...",
         });
       }, 1000);
-
+      // Clean URL params
       window.history.replaceState({}, "", window.location.pathname);
       return () => clearTimeout(timer);
     }
-  }, [toast]);
+  }, []);
 
   const checkGoogleConnection = async () => {
     if (!user) return;
-
     const { data } = await supabase
       .from("google_tokens")
       .select("id")
       .eq("user_id", user.id)
       .maybeSingle();
-
     setGoogleConnected(!!data);
   };
 
   const handleConnectGoogle = async () => {
-  const session = (await supabase.auth.getSession()).data.session;
-  if (!session) {
-    toast({
-      title: "Greška",
-      description: "Nema aktivne sesije.",
-      variant: "destructive",
-    });
-    return;
-  }
-
-  try {
+    const session = (await supabase.auth.getSession()).data.session;
+    if (!session) return;
     const res = await fetch(
       `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/gmail-auth?action=auth-url`,
       {
-        method: "POST",
         headers: {
           Authorization: `Bearer ${session.access_token}`,
           apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
-          "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          appOrigin: window.location.origin,
-        }),
       }
     );
-
     const json = await res.json();
-
-    if (!res.ok) {
-      throw new Error(json?.error || "Neuspješno generiranje Google auth URL-a");
-    }
-
     if (json.url) {
       window.location.href = json.url;
-      return;
     }
-
-    throw new Error("Google auth URL nije vraćen");
-  } catch (error: any) {
-    toast({
-      title: "Greška",
-      description: error?.message || "Nije moguće pokrenuti Google povezivanje.",
-      variant: "destructive",
-    });
-  }
-};
+  };
 
   const handleDisconnectGoogle = async () => {
     if (!user) return;
-
     const { error } = await supabase
       .from("google_tokens")
       .delete()
       .eq("user_id", user.id);
-
     if (error) {
-      toast({
-        title: "Greška",
-        description: "Nije moguće odspojiti Google",
-        variant: "destructive",
-      });
+      toast({ title: "Greška", description: "Nije moguće odspojiti Google", variant: "destructive" });
     } else {
       setGoogleConnected(false);
-      toast({
-        title: "Uspjeh",
-        description: "Google račun je odspojen",
-      });
+      toast({ title: "Uspjeh", description: "Google račun je odspojen" });
     }
   };
 
@@ -164,7 +125,6 @@ const Settings = () => {
     if (!user) return;
 
     setIsLoading(true);
-
     const { error } = await supabase
       .from("profiles")
       .update({
@@ -185,7 +145,6 @@ const Settings = () => {
         description: "Profil je ažuriran",
       });
     }
-
     setIsLoading(false);
   };
 
@@ -209,7 +168,6 @@ const Settings = () => {
     }
 
     setIsLoading(true);
-
     const { error } = await supabase.auth.updateUser({
       password: passwordData.new,
     });
@@ -227,7 +185,6 @@ const Settings = () => {
       });
       setPasswordData({ current: "", new: "", confirm: "" });
     }
-
     setIsLoading(false);
   };
 
@@ -239,6 +196,7 @@ const Settings = () => {
           <p className="text-muted-foreground">Upravljanje vašim računom</p>
         </div>
 
+        {/* Profile Settings */}
         <Card className="mb-6">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -290,6 +248,7 @@ const Settings = () => {
           </CardContent>
         </Card>
 
+        {/* Password Settings */}
         <Card className="mb-6">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -330,6 +289,7 @@ const Settings = () => {
           </CardContent>
         </Card>
 
+        {/* Google Integration */}
         <Card className="mb-6">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -355,7 +315,6 @@ const Settings = () => {
                   </>
                 )}
               </div>
-
               <div className="flex gap-2">
                 {googleConnected && (
                   <Button variant="destructive" size="sm" onClick={handleDisconnectGoogle}>
@@ -363,12 +322,7 @@ const Settings = () => {
                     Odspoji
                   </Button>
                 )}
-
-                <Button
-                  variant={googleConnected ? "outline" : "default"}
-                  size="sm"
-                  onClick={handleConnectGoogle}
-                >
+                <Button variant={googleConnected ? "outline" : "default"} size="sm" onClick={handleConnectGoogle}>
                   <Link2 className="w-4 h-4 mr-1" />
                   {googleConnected ? "Ponovo poveži" : "Poveži Google"}
                 </Button>
@@ -377,14 +331,17 @@ const Settings = () => {
           </CardContent>
         </Card>
 
+        {/* Agent Status */}
         <div className="mt-6">
           <AgentStatusCard />
         </div>
 
+        {/* API Keys Management */}
         <div className="mt-6">
           <ApiKeysManager />
         </div>
 
+        {/* Account Info */}
         <Card className="mt-6">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -398,23 +355,15 @@ const Settings = () => {
                 <span className="text-muted-foreground">ID korisnika:</span>
                 <span className="font-mono text-xs">{user?.id}</span>
               </div>
-
               <Separator />
-
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Email potvrđen:</span>
                 <span>{user?.email_confirmed_at ? "Da" : "Ne"}</span>
               </div>
-
               <Separator />
-
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Zadnja prijava:</span>
-                <span>
-                  {user?.last_sign_in_at
-                    ? new Date(user.last_sign_in_at).toLocaleString("hr-HR")
-                    : "-"}
-                </span>
+                <span>{user?.last_sign_in_at ? new Date(user.last_sign_in_at).toLocaleString("hr-HR") : "-"}</span>
               </div>
             </div>
           </CardContent>

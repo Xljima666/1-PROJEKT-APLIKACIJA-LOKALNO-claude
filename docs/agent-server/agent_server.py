@@ -28,7 +28,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 # ============ KONFIGURACIJA ============
-WORKSPACE_DIR = os.environ.get("AGENT_WORKSPACE", r"D:\Stellan Brain")
+WORKSPACE_DIR = os.environ.get("AGENT_WORKSPACE", r"D:\1 PROJEKT APLIKACIJA LOKALNO\1 PROJEKT APLIKACIJA LOKALNO claude\1 PROJEKTI")
 API_KEY = os.environ.get("AGENT_API_KEY", "promijeni-me-na-siguran-kljuc-123")
 MAX_TIMEOUT = 120
 MAX_OUTPUT_CHARS = 50000

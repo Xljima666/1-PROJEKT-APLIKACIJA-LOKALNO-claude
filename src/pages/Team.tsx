@@ -60,7 +60,7 @@ interface Invitation {
 }
 
 const TAB_KEYS = [
-  { key: "organizator", label: "Organizator" },
+  { key: "samo-stellan", label: "Samo Stellan" },
   { key: "poslovi", label: "Poslovi" },
   { key: "geodezija", label: "Geodezija" },
   { key: "firma", label: "Firma" },

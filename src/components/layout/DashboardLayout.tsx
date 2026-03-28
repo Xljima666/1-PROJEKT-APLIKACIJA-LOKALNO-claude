@@ -151,7 +151,7 @@ const DashboardLayout = ({ children, headerCenter, noScroll }: DashboardLayoutPr
   };
 
   const navItems = [
-    { path: "/dashboard", icon: LayoutDashboard, label: "Organizator", permKey: "organizator" },
+    { path: "/dashboard", icon: LayoutDashboard, label: "Organizator", permKey: null },
     { path: "/kanban-rows", icon: Kanban, label: "Poslovi", permKey: "poslovi" },
     { path: "/invoices", icon: FileText, label: "Geodezija", permKey: "geodezija" },
     { path: "/firma", icon: Building2, label: "Firma", permKey: "firma" },
@@ -160,12 +160,15 @@ const DashboardLayout = ({ children, headerCenter, noScroll }: DashboardLayoutPr
   ];
 
   const activePermissions = isImpersonating ? impersonatedPermissions : userTabPermissions;
+  const isStellanOnly = activePermissions.includes("samo-stellan");
+
   const filteredNavItems = navItems.filter(item => {
+    if (isStellanOnly) return false; // samo-stellan users see no nav items
     if (isImpersonating) {
-      return activePermissions.includes(item.permKey);
+      return item.permKey === null || activePermissions.includes(item.permKey);
     }
     if (isAdmin) return true;
-    return userTabPermissions.includes(item.permKey);
+    return item.permKey === null || userTabPermissions.includes(item.permKey);
   });
   const userInitials = getInitials(profileName, user?.email);
 

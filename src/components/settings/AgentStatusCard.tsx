@@ -41,6 +41,13 @@ export default function AgentStatusCard() {
         }
       );
 
+      const contentType = res.headers.get("content-type") || "";
+      if (!contentType.includes("application/json")) {
+        setStatus("offline");
+        setHealthData({ error: "Agent server nedostupan" });
+        return;
+      }
+
       const data = await res.json();
 
       if (res.ok && data.status === "ok") {
@@ -50,8 +57,8 @@ export default function AgentStatusCard() {
       }
       setHealthData(data);
     } catch (e) {
-      setStatus("error");
-      setHealthData({ error: String(e) });
+      setStatus("offline");
+      setHealthData({ error: "Agent server nedostupan" });
     } finally {
       setLastChecked(new Date());
       setChecking(false);
