@@ -74,8 +74,11 @@ const ChatMessage = memo(({ role, content, isLatest, codeBlocks, hasCode, onShow
       onMouseLeave={() => setShowActions(false)}
     >
       {role === "assistant" && (
-        <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center mr-3 mt-0.5 shrink-0 shadow-lg shadow-primary/20">
-          <Sparkles className="w-3.5 h-3.5 text-primary-foreground" />
+        <div className="flex flex-col items-center mr-3 shrink-0">
+          <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center shadow-lg shadow-primary/20">
+            <Sparkles className="w-3.5 h-3.5 text-primary-foreground" />
+          </div>
+          <span style={{fontSize:"9px", fontWeight:600, color:"rgba(255,255,255,0.3)", letterSpacing:"0.05em", marginTop:"3px"}}>STELLAN</span>
         </div>
       )}
       <div className={cn(
@@ -90,7 +93,7 @@ const ChatMessage = memo(({ role, content, isLatest, codeBlocks, hasCode, onShow
             : "text-white/90 w-full"
         )}>
           {role === "assistant" ? (
-            <div style={{fontSize:"15px", lineHeight:"1.85", color:"rgba(255,255,255,0.85)"}}>
+            <div style={{fontSize:"15px", lineHeight:"1.85", color:"rgba(255,255,255,0.85)", position:"relative"}}>
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
                 components={{
@@ -261,13 +264,35 @@ const ChatMessage = memo(({ role, content, isLatest, codeBlocks, hasCode, onShow
                     );
                   },
                   p({ children }) {
-                    return <p style={{margin:"10px 0", lineHeight:"1.85", fontSize:"15px", color:"rgba(255,255,255,0.85)"}}>{children}</p>;
+                    const text = typeof children === "string" ? children :
+                      Array.isArray(children) ? children.map(c => typeof c === "string" ? c : "").join("") : "";
+                    const isSuggestion = text.trim().endsWith("?") && text.length > 20;
+                    if (isSuggestion) {
+                      return (
+                        <div style={{background:"rgba(239,159,39,0.08)", border:"1px solid rgba(239,159,39,0.25)", borderLeft:"3px solid #EF9F27", borderRadius:"12px", padding:"10px 14px", margin:"8px 0", lineHeight:"1.85", fontSize:"15px", color:"rgba(255,200,100,0.9)"}}>
+                          {children}
+                        </div>
+                      );
+                    }
+                    return (
+                      <div style={{background:"rgba(255,255,255,0.03)", border:"1px solid rgba(255,255,255,0.06)", borderRadius:"12px", padding:"10px 14px", margin:"8px 0", lineHeight:"1.85", fontSize:"15px", color:"rgba(255,255,255,0.85)"}}>
+                        {children}
+                      </div>
+                    );
                   },
                   ul({ children }) {
-                    return <ul style={{margin:"10px 0", paddingLeft:"0", display:"flex", flexDirection:"column", gap:"10px", listStyle:"none"}}>{children}</ul>;
+                    return (
+                      <div style={{background:"rgba(255,255,255,0.04)", border:"1px solid rgba(255,255,255,0.08)", borderRadius:"14px", padding:"12px 16px", margin:"10px 0"}}>
+                        <ul style={{margin:0, paddingLeft:0, display:"flex", flexDirection:"column", gap:"8px", listStyle:"none"}}>{children}</ul>
+                      </div>
+                    );
                   },
                   ol({ children }) {
-                    return <ol style={{margin:"10px 0", paddingLeft:"0", display:"flex", flexDirection:"column", gap:"10px", listStyle:"none"}}>{children}</ol>;
+                    return (
+                      <div style={{background:"rgba(255,255,255,0.04)", border:"1px solid rgba(255,255,255,0.08)", borderRadius:"14px", padding:"12px 16px", margin:"10px 0"}}>
+                        <ol style={{margin:0, paddingLeft:0, display:"flex", flexDirection:"column", gap:"8px", listStyle:"none"}}>{children}</ol>
+                      </div>
+                    );
                   },
                   li({ children }) {
                     return (
