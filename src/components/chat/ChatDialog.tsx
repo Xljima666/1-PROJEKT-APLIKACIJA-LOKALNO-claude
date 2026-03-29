@@ -946,6 +946,7 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
                     role={msg.role}
                     content={msg.content}
                     isLatest={i === messages.length - 1}
+                    isStreaming={i === messages.length - 1 && isStreamingRef.current}
                     codeBlocks={codeBlocks}
                     hasCode={hasCode}
                     onShowCodePanel={() => setShowCodePanel(true)}
