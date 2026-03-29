@@ -1,4 +1,4 @@
-import { memo, useState, useCallback } from "react";
+import { memo, useState, useCallback, useRef } from "react";
 import { Copy, Check, Code2, Sparkles, ThumbsUp, ThumbsDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import ReactMarkdown from "react-markdown";
@@ -16,6 +16,7 @@ interface ChatMessageProps {
   role: "user" | "assistant";
   content: string;
   isLatest: boolean;
+  isStreaming?: boolean;
   codeBlocks: CodeBlock[];
   hasCode: boolean;
   onShowCodePanel: () => void;
@@ -55,13 +56,18 @@ const CopyButton = memo(({ text, size = "normal" }: { text: string; size?: "norm
 });
 CopyButton.displayName = "CopyButton";
 
-const ChatMessage = memo(({ role, content, isLatest, codeBlocks, hasCode, onShowCodePanel, onScrollToCode, messageIndex, onReaction, reaction }: ChatMessageProps) => {
+const ChatMessage = memo(({ role, content, isLatest, isStreaming, codeBlocks, hasCode, onShowCodePanel, onScrollToCode, messageIndex, onReaction, reaction }: ChatMessageProps) => {
   const [showActions, setShowActions] = useState(false);
+  const streaming = isStreaming ?? (isLatest && content.length < 200);
 
   const handleCodeClick = useCallback((blockIndex: number) => {
     onShowCodePanel();
     setTimeout(() => onScrollToCode(blockIndex), 100);
   }, [onShowCodePanel, onScrollToCode]);
+
+  // Counter za paragraf redoslijed
+  const pCounter = useRef(0);
+  pCounter.current = 0;
 
   return (
     <div
@@ -75,17 +81,40 @@ const ChatMessage = memo(({ role, content, isLatest, codeBlocks, hasCode, onShow
     >
       {role === "assistant" && (
         <div className="flex flex-col items-center mr-3 shrink-0">
-          <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center shadow-lg shadow-primary/20">
-            <Sparkles className="w-3.5 h-3.5 text-primary-foreground" />
+          <div
+            className="w-7 h-7 rounded-lg bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center shadow-lg shadow-primary/20"
+            style={streaming ? {
+              animation: "stellan-pulse 1.5s ease-in-out infinite",
+            } : {}}
+          >
+            <Sparkles
+              className="w-3.5 h-3.5 text-primary-foreground"
+              style={streaming ? { animation: "stellan-spin 2s linear infinite" } : {}}
+            />
           </div>
           <span style={{fontSize:"9px", fontWeight:600, color:"rgba(255,255,255,0.3)", letterSpacing:"0.05em", marginTop:"3px"}}>STELLAN</span>
         </div>
       )}
+
+      <style>{`
+        @keyframes stellan-pulse {
+          0%, 100% { box-shadow: 0 0 0 0 rgba(29,233,139,0.4); }
+          50% { box-shadow: 0 0 0 6px rgba(29,233,139,0); }
+        }
+        @keyframes stellan-spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+        @keyframes stellan-blink {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.3; }
+        }
+      `}</style>
+
       <div className={cn(
         "flex flex-col gap-1.5",
         role === "user" ? "items-end max-w-[80%]" : "items-start flex-1 min-w-0"
       )}>
-        {/* Message bubble */}
         <div className={cn(
           "text-[15px] leading-[1.75]",
           role === "user"
@@ -93,7 +122,7 @@ const ChatMessage = memo(({ role, content, isLatest, codeBlocks, hasCode, onShow
             : "text-white/90 w-full"
         )}>
           {role === "assistant" ? (
-            <div style={{fontSize:"15px", lineHeight:"1.85", color:"rgba(255,255,255,0.85)", position:"relative"}}>
+            <div style={{fontSize:"15px", lineHeight:"1.85", color:"rgba(255,255,255,0.85)"}}>
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
                 components={{
@@ -103,7 +132,6 @@ const ChatMessage = memo(({ role, content, isLatest, codeBlocks, hasCode, onShow
                     const isBlock = match;
                     if (isBlock) {
                       const lang = match?.[1] || "code";
-                      // Samo java i code idu u panel, ostalo inline
                       const panelLanguages = ["java", "code"];
                       const blockIndex = codeBlocks.findIndex(
                         (cb) => cb.code.trim() === codeStr.trim()
@@ -119,7 +147,6 @@ const ChatMessage = memo(({ role, content, isLatest, codeBlocks, hasCode, onShow
                           </button>
                         );
                       }
-                      // Svi ostali kodovi — direktno inline
                       return (
                         <div className="relative group my-3" style={{maxWidth: "680px"}}>
                           <div className="flex items-center justify-between px-4 py-2 bg-[#161b22] border-b border-[#30363d] rounded-t-xl">
@@ -157,7 +184,7 @@ const ChatMessage = memo(({ role, content, isLatest, codeBlocks, hasCode, onShow
                     );
                   },
                   h2({ children }) {
-                    const text = typeof children === "string" ? children : 
+                    const text = typeof children === "string" ? children :
                       Array.isArray(children) ? children.filter(c => typeof c === "string").join("") : "";
                     const sourceColors: Record<string, {bg: string, border: string, color: string, icon: string}> = {
                       "GeoTerra": {bg:"rgba(29,158,117,0.12)", border:"rgba(29,158,117,0.3)", color:"#5DCAA5", icon:"📋"},
@@ -174,15 +201,10 @@ const ChatMessage = memo(({ role, content, isLatest, codeBlocks, hasCode, onShow
                     if (style) {
                       return (
                         <div style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: "8px",
-                          background: style.bg,
-                          border: `0.5px solid ${style.border}`,
-                          borderRadius: "10px",
-                          padding: "7px 12px",
-                          marginBottom: "8px",
-                          marginTop: "16px",
+                          display: "flex", alignItems: "center", gap: "8px",
+                          background: style.bg, border: `0.5px solid ${style.border}`,
+                          borderRadius: "10px", padding: "7px 12px",
+                          marginBottom: "8px", marginTop: "16px",
                         }}>
                           <span style={{fontSize:"14px"}}>{style.icon}</span>
                           <span style={{fontSize:"13px", fontWeight:500, color:style.color}}>{children}</span>
@@ -191,15 +213,10 @@ const ChatMessage = memo(({ role, content, isLatest, codeBlocks, hasCode, onShow
                     }
                     return (
                       <div style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: "6px",
-                        background: "rgba(255,255,255,0.06)",
-                        border: "0.5px solid rgba(255,255,255,0.15)",
-                        borderRadius: "8px",
-                        padding: "5px 12px",
-                        marginBottom: "8px",
-                        marginTop: "18px",
+                        display: "inline-flex", alignItems: "center", gap: "6px",
+                        background: "rgba(255,255,255,0.06)", border: "0.5px solid rgba(255,255,255,0.15)",
+                        borderRadius: "8px", padding: "5px 12px",
+                        marginBottom: "8px", marginTop: "18px",
                       }}>
                         <span style={{fontSize:"13px", fontWeight:600, color:"rgba(255,255,255,0.9)", letterSpacing:"0.02em"}}>{children}</span>
                       </div>
@@ -208,14 +225,10 @@ const ChatMessage = memo(({ role, content, isLatest, codeBlocks, hasCode, onShow
                   h3({ children }) {
                     return (
                       <div style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        background: "rgba(51,153,255,0.10)",
-                        border: "0.5px solid rgba(51,153,255,0.25)",
-                        borderRadius: "6px",
-                        padding: "3px 10px",
-                        marginBottom: "6px",
-                        marginTop: "14px",
+                        display: "inline-flex", alignItems: "center",
+                        background: "rgba(51,153,255,0.10)", border: "0.5px solid rgba(51,153,255,0.25)",
+                        borderRadius: "6px", padding: "3px 10px",
+                        marginBottom: "6px", marginTop: "14px",
                       }}>
                         <span style={{fontSize:"12px", fontWeight:600, color:"#7ab8ff", textTransform:"uppercase", letterSpacing:"0.06em"}}>{children}</span>
                       </div>
@@ -223,20 +236,13 @@ const ChatMessage = memo(({ role, content, isLatest, codeBlocks, hasCode, onShow
                   },
                   h4({ children }) {
                     return (
-                      <h4 style={{
-                        fontSize: "13px",
-                        fontWeight: 500,
-                        color: "rgba(255,255,255,0.6)",
-                        marginBottom: "4px",
-                        marginTop: "10px",
-                      }}>{children}</h4>
+                      <h4 style={{fontSize:"13px", fontWeight:500, color:"rgba(255,255,255,0.6)", marginBottom:"4px", marginTop:"10px"}}>{children}</h4>
                     );
                   },
                   strong({ children }) {
-                    const text = typeof children === "string" ? children : 
+                    const text = typeof children === "string" ? children :
                       Array.isArray(children) ? children.filter(c => typeof c === "string").join("") : "";
                     const upper = text.toUpperCase().trim();
-                    // Blockquote labele
                     const isLabel = ["NAPOMENA", "SAVJET", "GOTOVO", "UPOZORENJE", "VAŽNO", "INFO"].includes(upper);
                     if (isLabel) {
                       const labelColors: Record<string, string> = {
@@ -245,51 +251,82 @@ const ChatMessage = memo(({ role, content, isLatest, codeBlocks, hasCode, onShow
                       };
                       const color = labelColors[upper] || "#EF9F27";
                       return (
-                        <strong style={{
-                          display: "block",
-                          fontSize: "13px",
-                          fontWeight: 700,
-                          color,
-                          letterSpacing: "0.5px",
-                          textTransform: "uppercase",
-                          marginTop: "8px",
-                        }}>{children}</strong>
+                        <strong style={{display:"block", fontSize:"13px", fontWeight:700, color, letterSpacing:"0.5px", textTransform:"uppercase", marginTop:"8px"}}>{children}</strong>
                       );
                     }
-                    return (
-                      <strong style={{
-                        fontWeight: 600,
-                        color: "rgba(255,255,255,0.95)",
-                      }}>{children}</strong>
-                    );
+                    return <strong style={{fontWeight:600, color:"rgba(255,255,255,0.95)"}}>{children}</strong>;
                   },
                   p({ children }) {
+                    pCounter.current += 1;
+                    const idx = pCounter.current;
+
                     const text = typeof children === "string" ? children :
                       Array.isArray(children) ? children.map(c => typeof c === "string" ? c : "").join("") : "";
-                    const isSuggestion = text.trim().endsWith("?") && text.length > 20;
+                    const isSuggestion = text.trim().endsWith("?") && text.length > 15;
+
+                    // Prijedlog (pitanje) → narančasto
                     if (isSuggestion) {
                       return (
-                        <div style={{background:"rgba(239,159,39,0.08)", border:"1px solid rgba(239,159,39,0.25)", borderLeft:"3px solid #EF9F27", borderRadius:"12px", padding:"10px 14px", margin:"8px 0", lineHeight:"1.85", fontSize:"15px", color:"rgba(255,200,100,0.9)"}}>
+                        <div style={{
+                          background: "rgba(239,159,39,0.08)",
+                          border: "1px solid rgba(239,159,39,0.30)",
+                          borderLeft: "3px solid #EF9F27",
+                          borderRadius: "12px",
+                          padding: "10px 14px",
+                          margin: "8px 0",
+                          lineHeight: "1.85",
+                          fontSize: "15px",
+                          color: "rgba(255,200,100,0.95)",
+                        }}>
                           {children}
                         </div>
                       );
                     }
-                    return (
-                      <div style={{background:"rgba(255,255,255,0.03)", border:"1px solid rgba(255,255,255,0.06)", borderRadius:"12px", padding:"10px 14px", margin:"8px 0", lineHeight:"1.85", fontSize:"15px", color:"rgba(255,255,255,0.85)"}}>
-                        {children}
-                      </div>
-                    );
+
+                    // Prvi paragraf → teal uvodni oblak
+                    if (idx === 1) {
+                      return (
+                        <div style={{
+                          background: "rgba(0,196,255,0.06)",
+                          border: "1px solid rgba(0,196,255,0.15)",
+                          borderLeft: "3px solid rgba(0,196,255,0.5)",
+                          borderRadius: "12px",
+                          padding: "10px 14px",
+                          margin: "8px 0",
+                          lineHeight: "1.85",
+                          fontSize: "15px",
+                          color: "rgba(200,240,255,0.9)",
+                        }}>
+                          {children}
+                        </div>
+                      );
+                    }
+
+                    // Ostali paragrafi → normalni tekst
+                    return <p style={{margin:"8px 0", lineHeight:"1.85", fontSize:"15px", color:"rgba(255,255,255,0.82)"}}>{children}</p>;
                   },
                   ul({ children }) {
                     return (
-                      <div style={{background:"rgba(255,255,255,0.04)", border:"1px solid rgba(255,255,255,0.08)", borderRadius:"14px", padding:"12px 16px", margin:"10px 0"}}>
+                      <div style={{
+                        background: "rgba(255,255,255,0.04)",
+                        border: "1px solid rgba(255,255,255,0.08)",
+                        borderRadius: "14px",
+                        padding: "12px 16px",
+                        margin: "10px 0",
+                      }}>
                         <ul style={{margin:0, paddingLeft:0, display:"flex", flexDirection:"column", gap:"8px", listStyle:"none"}}>{children}</ul>
                       </div>
                     );
                   },
                   ol({ children }) {
                     return (
-                      <div style={{background:"rgba(255,255,255,0.04)", border:"1px solid rgba(255,255,255,0.08)", borderRadius:"14px", padding:"12px 16px", margin:"10px 0"}}>
+                      <div style={{
+                        background: "rgba(255,255,255,0.04)",
+                        border: "1px solid rgba(255,255,255,0.08)",
+                        borderRadius: "14px",
+                        padding: "12px 16px",
+                        margin: "10px 0",
+                      }}>
                         <ol style={{margin:0, paddingLeft:0, display:"flex", flexDirection:"column", gap:"8px", listStyle:"none"}}>{children}</ol>
                       </div>
                     );
@@ -305,15 +342,10 @@ const ChatMessage = memo(({ role, content, isLatest, codeBlocks, hasCode, onShow
                   blockquote({ children }) {
                     return (
                       <div style={{
-                        background: "#EF9F2710",
-                        border: "1px solid #EF9F2740",
-                        borderLeft: "4px solid #EF9F27",
-                        borderRadius: "10px",
-                        padding: "10px 16px",
-                        margin: "12px 0",
-                        fontSize: "13px",
-                        color: "rgba(255,255,255,0.7)",
-                        lineHeight: "1.7",
+                        background: "#EF9F2710", border: "1px solid #EF9F2740",
+                        borderLeft: "4px solid #EF9F27", borderRadius: "10px",
+                        padding: "10px 16px", margin: "12px 0",
+                        fontSize: "13px", color: "rgba(255,255,255,0.7)", lineHeight: "1.7",
                       }}>{children}</div>
                     );
                   },
@@ -323,11 +355,8 @@ const ChatMessage = memo(({ role, content, isLatest, codeBlocks, hasCode, onShow
                     if (codeMatch) {
                       const idx = parseInt(codeMatch[1], 10) - 1;
                       return (
-                        <button
-                          type="button"
-                          onClick={() => onScrollToCode(idx)}
-                          style={{color:"#00ff95", textDecoration:"underline", fontWeight:500, cursor:"pointer", display:"inline-flex", alignItems:"center", gap:"4px"}}
-                        >
+                        <button type="button" onClick={() => onScrollToCode(idx)}
+                          style={{color:"#00ff95", textDecoration:"underline", fontWeight:500, cursor:"pointer", display:"inline-flex", alignItems:"center", gap:"4px"}}>
                           <Code2 className="w-3 h-3" />
                           {children}
                         </button>
@@ -335,17 +364,9 @@ const ChatMessage = memo(({ role, content, isLatest, codeBlocks, hasCode, onShow
                     }
                     if (!safeHref) return <span>{children}</span>;
                     return (
-                      <a
-                        href={safeHref}
-                        target="_blank"
-                        rel="noopener noreferrer"
+                      <a href={safeHref} target="_blank" rel="noopener noreferrer"
                         style={{color:"#3399ff", textDecoration:"underline", textUnderlineOffset:"2px", cursor:"pointer"}}
-                        onClick={(e) => {
-                          e.preventDefault();
-                          const w = window.top || window;
-                          w.open(safeHref, "_blank", "noopener,noreferrer");
-                        }}
-                      >
+                        onClick={(e) => { e.preventDefault(); (window.top || window).open(safeHref, "_blank", "noopener,noreferrer"); }}>
                         {children}
                       </a>
                     );
@@ -364,9 +385,7 @@ const ChatMessage = memo(({ role, content, isLatest, codeBlocks, hasCode, onShow
                     return <td style={{border:"1px solid rgba(255,255,255,0.08)", padding:"8px 12px", fontSize:"13px", color:"rgba(255,255,255,0.7)"}}>{children}</td>;
                   },
                   img({ src, alt }) {
-                    return (
-                      <img src={src} alt={alt || ""} className="max-w-full max-h-80 rounded-xl my-2 border border-white/[0.08]" />
-                    );
+                    return <img src={src} alt={alt || ""} className="max-w-full max-h-80 rounded-xl my-2 border border-white/[0.08]" />;
                   },
                 }}
               >
@@ -386,7 +405,7 @@ const ChatMessage = memo(({ role, content, isLatest, codeBlocks, hasCode, onShow
           )}
         </div>
 
-        {/* Action row - shown on hover */}
+        {/* Action row */}
         <div className={cn(
           "flex items-center gap-1 transition-all duration-150",
           showActions ? "opacity-100" : "opacity-0 pointer-events-none"
@@ -394,30 +413,14 @@ const ChatMessage = memo(({ role, content, isLatest, codeBlocks, hasCode, onShow
           <CopyButton text={content} size="small" />
           {role === "assistant" && onReaction && messageIndex !== undefined && (
             <>
-              <button
-                onClick={() => onReaction(messageIndex, "up")}
-                className={cn(
-                  "w-7 h-7 rounded-lg flex items-center justify-center transition-all",
-                  reaction === "up"
-                    ? "bg-emerald-500/20 text-emerald-400"
-                    : "bg-white/[0.06] text-white/30 hover:bg-emerald-500/10 hover:text-emerald-400"
-                )}
-                title="Korisno"
-              >
-                <ThumbsUp className="w-3.5 h-3.5" />
-              </button>
-              <button
-                onClick={() => onReaction(messageIndex, "down")}
-                className={cn(
-                  "w-7 h-7 rounded-lg flex items-center justify-center transition-all",
-                  reaction === "down"
-                    ? "bg-red-500/20 text-red-400"
-                    : "bg-white/[0.06] text-white/30 hover:bg-red-500/10 hover:text-red-400"
-                )}
-                title="Nije korisno"
-              >
-                <ThumbsDown className="w-3.5 h-3.5" />
-              </button>
+              <button onClick={() => onReaction(messageIndex, "up")}
+                className={cn("w-7 h-7 rounded-lg flex items-center justify-center transition-all",
+                  reaction === "up" ? "bg-emerald-500/20 text-emerald-400" : "bg-white/[0.06] text-white/30 hover:bg-emerald-500/10 hover:text-emerald-400")}
+                title="Korisno"><ThumbsUp className="w-3.5 h-3.5" /></button>
+              <button onClick={() => onReaction(messageIndex, "down")}
+                className={cn("w-7 h-7 rounded-lg flex items-center justify-center transition-all",
+                  reaction === "down" ? "bg-red-500/20 text-red-400" : "bg-white/[0.06] text-white/30 hover:bg-red-500/10 hover:text-red-400")}
+                title="Nije korisno"><ThumbsDown className="w-3.5 h-3.5" /></button>
             </>
           )}
         </div>
@@ -427,6 +430,7 @@ const ChatMessage = memo(({ role, content, isLatest, codeBlocks, hasCode, onShow
 }, (prev, next) => {
   return prev.content === next.content
     && prev.isLatest === next.isLatest
+    && prev.isStreaming === next.isStreaming
     && prev.hasCode === next.hasCode
     && prev.codeBlocks === next.codeBlocks
     && prev.reaction === next.reaction;
