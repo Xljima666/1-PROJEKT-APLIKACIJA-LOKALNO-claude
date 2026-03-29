@@ -23,11 +23,11 @@ interface ChatMessageProps {
 }
 
 const SECTION_COLORS = [
-  { bg: "rgba(29,158,117,0.08)", border: "rgba(29,158,117,0.22)", left: "#1de98b", title: "#1de98b" },
-  { bg: "rgba(55,138,221,0.08)", border: "rgba(55,138,221,0.22)", left: "#3d8fe0", title: "#6ab0f5" },
-  { bg: "rgba(127,119,221,0.08)", border: "rgba(127,119,221,0.22)", left: "#7f77dd", title: "#b0aaff" },
-  { bg: "rgba(239,159,39,0.08)", border: "rgba(239,159,39,0.22)", left: "#EF9F27", title: "#f5b84a" },
-  { bg: "rgba(226,75,74,0.08)", border: "rgba(226,75,74,0.22)", left: "#e24b4a", title: "#f08080" },
+  { bg: "rgba(29,158,117,0.18)", border: "rgba(29,158,117,0.45)", left: "#1de98b", title: "#1de98b" },
+  { bg: "rgba(55,138,221,0.18)", border: "rgba(55,138,221,0.45)", left: "#5aaef8", title: "#8ecfff" },
+  { bg: "rgba(155,100,240,0.18)", border: "rgba(155,100,240,0.45)", left: "#c084fc", title: "#d8b4fe" },
+  { bg: "rgba(239,159,39,0.18)", border: "rgba(239,159,39,0.45)", left: "#fbbf24", title: "#fcd34d" },
+  { bg: "rgba(239,68,68,0.18)", border: "rgba(239,68,68,0.45)", left: "#f87171", title: "#fca5a5" },
 ];
 
 // Split markdown na sekcije po ## headinzima
@@ -182,9 +182,9 @@ const ChatMessage = memo(({ role, content, isLatest, isStreaming, codeBlocks, ha
                 <div style={{display:"flex",flexDirection:"column",gap:"10px"}}>
                   {sections!.map((sec, i) => {
                     if (sec.heading === null) {
-                      // Uvodni tekst — bez oblaka
+                      // Uvodni tekst — teal oblak
                       return sec.body ? (
-                        <div key={i}>
+                        <div key={i} style={{background:"rgba(0,196,255,0.15)", border:"1px solid rgba(0,196,255,0.40)", borderLeft:"3px solid rgba(0,196,255,0.8)", borderRadius:"14px", padding:"14px 16px"}}>
                           <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>{sec.body}</ReactMarkdown>
                         </div>
                       ) : null;
