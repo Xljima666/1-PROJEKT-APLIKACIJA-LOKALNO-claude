@@ -139,13 +139,17 @@ const ChatMessage = memo(({ role, content, isLatest, codeBlocks, hasCode, onShow
                   h1({ children }) {
                     return (
                       <h1 style={{
-                        fontSize: "17px",
+                        fontSize: "16px",
                         fontWeight: 600,
-                        color: "rgba(255,255,255,0.95)",
+                        background: "linear-gradient(90deg, #1de98b, #00c4ff)",
+                        WebkitBackgroundClip: "text",
+                        WebkitTextFillColor: "transparent",
+                        backgroundClip: "text",
+                        borderLeft: "3px solid #1de98b",
+                        paddingLeft: "10px",
                         marginBottom: "12px",
-                        marginTop: "20px",
-                        paddingBottom: "8px",
-                        borderBottom: "0.5px solid rgba(255,255,255,0.10)",
+                        marginTop: "22px",
+                        display: "block",
                       }}>{children}</h1>
                     );
                   },
@@ -183,26 +187,35 @@ const ChatMessage = memo(({ role, content, isLatest, codeBlocks, hasCode, onShow
                       );
                     }
                     return (
-                      <h2 style={{
-                        fontSize: "15px",
-                        fontWeight: 500,
-                        color: "rgba(255,255,255,0.85)",
+                      <div style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "6px",
+                        background: "rgba(255,255,255,0.06)",
+                        border: "0.5px solid rgba(255,255,255,0.15)",
+                        borderRadius: "8px",
+                        padding: "5px 12px",
                         marginBottom: "8px",
-                        marginTop: "16px",
-                      }}>{children}</h2>
+                        marginTop: "18px",
+                      }}>
+                        <span style={{fontSize:"13px", fontWeight:600, color:"rgba(255,255,255,0.9)", letterSpacing:"0.02em"}}>{children}</span>
+                      </div>
                     );
                   },
                   h3({ children }) {
                     return (
-                      <h3 style={{
-                        fontSize: "13px",
-                        fontWeight: 500,
-                        color: "rgba(255,255,255,0.55)",
-                        textTransform: "uppercase",
-                        letterSpacing: "0.06em",
+                      <div style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        background: "rgba(51,153,255,0.10)",
+                        border: "0.5px solid rgba(51,153,255,0.25)",
+                        borderRadius: "6px",
+                        padding: "3px 10px",
                         marginBottom: "6px",
                         marginTop: "14px",
-                      }}>{children}</h3>
+                      }}>
+                        <span style={{fontSize:"12px", fontWeight:600, color:"#7ab8ff", textTransform:"uppercase", letterSpacing:"0.06em"}}>{children}</span>
+                      </div>
                     );
                   },
                   h4({ children }) {
@@ -259,7 +272,7 @@ const ChatMessage = memo(({ role, content, isLatest, codeBlocks, hasCode, onShow
                   li({ children }) {
                     return (
                       <li style={{fontSize:"15px", lineHeight:"1.8", color:"rgba(255,255,255,0.80)", display:"flex", gap:"10px", alignItems:"flex-start"}}>
-                        <span style={{width:"5px", height:"5px", borderRadius:"50%", background:"rgba(255,255,255,0.3)", flexShrink:0, marginTop:"10px"}}></span>
+                        <span style={{width:"6px", height:"6px", borderRadius:"50%", background:"#1de98b", flexShrink:0, marginTop:"9px", boxShadow:"0 0 6px #1de98b60"}}></span>
                         <span style={{flex:1}}>{children}</span>
                       </li>
                     );
