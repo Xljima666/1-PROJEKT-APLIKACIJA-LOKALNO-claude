@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
-import { X, Send, Sparkles, Plus, MessageSquare, Trash2, Code2, PanelLeftClose, PanelLeftOpen, PanelRightClose, Mic, Square, ClipboardList, Brain, Upload, Camera, Image, File, Paperclip, HardDrive, ArrowDown, Search, Download } from "lucide-react";
+import { X, Send, Sparkles, Plus, MessageSquare, Trash2, Code2, PanelLeftClose, PanelLeftOpen, PanelRightClose, Mic, Square, ClipboardList, Upload, Camera, Image, File, Paperclip, HardDrive, ArrowDown, Search, Download } from "lucide-react";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -129,7 +129,6 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
   const recognitionRef = useRef<any>(null);
   const taskRecognitionRef = useRef<any>(null);
   const [driveSearchMode, setDriveSearchMode] = useState(false);
-  const [brainConnected, setBrainConnected] = useState<boolean | null>(null);
   const [reasoningMode, setReasoningMode] = useState(false);
   const [devMode, setDevMode] = useState(false);
   const [previewUrl, setPreviewUrl] = useState("http://localhost:8080");
@@ -694,30 +693,6 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
     setIsLoading(false);
   };
 
-  // Check brain connection status - verify token exists AND has a refresh_token (not just expired access)
-  useEffect(() => {
-    if (!user || !open) return;
-    supabase.from("google_brain_tokens").select("id, refresh_token, expires_at").limit(1).maybeSingle().then(({ data }) => {
-      // Connected if we have a row with a refresh_token (refresh handles expiry automatically)
-      setBrainConnected(!!data?.refresh_token);
-    });
-  }, [user, open]);
-
-  const connectBrain = async () => {
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) return;
-      const projectId = import.meta.env.VITE_SUPABASE_PROJECT_ID;
-      const resp = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/brain-auth?action=auth-url`,
-        { headers: { Authorization: `Bearer ${session.access_token}`, apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY } }
-      );
-      const data = await resp.json();
-      if (data.url) window.location.href = data.url;
-    } catch (e) {
-      console.error("Brain connect error:", e);
-    }
-  };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -866,22 +841,11 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
               </div>
               <div>
                 <p className="text-xs font-semibold text-white tracking-tight">Stellan</p>
-                <p className="text-[9px] text-white/30">gpt-4o · vision · mozak{brainConnected ? ' ✓' : ''} · internet</p>
+                <p className="text-[9px] text-white/30">gpt-4o · vision · memorija ✓ · internet</p>
               </div>
             </div>
             <div className="flex items-center gap-1.5">
-              <button
-                onClick={connectBrain}
-                className={cn(
-                  "h-7 px-2.5 rounded-lg flex items-center gap-1.5 text-[10px] transition-colors",
-                  brainConnected
-                    ? "bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20"
-                    : "bg-amber-500/20 text-amber-400 hover:bg-amber-500/30"
-                )}
-              >
-                <Brain className="w-3 h-3" />
-                {brainConnected ? "Mozak ✓" : "Poveži mozak"}
-              </button>
+
               {hasCode && (
                 <button
                   onClick={() => setShowCodePanel(!showCodePanel)}
@@ -1408,19 +1372,11 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
             <div className="px-4 py-2 border-b border-white/[0.04] flex items-center gap-2 flex-wrap shrink-0 bg-white/[0.01]">
               {/* Agent status */}
               <AgentStatusBadge />
-              {/* Brain */}
-              <button
-                onClick={connectBrain}
-                className={cn(
-                  "flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-medium border cursor-pointer transition-colors",
-                  brainConnected
-                    ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/20"
-                    : "bg-amber-500/10 text-amber-400 border-amber-500/20 hover:bg-amber-500/20"
-                )}
-              >
-                <div className={cn("w-1.5 h-1.5 rounded-full", brainConnected ? "bg-emerald-400" : "bg-amber-400")} />
-                {brainConnected ? "Mozak ✓" : "Poveži mozak"}
-              </button>
+              {/* Memorija */}
+              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-medium border bg-emerald-500/10 text-emerald-400 border-emerald-500/20">
+                <div className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                Memorija ✓
+              </div>
               {/* Static tools */}
               {[
                 { label: "GPT-4o", color: "emerald" },
