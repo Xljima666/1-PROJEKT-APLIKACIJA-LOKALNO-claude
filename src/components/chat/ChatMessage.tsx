@@ -139,66 +139,80 @@ const ChatMessage = memo(({ role, content, isLatest, codeBlocks, hasCode, onShow
                   h1({ children }) {
                     return (
                       <h1 style={{
-                        background: "linear-gradient(90deg,#00ff9525,transparent)",
-                        borderLeft: "4px solid #00ff95",
-                        padding: "8px 16px",
-                        borderRadius: "0 10px 10px 0",
-                        marginBottom: "14px",
-                        marginTop: "18px",
-                        fontSize: "19px",
-                        fontWeight: 500,
-                        color: "#00ff95",
+                        fontSize: "17px",
+                        fontWeight: 600,
+                        color: "rgba(255,255,255,0.95)",
+                        marginBottom: "12px",
+                        marginTop: "20px",
+                        paddingBottom: "8px",
+                        borderBottom: "0.5px solid rgba(255,255,255,0.10)",
                       }}>{children}</h1>
                     );
                   },
                   h2({ children }) {
+                    const text = typeof children === "string" ? children : 
+                      Array.isArray(children) ? children.filter(c => typeof c === "string").join("") : "";
+                    const sourceColors: Record<string, {bg: string, border: string, color: string, icon: string}> = {
+                      "GeoTerra": {bg:"rgba(29,158,117,0.12)", border:"rgba(29,158,117,0.3)", color:"#5DCAA5", icon:"📋"},
+                      "Google Drive": {bg:"rgba(186,117,23,0.12)", border:"rgba(186,117,23,0.3)", color:"#EF9F27", icon:"📁"},
+                      "Drive": {bg:"rgba(186,117,23,0.12)", border:"rgba(186,117,23,0.3)", color:"#EF9F27", icon:"📁"},
+                      "Gmail": {bg:"rgba(226,75,74,0.12)", border:"rgba(226,75,74,0.3)", color:"#F09595", icon:"✉️"},
+                      "SDGE": {bg:"rgba(55,138,221,0.12)", border:"rgba(55,138,221,0.3)", color:"#85B7EB", icon:"📊"},
+                      "Trello": {bg:"rgba(55,138,221,0.12)", border:"rgba(55,138,221,0.3)", color:"#85B7EB", icon:"📌"},
+                      "Solo": {bg:"rgba(29,158,117,0.12)", border:"rgba(29,158,117,0.3)", color:"#5DCAA5", icon:"🧾"},
+                      "OSS": {bg:"rgba(127,119,221,0.12)", border:"rgba(127,119,221,0.3)", color:"#AFA9EC", icon:"🗺️"},
+                    };
+                    const match = Object.keys(sourceColors).find(k => text.includes(k));
+                    const style = match ? sourceColors[match] : null;
+                    if (style) {
+                      return (
+                        <div style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "8px",
+                          background: style.bg,
+                          border: `0.5px solid ${style.border}`,
+                          borderRadius: "10px",
+                          padding: "7px 12px",
+                          marginBottom: "8px",
+                          marginTop: "16px",
+                        }}>
+                          <span style={{fontSize:"14px"}}>{style.icon}</span>
+                          <span style={{fontSize:"13px", fontWeight:500, color:style.color}}>{children}</span>
+                        </div>
+                      );
+                    }
                     return (
                       <h2 style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        background: "#0066ff20",
-                        border: "1px solid #0066ff70",
-                        borderRadius: "20px",
-                        padding: "4px 16px",
-                        marginBottom: "10px",
-                        marginTop: "14px",
-                        fontSize: "16px",
+                        fontSize: "15px",
                         fontWeight: 500,
-                        color: "#3399ff",
+                        color: "rgba(255,255,255,0.85)",
+                        marginBottom: "8px",
+                        marginTop: "16px",
                       }}>{children}</h2>
                     );
                   },
                   h3({ children }) {
                     return (
                       <h3 style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        background: "#0066ff14",
-                        border: "1px solid #0066ff50",
-                        borderRadius: "20px",
-                        padding: "3px 14px",
-                        marginBottom: "8px",
-                        marginTop: "12px",
-                        fontSize: "14px",
+                        fontSize: "13px",
                         fontWeight: 500,
-                        color: "#3399ff",
+                        color: "rgba(255,255,255,0.55)",
+                        textTransform: "uppercase",
+                        letterSpacing: "0.06em",
+                        marginBottom: "6px",
+                        marginTop: "14px",
                       }}>{children}</h3>
                     );
                   },
                   h4({ children }) {
                     return (
                       <h4 style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        background: "#0066ff10",
-                        border: "1px solid #0066ff40",
-                        borderRadius: "20px",
-                        padding: "2px 12px",
-                        marginBottom: "6px",
-                        marginTop: "10px",
                         fontSize: "13px",
                         fontWeight: 500,
-                        color: "#3399ffcc",
+                        color: "rgba(255,255,255,0.6)",
+                        marginBottom: "4px",
+                        marginTop: "10px",
                       }}>{children}</h4>
                     );
                   },
@@ -226,18 +240,10 @@ const ChatMessage = memo(({ role, content, isLatest, codeBlocks, hasCode, onShow
                         }}>{children}</strong>
                       );
                     }
-                    // Inline highlight — kompaktan emerald stil kao na Claude screenshotu
                     return (
                       <strong style={{
-                        display: "inline",
-                        background: "rgba(0, 255, 149, 0.12)",
-                        border: "1px solid rgba(0, 255, 149, 0.35)",
-                        borderRadius: "6px",
-                        padding: "1px 8px",
                         fontWeight: 600,
-                        color: "#00e887",
-                        fontSize: "inherit",
-                        lineHeight: "inherit",
+                        color: "rgba(255,255,255,0.95)",
                       }}>{children}</strong>
                     );
                   },
@@ -251,7 +257,12 @@ const ChatMessage = memo(({ role, content, isLatest, codeBlocks, hasCode, onShow
                     return <ol style={{margin:"10px 0", paddingLeft:"0", display:"flex", flexDirection:"column", gap:"10px", listStyle:"none"}}>{children}</ol>;
                   },
                   li({ children }) {
-                    return <li style={{fontSize:"15px", lineHeight:"1.8", color:"rgba(255,255,255,0.80)", display:"flex", flexDirection:"column", gap:"4px"}}>{children}</li>;
+                    return (
+                      <li style={{fontSize:"15px", lineHeight:"1.8", color:"rgba(255,255,255,0.80)", display:"flex", gap:"10px", alignItems:"flex-start"}}>
+                        <span style={{width:"5px", height:"5px", borderRadius:"50%", background:"rgba(255,255,255,0.3)", flexShrink:0, marginTop:"10px"}}></span>
+                        <span style={{flex:1}}>{children}</span>
+                      </li>
+                    );
                   },
                   blockquote({ children }) {
                     return (
