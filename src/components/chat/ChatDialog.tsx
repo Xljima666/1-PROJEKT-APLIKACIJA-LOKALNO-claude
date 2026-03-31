@@ -136,6 +136,7 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
   const [deployStatus, setDeployStatus] = useState<"idle" | "success" | "error">("idle");
   const [isStartingAgent, setIsStartingAgent] = useState(false);
   const [reactions, setReactions] = useState<Record<number, "up" | "down">>({});
+  const [pendingImages, setPendingImages] = useState<{name: string, base64: string, size: number}[]>([]);
   const [sidebarSearch, setSidebarSearch] = useState("");
   const [thinkingStatus, setThinkingStatus] = useState<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -296,9 +297,7 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
         const reader = new FileReader();
         reader.onload = () => {
           const base64 = reader.result as string;
-          const uploadMsg = `🖼️ **${file.name}** (${(file.size / 1024).toFixed(1)} KB)\n\n![${file.name}](${base64})`;
-          setInput(prev => prev + (prev ? "\n" : "") + `[Priložena slika: ${file.name}]`);
-          setMessages(prev => [...prev, { role: "user", content: uploadMsg }]);
+          setPendingImages(prev => [...prev, { name: file.name, base64, size: file.size }]);
         };
         reader.readAsDataURL(file);
         continue;
@@ -534,16 +533,23 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
 
   const send = async () => {
     const rawText = input.trim();
-    if (!rawText || isLoading || !user) return;
+    if (!rawText && pendingImages.length === 0) return;
+    if (isLoading || !user) return;
 
-    const text = driveSearchMode
+    const baseText = driveSearchMode
       ? `Pretraži firmeni Google Drive I Trello za: ${rawText}. Prikaži sve relevantne rezultate s linkovima, označi izvor (Drive ili Trello).`
       : rawText;
+
+    const imagesMd = pendingImages.map(img => `![${img.name}](${img.base64})`).join('\n');
+    const text = imagesMd
+      ? (imagesMd + (baseText ? '\n\n' + baseText : ''))
+      : baseText;
 
     const userMsg: Message = { role: "user", content: text };
     const newMessages = [...messages, userMsg];
     setMessages(newMessages);
     setInput("");
+    setPendingImages([]);
     setDriveSearchMode(false);
     setIsLoading(true);
     forceScrollToBottom();
@@ -940,22 +946,49 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
               </div>
             ) : (
               <div className="px-6 py-5 space-y-6">
-                {messages.map((msg, i) => (
-                  <ChatMessage
-                    key={i}
-                    role={msg.role}
-                    content={msg.content}
-                    isLatest={i === messages.length - 1}
-                    isStreaming={i === messages.length - 1 && isStreamingRef.current}
-                    codeBlocks={codeBlocks}
-                    hasCode={hasCode}
-                    onShowCodePanel={() => setShowCodePanel(true)}
-                    onScrollToCode={scrollToCode}
-                    messageIndex={i}
-                    onReaction={handleReaction}
-                    reaction={reactions[i] ?? null}
-                  />
-                ))}
+                {messages.map((msg, i) => {
+                  // Extract images from user messages for proper display
+                  const imgRegex = /!\[([^\]]*)\]\((data:image\/[^)]+)\)/g;
+                  const imgs: { alt: string; src: string }[] = [];
+                  let cleanContent = msg.content;
+                  if (msg.role === "user") {
+                    let m;
+                    const regex2 = /!\[([^\]]*)\]\((data:image\/[^)]+)\)/g;
+                    while ((m = regex2.exec(msg.content)) !== null) {
+                      imgs.push({ alt: m[1], src: m[2] });
+                    }
+                    cleanContent = msg.content.replace(imgRegex, "").trim();
+                  }
+                  return (
+                    <div key={i}>
+                      {imgs.length > 0 && (
+                        <div className="flex justify-end gap-2 flex-wrap mb-2">
+                          {imgs.map((img, j) => (
+                            <img
+                              key={j}
+                              src={img.src}
+                              alt={img.alt}
+                              className="max-h-52 max-w-[280px] rounded-xl border border-white/10 object-cover shadow-lg"
+                            />
+                          ))}
+                        </div>
+                      )}
+                      <ChatMessage
+                        role={msg.role}
+                        content={msg.role === "user" && imgs.length > 0 ? cleanContent : msg.content}
+                        isLatest={i === messages.length - 1}
+                        isStreaming={i === messages.length - 1 && isStreamingRef.current}
+                        codeBlocks={codeBlocks}
+                        hasCode={hasCode}
+                        onShowCodePanel={() => setShowCodePanel(true)}
+                        onScrollToCode={scrollToCode}
+                        messageIndex={i}
+                        onReaction={handleReaction}
+                        reaction={reactions[i] ?? null}
+                      />
+                    </div>
+                  );
+                })}
                 {isLoading && messages[messages.length - 1]?.role === "user" && (
                   <motion.div
                     initial={{ opacity: 0, y: 12 }}
@@ -1031,6 +1064,25 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
             </div>
           )}
           <div className="bg-white/[0.04] border border-white/[0.08] rounded-xl focus-within:border-primary/40 transition-colors flex flex-col">
+            {/* Pending image previews */}
+            {pendingImages.length > 0 && (
+              <div className="flex gap-2 flex-wrap px-3 pt-3 pb-1">
+                {pendingImages.map((img, i) => (
+                  <div key={i} className="relative group">
+                    <img
+                      src={img.base64}
+                      alt={img.name}
+                      className="h-16 w-16 object-cover rounded-lg border border-white/10"
+                    />
+                    <button
+                      onClick={() => setPendingImages(prev => prev.filter((_, j) => j !== i))}
+                      className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-red-500 hover:bg-red-400 text-white text-[10px] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-md"
+                    >×</button>
+                    <div className="text-[9px] text-white/30 mt-0.5 truncate w-16">{img.name}</div>
+                  </div>
+                ))}
+              </div>
+            )}
             <textarea
               ref={inputRef}
               value={input}
