@@ -1232,7 +1232,21 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
                 >
                   R
                 </button>
-               [ 2.5F ] [ 2.5P ] [ 3F ] [ 3.1P ] {isLoading ? (
+                <div className="flex items-center gap-0.5 bg-white/[0.04] rounded-lg p-0.5 border border-white/[0.06]">
+                  {(["flash","pro","flash3","pro3"] as const).map((key) => {
+                    const labels: Record<string,string> = {flash:"2.5F",pro:"2.5P",flash3:"3F",pro3:"3.1P"};
+                    const titles: Record<string,string> = {flash:"Gemini 2.5 Flash",pro:"Gemini 2.5 Pro",flash3:"Gemini 3 Flash Preview",pro3:"Gemini 3.1 Pro Preview"};
+                    return (
+                      <button key={key} onClick={() => setSelectedModel(key)} title={titles[key]}
+                        className={cn("h-7 px-1.5 rounded-md text-[9px] font-bold transition-all",
+                          selectedModel === key ? "bg-primary text-white" : "text-white/30 hover:text-white/60"
+                        )}>
+                        {labels[key]}
+                      </button>
+                    );
+                  })}
+                </div>
+                {isLoading ? (
                   <Button
                     size="icon"
                     className="h-8 w-8 rounded-lg bg-destructive text-destructive-foreground hover:bg-destructive/90 transition-all"
@@ -1245,12 +1259,12 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
                     size="icon"
                     className={cn(
                       "h-8 w-8 rounded-lg transition-all",
-                      input.trim()
+                      (input.trim() || pendingImages.length > 0)
                         ? "bg-primary text-primary-foreground hover:bg-primary/90"
                         : "bg-white/[0.06] text-white/20 cursor-not-allowed"
                     )}
                     onClick={send}
-                    disabled={!input.trim()}
+                    disabled={!input.trim() && pendingImages.length === 0}
                   >
                     <Send className="w-3.5 h-3.5" />
                   </Button>
