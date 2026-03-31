@@ -1813,14 +1813,21 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
               <div className="text-[9px] text-white/12 ml-1 truncate max-w-[200px]">📍 <span>{previewUrl}</span></div>
               <button
                 onClick={checkAgentHealth}
-                className="ml-auto text-[9px] text-white/15 hover:text-white/40 transition-colors"
-                title="Provjeri status agenta"
-              >↻</button>
+                disabled={isValidating || isAgentActionRunning}
+                className={cn(
+                  "ml-auto flex items-center gap-1 px-2 py-0.5 rounded bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.05] transition-colors",
+                  (isValidating || isAgentActionRunning) && "opacity-50 cursor-not-allowed"
+                )}
+              >
+                <HardDrive className={cn("w-3 h-3 text-white/40", (isValidating || isAgentActionRunning) && "animate-spin")} />
+                <span className="text-[9px] text-white/40">
+                  {isValidating ? "Provjera..." : isAgentActionRunning ? "Akcija..." : "Provjeri status"}
+                </span>
+              </button>
             </div>
-
           </div>
-          </div>
-        )}
+        </div>
+      </div>
     </div>
   );
 };
