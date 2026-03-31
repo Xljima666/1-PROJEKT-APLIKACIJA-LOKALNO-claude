@@ -1753,7 +1753,7 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
                     ) : (
                       <div className="flex-1 flex items-center justify-center">
                         <div className="text-center text-[10px] text-white/15 px-4">
-                          <div className="text-2xl mb-2">{ }</div>
+                          <div className="text-2xl mb-2">💻</div>
                           Kada Stellan napiše kod, pojavljuje se ovdje
                         </div>
                       </div>
