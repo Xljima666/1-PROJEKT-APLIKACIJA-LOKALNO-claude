@@ -1825,9 +1825,7 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
                 </span>
               </button>
             </div>
-          </div>
-        </div>
-  );
-};
+           );
+        };
 
 export default ChatDialog;
