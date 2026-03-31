@@ -1824,8 +1824,9 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
                   {isValidating ? "Provjera..." : isAgentActionRunning ? "Akcija..." : "Provjeri status"}
                 </span>
               </button>
-            </div>
-           );
-        };
+           </div>
+        </div>
+      );
+    };
 
-export default ChatDialog;
+    export default ChatDialog;
