@@ -131,6 +131,7 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
   const [driveSearchMode, setDriveSearchMode] = useState(false);
   const [reasoningMode, setReasoningMode] = useState(false);
   const [devMode, setDevMode] = useState(false);
+  const [selectedModel, setSelectedModel] = useState<"flash" | "pro" | "flash3" | "pro3">("flash");
   const [previewUrl, setPreviewUrl] = useState("http://localhost:8080");
   const [isDeploying, setIsDeploying] = useState(false);
   const [deployStatus, setDeployStatus] = useState<"idle" | "success" | "error">("idle");
@@ -596,6 +597,7 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
           messages: cleanMessages,
           conversation_id: convId,
           reasoning: reasoningMode,
+          model: selectedModel,
         }),
         signal: abortController.signal,
       });
