@@ -136,6 +136,10 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
   const [isDeploying, setIsDeploying] = useState(false);
   const [deployStatus, setDeployStatus] = useState<"idle" | "success" | "error">("idle");
   const [isStartingAgent, setIsStartingAgent] = useState(false);
+  const [studioTab, setStudioTab] = useState<"playwright"|"terminal"|"files"|"memory"|"webbuilder"|"gis"|"api">("playwright");
+  const [studioRightTab, setStudioRightTab] = useState<"steps"|"console"|"actions"|"code">("steps");
+  const [studioSidebarTool, setStudioSidebarTool] = useState("playwright");
+  const [studioInput, setStudioInput] = useState("");
   const [reactions, setReactions] = useState<Record<number, "up" | "down">>({});
   const [pendingImages, setPendingImages] = useState<{name: string, base64: string, size: number}[]>([]);
   const [sidebarSearch, setSidebarSearch] = useState("");
@@ -831,8 +835,8 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
           </div>
         )}
 
-        {/* Main chat area - LEFT (70%) */}
-        <div className={cn("flex flex-col min-w-0 relative", devMode ? "w-[340px] shrink-0" : "flex-1")}>
+        {/* Main chat area */}
+        <div className={cn("flex flex-col min-w-0 relative", devMode ? "w-[35%] shrink-0" : "flex-1")}>
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/[0.06]">
             <div className="flex items-center gap-2">
@@ -1375,106 +1379,351 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
           </>
         )}
 
-        {/* Dev Mode — Live Preview Panel */}
+        {/* ═══ STELLAN DEV STUDIO ═══ */}
         {devMode && !isMobile && (
-          <div className="flex-1 border-l border-white/[0.06] flex flex-col bg-[hsl(220,12%,4%)]">
-            {/* Top bar - URL + controls */}
-            <div className="px-4 py-2 border-b border-white/[0.06] flex items-center justify-between shrink-0">
-              <div className="flex items-center gap-2">
-                <div className="w-2 h-2 rounded-full bg-violet-400 animate-pulse" />
-                <span className="text-xs font-medium text-white/60">Live Preview</span>
-                {/* Deploy button */}
+          <div className="flex-1 border-l border-white/[0.06] flex flex-col bg-[hsl(220,15%,4%)] min-w-0 overflow-hidden">
+
+            {/* ── TOP BAR ── */}
+            <div className="flex items-stretch border-b border-white/[0.06] bg-[hsl(220,15%,5%)] shrink-0 h-[42px]">
+              {/* Brand */}
+              <div className="flex items-center gap-2 px-3 border-r border-white/[0.06] shrink-0">
+                <div className="w-6 h-6 rounded-md bg-indigo-700 flex items-center justify-center text-[11px] font-bold text-indigo-200">S</div>
+                <div>
+                  <div className="text-[11px] font-semibold text-white/70 leading-tight">Dev Studio</div>
+                  <div className="text-[9px] text-white/25 leading-tight">GeoTerra Info</div>
+                </div>
+              </div>
+              {/* Tabs */}
+              <div className="flex items-stretch flex-1 overflow-x-auto">
+                {([
+                  { key: "playwright", icon: "🎭", label: "Playwright" },
+                  { key: "terminal",   icon: "⌨️", label: "Terminal" },
+                  { key: "files",      icon: "📁", label: "Fajlovi" },
+                  { key: "memory",     icon: "🧠", label: "Memorija" },
+                  { key: "webbuilder", icon: "🎨", label: "Web Builder" },
+                  { key: "gis",        icon: "🗺️", label: "GIS Alati" },
+                  { key: "api",        icon: "🔌", label: "API Tester" },
+                ] as const).map(t => (
+                  <button
+                    key={t.key}
+                    onClick={() => setStudioTab(t.key)}
+                    className={cn(
+                      "flex items-center gap-1.5 px-3 text-[10px] border-b-2 border-t-2 border-t-transparent transition-all whitespace-nowrap",
+                      studioTab === t.key
+                        ? "text-indigo-300 border-b-indigo-500 bg-white/[0.03]"
+                        : "text-white/25 border-b-transparent hover:text-white/50 hover:bg-white/[0.02]"
+                    )}
+                  >
+                    <span className="text-[11px]">{t.icon}</span>{t.label}
+                  </button>
+                ))}
+              </div>
+              {/* Right actions */}
+              <div className="flex items-center gap-1.5 px-3 border-l border-white/[0.06] shrink-0">
+                <div className="flex items-center gap-1.5 text-[9px] text-white/30 mr-1">
+                  <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  {selectedModel === "flash" ? "2.5-flash" : selectedModel === "pro" ? "2.5-pro" : selectedModel === "flash3" ? "3-flash" : "3.1-pro"}
+                </div>
+                <button
+                  onClick={handleStartAgent}
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-medium bg-amber-500/10 text-amber-300 border border-amber-500/20 hover:bg-amber-500/15 transition-all"
+                >⚡ Agent</button>
                 <button
                   onClick={handleDeploy}
                   disabled={isDeploying}
-                  title="Git push → Netlify auto deploy"
                   className={cn(
-                    "flex items-center gap-1.5 px-3 py-1 rounded-lg text-[11px] font-medium transition-all",
-                    isDeploying
-                      ? "bg-amber-500/20 text-amber-400 cursor-wait"
-                      : deployStatus === "success"
-                      ? "bg-emerald-500/20 text-emerald-400"
-                      : deployStatus === "error"
-                      ? "bg-red-500/20 text-red-400"
-                      : "bg-violet-500/15 text-violet-300 hover:bg-violet-500/25"
+                    "flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-medium border transition-all",
+                    isDeploying ? "bg-amber-500/10 text-amber-300 border-amber-500/20 cursor-wait"
+                    : deployStatus === "success" ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/20"
+                    : deployStatus === "error" ? "bg-red-500/10 text-red-300 border-red-500/20"
+                    : "bg-emerald-500/10 text-emerald-300 border-emerald-500/20 hover:bg-emerald-500/15"
                   )}
                 >
-                  {isDeploying ? "⏳ Deploying..." : deployStatus === "success" ? "✅ Deployed!" : deployStatus === "error" ? "❌ Greška" : "🚀 Deploy"}
-                </button>
-                {/* Start Agent button */}
-                <button
-                  onClick={handleStartAgent}
-                  title="Pokreni agent server"
-                  className="flex items-center gap-1.5 px-3 py-1 rounded-lg text-[11px] font-medium bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 transition-all"
-                >
-                  ⚡ Pokreni Agent
-                </button>
-              </div>
-              <div className="flex items-center gap-2">
-                <input
-                  value={previewUrl}
-                  onChange={e => setPreviewUrl(e.target.value)}
-                  className="text-[11px] bg-white/[0.06] text-white/60 rounded-lg px-3 py-1.5 w-72 border border-white/[0.06] focus:outline-none focus:border-violet-500/40 focus:text-white/80"
-                  placeholder="http://localhost:8080"
-                />
-                <button
-                  onClick={() => {
-                    const iframe = document.getElementById('dev-preview') as HTMLIFrameElement;
-                    if (iframe) { iframe.src = iframe.src; }
-                  }}
-                  title="Osvježi"
-                  className="w-7 h-7 rounded-lg flex items-center justify-center bg-violet-500/10 text-violet-400 hover:bg-violet-500/20 transition-colors text-sm"
-                >
-                  ↻
-                </button>
-                <button
-                  onClick={() => window.open(previewUrl, '_blank')}
-                  title="Otvori u novom tabu"
-                  className="w-7 h-7 rounded-lg flex items-center justify-center bg-white/[0.06] text-white/40 hover:text-white/70 hover:bg-white/[0.1] transition-colors text-xs"
-                >
-                  ↗
+                  {isDeploying ? "⏳ Deploy..." : deployStatus === "success" ? "✅ Deployed" : deployStatus === "error" ? "❌ Greška" : "🚀 Deploy"}
                 </button>
               </div>
             </div>
 
-            {/* Status bar - tools & agent */}
-            <div className="px-4 py-2 border-b border-white/[0.04] flex items-center gap-2 flex-wrap shrink-0 bg-white/[0.01]">
-              {/* Agent status */}
-              <AgentStatusBadge />
-              {/* Memorija */}
-              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-medium border bg-emerald-500/10 text-emerald-400 border-emerald-500/20">
-                <div className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                Memorija ✓
+            {/* ── BODY ── */}
+            <div className="flex flex-1 min-h-0">
+
+              {/* Left icon sidebar */}
+              <div className="w-10 bg-[hsl(220,15%,4%)] border-r border-white/[0.06] flex flex-col items-center py-2 gap-1 shrink-0">
+                {([
+                  { key: "playwright", icon: "🎭", tip: "Playwright" },
+                  { key: "terminal",   icon: "⌨️", tip: "Terminal" },
+                  { key: "files",      icon: "📁", tip: "Fajlovi" },
+                ] as const).map(s => (
+                  <button key={s.key} title={s.tip}
+                    onClick={() => { setStudioSidebarTool(s.key); setStudioTab(s.key); }}
+                    className={cn("w-8 h-8 rounded-lg flex items-center justify-center text-sm transition-all",
+                      studioSidebarTool === s.key ? "bg-indigo-500/15 text-indigo-300" : "text-white/20 hover:text-white/50 hover:bg-white/[0.05]"
+                    )}>
+                    {s.icon}
+                  </button>
+                ))}
+                <div className="w-5 h-px bg-white/[0.07] my-1" />
+                {([
+                  { key: "sdge",   icon: "🏛️", tip: "SDGE Portal" },
+                  { key: "oss",    icon: "📋", tip: "OSS Portal" },
+                  { key: "solo",   icon: "🧾", tip: "Solo.hr" },
+                  { key: "drive",  icon: "📂", tip: "Google Drive" },
+                ] as const).map(s => (
+                  <button key={s.key} title={s.tip}
+                    onClick={() => setStudioInput(`Otvori ${s.tip} u Playwright-u`)}
+                    className="w-8 h-8 rounded-lg flex items-center justify-center text-sm text-white/20 hover:text-white/50 hover:bg-white/[0.05] transition-all">
+                    {s.icon}
+                  </button>
+                ))}
+                <div className="w-5 h-px bg-white/[0.07] my-1" />
+                {([
+                  { key: "webbuilder", icon: "🎨", tip: "Web Builder" },
+                  { key: "gis",        icon: "🗺️", tip: "GIS / QGIS" },
+                  { key: "autocad",    icon: "📐", tip: "AutoCAD / LISP" },
+                  { key: "git",        icon: "🔀", tip: "Git" },
+                  { key: "api",        icon: "🔌", tip: "API Tester" },
+                ] as const).map(s => (
+                  <button key={s.key} title={s.tip}
+                    onClick={() => setStudioInput(`Pokreni ${s.tip}`)}
+                    className="w-8 h-8 rounded-lg flex items-center justify-center text-sm text-white/20 hover:text-white/50 hover:bg-white/[0.05] transition-all">
+                    {s.icon}
+                  </button>
+                ))}
               </div>
-              {/* Static tools */}
+
+              {/* Center — URL bar + iframe */}
+              <div className="flex flex-col flex-1 min-w-0">
+                {/* URL bar */}
+                <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-[hsl(220,15%,5%)] border-b border-white/[0.05] shrink-0">
+                  <div className="flex gap-1">
+                    {["←","→","↻"].map(a => (
+                      <button key={a}
+                        onClick={a === "↻" ? () => { const f = document.getElementById("studio-preview") as HTMLIFrameElement; if(f) f.src=f.src; } : undefined}
+                        className="w-5 h-5 rounded text-[9px] text-white/25 bg-white/[0.03] border border-white/[0.06] hover:text-white/50 hover:bg-white/[0.07] transition-all flex items-center justify-center">
+                        {a}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="flex-1 flex items-center gap-1.5 bg-white/[0.03] border border-white/[0.06] rounded-lg px-2.5 py-1 focus-within:border-indigo-500/30 transition-colors">
+                    <span className="text-[9px] text-emerald-400/60">🔒</span>
+                    <input
+                      value={previewUrl}
+                      onChange={e => setPreviewUrl(e.target.value)}
+                      className="flex-1 bg-transparent text-[10px] font-mono text-white/40 focus:text-white/70 focus:outline-none placeholder:text-white/15"
+                      placeholder="http://localhost:8080"
+                    />
+                  </div>
+                  <div className="flex gap-1">
+                    {[
+                      { icon: "📸", tip: "Screenshot → Stellan analizira", action: () => setStudioInput("Napravi screenshot trenutne stranice i analiziraj što vidiš") },
+                      { icon: "↗",  tip: "Otvori u novom tabu", action: () => window.open(previewUrl, "_blank") },
+                      { icon: "🔍", tip: "Inspiciraj element", action: () => setStudioInput("Inspiciraj označeni element na stranici") },
+                    ].map(b => (
+                      <button key={b.icon} title={b.tip} onClick={b.action}
+                        className="w-6 h-6 rounded text-[10px] text-white/25 bg-white/[0.03] border border-white/[0.06] hover:text-white/60 hover:bg-white/[0.07] transition-all flex items-center justify-center">
+                        {b.icon}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* iframe preview */}
+                <iframe
+                  id="studio-preview"
+                  src={previewUrl}
+                  className="flex-1 w-full border-0 bg-[#0e1018]"
+                  title="Stellan Dev Preview"
+                />
+              </div>
+
+              {/* Right panel */}
+              <div className="w-[220px] border-l border-white/[0.06] flex flex-col bg-[hsl(220,15%,4%)] shrink-0">
+                {/* Right tabs */}
+                <div className="flex border-b border-white/[0.06] bg-[hsl(220,15%,5%)] shrink-0">
+                  {([
+                    { key: "steps",   label: "Koraci" },
+                    { key: "console", label: "Log" },
+                    { key: "actions", label: "Akcije" },
+                    { key: "code",    label: "Kod" },
+                  ] as const).map(t => (
+                    <button key={t.key} onClick={() => setStudioRightTab(t.key)}
+                      className={cn("flex-1 py-1.5 text-[9px] border-b-[1.5px] transition-all",
+                        studioRightTab === t.key
+                          ? "text-indigo-300 border-indigo-500"
+                          : "text-white/20 border-transparent hover:text-white/40"
+                      )}>
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Steps tab */}
+                {studioRightTab === "steps" && (
+                  <div className="flex-1 p-2 flex flex-col gap-1.5 overflow-y-auto">
+                    {([
+                      { s: "done",   n: "✓", title: "Otvori SDGE portal",        meta: "342ms" },
+                      { s: "done",   n: "✓", title: "Prijava s kredencijalima",   meta: "1.2s" },
+                      { s: "active", n: "3", title: `Klikni "Novi zahtjev"`,      meta: "čeka..." },
+                      { s: "wait",   n: "4", title: "Popuni obrazac (k.č., k.o.)", meta: "" },
+                      { s: "wait",   n: "5", title: "Priloži elaborat PDF",        meta: "" },
+                      { s: "wait",   n: "6", title: "Pošalji i preuzmi potvrdu",   meta: "" },
+                    ]).map((step, i) => (
+                      <div key={i} className={cn("flex items-start gap-2 p-2 rounded-lg",
+                        step.s === "done"   ? "bg-emerald-500/[0.04]" :
+                        step.s === "active" ? "bg-indigo-500/[0.08] border border-indigo-500/20" :
+                        "opacity-40"
+                      )}>
+                        <div className={cn("w-4 h-4 rounded-full flex items-center justify-center text-[8px] shrink-0 mt-0.5",
+                          step.s === "done"   ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/25" :
+                          step.s === "active" ? "bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 animate-pulse" :
+                          "bg-white/[0.04] text-white/20 border border-white/[0.08]"
+                        )}>
+                          {step.n}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className={cn("text-[10px] leading-snug",
+                            step.s === "active" ? "text-indigo-200" : step.s === "done" ? "text-white/50" : "text-white/25"
+                          )}>{step.title}</div>
+                          {step.meta && <div className="text-[8px] text-white/20 mt-0.5">{step.meta}</div>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Console tab */}
+                {studioRightTab === "console" && (
+                  <div className="flex-1 p-2 font-mono text-[9px] leading-loose overflow-y-auto">
+                    {([
+                      { t: "ok",   msg: "agent :8432 ready" },
+                      { t: "info", msg: "playwright init" },
+                      { t: "ok",   msg: "page loaded 342ms" },
+                      { t: "info", msg: "login success" },
+                      { t: "ok",   msg: "navigated /zahtjevi" },
+                      { t: "wait", msg: "waiting for click..." },
+                    ]).map((l, i) => (
+                      <div key={i} className="flex gap-2">
+                        <span className="text-white/15">
+                          {String(i+1).padStart(2,"0")}
+                        </span>
+                        <span className={
+                          l.t === "ok"   ? "text-emerald-400" :
+                          l.t === "info" ? "text-indigo-300" :
+                          l.t === "warn" ? "text-amber-300" :
+                          "text-white/25"
+                        }>{l.msg}</span>
+                      </div>
+                    ))}
+                    <div className="flex gap-2">
+                      <span className="text-white/15">07</span>
+                      <span className="text-white/30">_<span className="inline-block w-1.5 h-3 bg-emerald-400/70 animate-pulse align-middle ml-0.5" /></span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Actions tab */}
+                {studioRightTab === "actions" && (
+                  <div className="flex-1 p-2 flex flex-col gap-1.5 overflow-y-auto">
+                    <div className="text-[9px] text-white/20 px-1 mb-1">Naučene akcije</div>
+                    {([
+                      { icon: "🏛️", name: "SDGE prijava",       badge: "ok",  bc: "emerald" },
+                      { icon: "📋", name: "OSS pretraživanje",  badge: "ok",  bc: "emerald" },
+                      { icon: "🧾", name: "Solo novi račun",     badge: "ok",  bc: "emerald" },
+                      { icon: "📂", name: "Drive upload PDF",    badge: "ok",  bc: "emerald" },
+                      { icon: "🔍", name: "OIB lookup",         badge: "ok",  bc: "emerald" },
+                      { icon: "📐", name: "LISP pokretanje",    badge: "beta", bc: "amber" },
+                      { icon: "🗺️", name: "QGIS export",        badge: "wip",  bc: "indigo" },
+                    ]).map((a, i) => (
+                      <button key={i}
+                        onClick={() => setStudioInput(`Pokreni akciju: ${a.name}`)}
+                        className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-white/[0.03] border border-white/[0.05] hover:bg-white/[0.06] hover:border-white/[0.1] transition-all text-left">
+                        <span className="text-sm">{a.icon}</span>
+                        <span className="flex-1 text-[10px] text-white/50">{a.name}</span>
+                        <span className={cn("text-[8px] px-1.5 py-0.5 rounded-full border",
+                          a.bc === "emerald" ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" :
+                          a.bc === "amber"   ? "bg-amber-500/10 text-amber-400 border-amber-500/20" :
+                          "bg-indigo-500/10 text-indigo-400 border-indigo-500/20"
+                        )}>{a.badge}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {/* Code tab */}
+                {studioRightTab === "code" && (
+                  <div className="flex-1 p-2 overflow-y-auto">
+                    <div className="text-[9px] text-white/20 px-1 mb-1.5">Generirani Playwright kod</div>
+                    <div className="bg-white/[0.03] rounded-lg p-2.5 border border-white/[0.05] font-mono text-[9px] text-white/40 leading-relaxed">
+                      <div className="text-indigo-400">await page.goto(</div>
+                      <div className="pl-2 text-amber-300/70">'https://sdge.hr'</div>
+                      <div className="text-indigo-400">);</div>
+                      <div className="mt-1 text-indigo-400">await page.fill(</div>
+                      <div className="pl-2 text-amber-300/70">'#username',</div>
+                      <div className="pl-2 text-emerald-300/70">credentials.user</div>
+                      <div className="text-indigo-400">);</div>
+                      <div className="mt-1 text-indigo-400">await page.click(</div>
+                      <div className="pl-2 text-amber-300/70">'#btn-novi'</div>
+                      <div className="text-indigo-400">);</div>
+                    </div>
+                    <button
+                      onClick={() => { navigator.clipboard.writeText("// Playwright kod"); }}
+                      className="mt-2 w-full py-1.5 text-[9px] text-white/30 border border-white/[0.07] rounded-lg hover:bg-white/[0.04] transition-all">
+                      Kopiraj kod
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* ── BOTTOM COMMAND BAR ── */}
+            <div className="flex items-center gap-2 px-3 py-2 border-t border-white/[0.06] bg-[hsl(220,15%,5%)] shrink-0">
+              <input
+                value={studioInput}
+                onChange={e => setStudioInput(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === "Enter" && studioInput.trim()) {
+                    setInput(studioInput);
+                    setStudioInput("");
+                    setTimeout(() => inputRef.current?.focus(), 50);
+                  }
+                }}
+                placeholder="Nauči Stellana novu akciju ili daj naredbu..."
+                className="flex-1 bg-white/[0.04] border border-white/[0.07] rounded-lg px-3 py-2 text-[11px] font-mono text-white/50 placeholder:text-white/20 focus:outline-none focus:border-indigo-500/30 focus:text-white/70 transition-colors"
+              />
+              <button
+                onClick={() => setStudioInput("Napravi screenshot i reci što vidiš")}
+                className="flex items-center gap-1 px-2.5 py-2 rounded-lg text-[10px] text-white/30 bg-white/[0.03] border border-white/[0.06] hover:bg-white/[0.07] hover:text-white/50 transition-all"
+              >📸 Screenshot</button>
+              <button
+                onClick={() => {
+                  if (studioInput.trim()) {
+                    setInput(studioInput);
+                    setStudioInput("");
+                    setTimeout(() => { inputRef.current?.focus(); send(); }, 50);
+                  }
+                }}
+                className="flex items-center gap-1 px-3 py-2 rounded-lg text-[10px] font-medium text-indigo-200 bg-indigo-500/15 border border-indigo-500/25 hover:bg-indigo-500/25 transition-all"
+              >▶ Izvedi</button>
+            </div>
+
+            {/* ── STATUS BAR ── */}
+            <div className="flex items-center gap-3 px-3 py-1 border-t border-white/[0.04] bg-[hsl(220,15%,3%)] shrink-0">
               {[
-                { label: "GPT-4o", color: "emerald" },
-                { label: "Internet", color: "blue" },
-                { label: "SDGE", color: "amber" },
-                { label: "Gmail", color: "red" },
-                { label: "Drive", color: "blue" },
-                { label: "OIB", color: "purple" },
-                { label: "Trello", color: "sky" },
-              ].map(tool => (
-                <div key={tool.label} className={cn(
-                  "flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-medium border",
-                  `bg-${tool.color}-500/10 text-${tool.color}-400 border-${tool.color}-500/20`
-                )}>
-                  <div className={`w-1.5 h-1.5 rounded-full bg-${tool.color}-400`} />
-                  {tool.label}
+                { dot: "bg-emerald-400", text: "Agent :8432" },
+                { dot: "bg-emerald-400", text: "Playwright v1.40" },
+                { dot: "bg-indigo-400",  text: selectedModel },
+              ].map((s, i) => (
+                <div key={i} className="flex items-center gap-1.5 text-[9px] text-white/20">
+                  <div className={cn("w-1 h-1 rounded-full", s.dot)} />
+                  {s.text}
                 </div>
               ))}
+              <div className="text-[9px] text-white/15 ml-1">📍 {previewUrl}</div>
+              <div className="ml-auto text-[9px] text-white/15">GeoTerra Info d.o.o.</div>
             </div>
 
-            <iframe
-              id="dev-preview"
-              src={previewUrl}
-              className="flex-1 w-full border-0"
-              title="Live Preview"
-            />
           </div>
         )}
-
       </div>
     </div>
   );
