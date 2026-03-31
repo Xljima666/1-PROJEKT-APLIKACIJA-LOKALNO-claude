@@ -1232,7 +1232,7 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
                 >
                   R
                 </button>
-                {isLoading ? (
+               [ 2.5F ] [ 2.5P ] [ 3F ] [ 3.1P ] {isLoading ? (
                   <Button
                     size="icon"
                     className="h-8 w-8 rounded-lg bg-destructive text-destructive-foreground hover:bg-destructive/90 transition-all"
