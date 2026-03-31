@@ -1827,7 +1827,6 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
             </div>
           </div>
         </div>
-      </div>
   );
 };
 
