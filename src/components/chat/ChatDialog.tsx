@@ -136,8 +136,8 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
   const [isDeploying, setIsDeploying] = useState(false);
   const [deployStatus, setDeployStatus] = useState<"idle" | "success" | "error">("idle");
   const [isStartingAgent, setIsStartingAgent] = useState(false);
-  const [studioTab, setStudioTab] = useState("playwright");
-  const [studioRightTab, setStudioRightTab] = useState("steps");
+  const [studioTab, setStudioTab] = useState<"playwright"|"terminal"|"files"|"memory"|"webbuilder"|"gis"|"api">("playwright");
+  const [studioRightTab, setStudioRightTab] = useState<"steps"|"console"|"actions"|"code">("steps");
   const [studioSidebarTool, setStudioSidebarTool] = useState("playwright");
   const [studioInput, setStudioInput] = useState("");
   const [consoleLogs, setConsoleLogs] = useState<{t:string,msg:string}[]>([{t:"dim",msg:"Dev Studio spreman"}]);
@@ -737,7 +737,7 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
   };
 
 
-  // - Dev Studio helpers -
+  // ── Dev Studio helpers ────────────────────────────────────
   const addLog = (t: string, msg: string) => {
     setConsoleLogs(prev => [...prev.slice(-99), { t, msg }]);
     setTimeout(() => consoleEndRef.current?.scrollIntoView({ behavior: "smooth" }), 30);
@@ -1297,7 +1297,7 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
                   R
                 </button>
                 <div className="flex items-center gap-0.5 bg-white/[0.04] rounded-lg p-0.5 border border-white/[0.06]">
-                  {(["flash","pro","flash3","pro3"]).map((key) => {
+                  {(["flash","pro","flash3","pro3"] as const).map((key) => {
                     const labels: Record<string,string> = {flash:"2.5F",pro:"2.5P",flash3:"3F",pro3:"3.1P"};
                     const titles: Record<string,string> = {flash:"Gemini 2.5 Flash",pro:"Gemini 2.5 Pro",flash3:"Gemini 3 Flash Preview",pro3:"Gemini 3.1 Pro Preview"};
                     return (
@@ -1439,11 +1439,11 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
           </>
         )}
 
-        {/* === STELLAN DEV STUDIO === */}
+        {/* ═══ STELLAN DEV STUDIO ═══ */}
         {devMode && !isMobile && (
           <div className="flex-1 border-l border-white/[0.06] flex flex-col bg-[hsl(220,15%,4%)] min-w-0 overflow-hidden">
 
-            {/* TOP BAR */}
+            {/* ── TOP BAR ── */}
             <div className="flex items-stretch border-b border-white/[0.06] bg-[hsl(220,15%,5%)] shrink-0 h-[42px]">
               {/* Brand */}
               <div className="flex items-center gap-2 px-3 border-r border-white/[0.06] shrink-0">
@@ -1463,7 +1463,7 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
                   { key: "webbuilder", icon: "🎨", label: "Web Builder" },
                   { key: "gis",        icon: "🗺️", label: "GIS Alati" },
                   { key: "api",        icon: "🔌", label: "API Tester" },
-                ]).map(t => (
+                ] as const).map(t => (
                   <button
                     key={t.key}
                     onClick={() => setStudioTab(t.key)}
@@ -1504,7 +1504,7 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
               </div>
             </div>
 
-            {/* BODY */}
+            {/* ── BODY ── */}
             <div className="flex flex-1 min-h-0">
 
               {/* Left icon sidebar */}
@@ -1513,7 +1513,7 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
                   { key: "playwright", icon: "🎭", tip: "Playwright" },
                   { key: "terminal",   icon: "⌨️", tip: "Terminal" },
                   { key: "files",      icon: "📁", tip: "Fajlovi" },
-                ]).map(s => (
+                ] as const).map(s => (
                   <button key={s.key} title={s.tip}
                     onClick={() => { setStudioSidebarTool(s.key); setStudioTab(s.key); }}
                     className={cn("w-8 h-8 rounded-lg flex items-center justify-center text-sm transition-all",
@@ -1528,7 +1528,7 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
                   { key: "oss",    icon: "📋", tip: "OSS Portal" },
                   { key: "solo",   icon: "🧾", tip: "Solo.hr" },
                   { key: "drive",  icon: "📂", tip: "Google Drive" },
-                ]).map(s => (
+                ] as const).map(s => (
                   <button key={s.key} title={s.tip}
                     onClick={() => setStudioInput(`Otvori ${s.tip} u Playwright-u`)}
                     className="w-8 h-8 rounded-lg flex items-center justify-center text-sm text-white/20 hover:text-white/50 hover:bg-white/[0.05] transition-all">
@@ -1542,7 +1542,7 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
                   { key: "autocad",    icon: "📐", tip: "AutoCAD / LISP" },
                   { key: "git",        icon: "🔀", tip: "Git" },
                   { key: "api",        icon: "🔌", tip: "API Tester" },
-                ]).map(s => (
+                ] as const).map(s => (
                   <button key={s.key} title={s.tip}
                     onClick={() => setStudioInput(`Pokreni ${s.tip}`)}
                     className="w-8 h-8 rounded-lg flex items-center justify-center text-sm text-white/20 hover:text-white/50 hover:bg-white/[0.05] transition-all">
@@ -1631,7 +1631,7 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
                     { key: "console", label: "Log" },
                     { key: "actions", label: "Akcije" },
                     { key: "code",    label: "Kod" },
-                  ]).map(t => (
+                  ] as const).map(t => (
                     <button key={t.key} onClick={() => setStudioRightTab(t.key)}
                       className={cn("flex-1 py-1.5 text-[9px] border-b-[1.5px] transition-all",
                         studioRightTab === t.key
@@ -1763,7 +1763,7 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
               </div>
             </div>
 
-            {/* BOTTOM COMMAND BAR */}
+            {/* ── BOTTOM COMMAND BAR ── */}
             <div className="flex items-center gap-2 px-3 py-2 border-t border-white/[0.06] bg-[hsl(220,15%,5%)] shrink-0">
               <input
                 value={studioInput}
@@ -1794,7 +1794,7 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
               >▶ Izvedi</button>
             </div>
 
-            {/* STATUS BAR */}
+            {/* ── STATUS BAR ── */}
             <div className="flex items-center gap-3 px-3 py-1 border-t border-white/[0.04] bg-[hsl(220,15%,3%)] shrink-0">
               <div className="flex items-center gap-1.5 text-[9px] text-white/25">
                 <div className={cn("w-1.5 h-1.5 rounded-full", agentOnline === true ? "bg-emerald-400 animate-pulse" : agentOnline === false ? "bg-red-400" : "bg-white/20")} />
