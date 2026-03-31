@@ -1621,6 +1621,7 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
                     </div>
                   )}
                 </div>
+              </div>
 
               {/* Right panel */}
               <div className="w-[220px] border-l border-white/[0.06] flex flex-col bg-[hsl(220,15%,4%)] shrink-0">
