@@ -521,13 +521,12 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
   useEffect(() => {
     const last = messages[messages.length - 1];
     if (last?.role === "assistant" && last.content) {
-      addLog("ok", "✓ " + last.content.replace(/#+\s/g,"").slice(0,70));
-      const codeMatch = last.content.match(/```(?:typescript|javascript|python)?\n([\s\S]*?)```/);
-      if (codeMatch) setGeneratedCode(codeMatch[1].trim());
-      const b64Match = last.content.match(/!\[.*?\]\((data:image\/[^)]+)\)/);
-      if (b64Match) { setPreviewScreenshot(b64Match[1]); addLog("ok", "📸 screenshot"); }
-      const jsonB64 = last.content.match(/"screenshot_base64"\s*:\s*"([A-Za-z0-9+/=]{20,})"/);
-      if (jsonB64) { setPreviewScreenshot("data:image/png;base64," + jsonB64[1]); addLog("ok", "📸 screenshot"); }
+      addLog("ok", "OK " + last.content.slice(0,70));
+      const b64idx = last.content.indexOf("data:image/png;base64,");
+      if (b64idx > -1) {
+        const b64end = last.content.indexOf(")", b64idx);
+        if (b64end > -1) { setPreviewScreenshot(last.content.slice(b64idx, b64end)); addLog("ok", "screenshot"); }
+      }
     }
   }, [messages.length]);
 
