@@ -1816,9 +1816,10 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
                 onClick={checkAgentHealth}
                 className="ml-auto text-[9px] text-white/15 hover:text-white/40 transition-colors"
                 title="Provjeri status agenta"
-              >↺</button>
+              >↻</button>
             </div>
 
+          </div>
           </div>
         )}
     </div>
