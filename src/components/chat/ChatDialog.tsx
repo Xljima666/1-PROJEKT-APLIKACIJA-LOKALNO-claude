@@ -736,7 +736,6 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
     }
   };
 
-  const handleDeploy = async () => {
 
   // ── Dev Studio helpers ────────────────────────────────────
   const addLog = (t: string, msg: string) => {
@@ -774,6 +773,7 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
     `Napravi playwright screenshot stranice ${previewUrl} i detaljno opiši što vidiš — sve elemente, tekstove, gumbe, inpute, navigaciju.`
   );
 
+  const handleDeploy = async () => {
     setIsDeploying(true);
     setDeployStatus("idle");
     try {
