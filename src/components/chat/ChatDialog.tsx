@@ -1795,7 +1795,7 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
               >▶ Izvedi</button>
             </div>
 
-            {/* ── STATUS BAR ── */}
+            {/* STATUS BAR */}
             <div className="flex items-center gap-3 px-3 py-1 border-t border-white/[0.04] bg-[hsl(220,15%,3%)] shrink-0">
               <div className="flex items-center gap-1.5 text-[9px] text-white/25">
                 <div className={cn("w-1.5 h-1.5 rounded-full", agentOnline === true ? "bg-emerald-400 animate-pulse" : agentOnline === false ? "bg-red-400" : "bg-white/20")} />
