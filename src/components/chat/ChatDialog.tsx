@@ -737,7 +737,7 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
   };
 
 
-  // ── Dev Studio helpers ────────────────────────────────────
+  // Dev Studio helpers ────────────────────────────────────
   const addLog = (t: string, msg: string) => {
     setConsoleLogs(prev => [...prev.slice(-99), { t, msg }]);
     setTimeout(() => consoleEndRef.current?.scrollIntoView({ behavior: "smooth" }), 30);
@@ -1439,11 +1439,11 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
           </>
         )}
 
-        {/* ═══ STELLAN DEV STUDIO ═══ */}
+        {/* STELLAN DEV STUDIO */}
         {devMode && !isMobile && (
           <div className="flex-1 border-l border-white/[0.06] flex flex-col bg-[hsl(220,15%,4%)] min-w-0 overflow-hidden">
 
-            {/* ── TOP BAR ── */}
+            {/* TOP BAR */}
             <div className="flex items-stretch border-b border-white/[0.06] bg-[hsl(220,15%,5%)] shrink-0 h-[42px]">
               {/* Brand */}
               <div className="flex items-center gap-2 px-3 border-r border-white/[0.06] shrink-0">
@@ -1504,7 +1504,7 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
               </div>
             </div>
 
-            {/* ── BODY ── */}
+            {/* BODY */}
             <div className="flex flex-1 min-h-0">
 
               {/* Left icon sidebar */}
@@ -1551,7 +1551,7 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
                 ))}
               </div>
 
-              {/* Center — URL bar + iframe */}
+              {/* Center - URL bar */}
               <div className="flex flex-col flex-1 min-w-0">
                 {/* URL bar */}
                 <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-[hsl(220,15%,5%)] border-b border-white/[0.05] shrink-0">
@@ -1587,7 +1587,7 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
                   </div>
                 </div>
 
-                {/* Screenshot Preview — Playwright */}
+                {/* Screenshot Preview */}
                 <div className="flex-1 relative bg-[#0a0c12] overflow-auto flex items-start justify-center">
                   {previewScreenshot ? (
                     <>
@@ -1679,7 +1679,7 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
                 )}
 
 
-                {/* Console tab — live logs */}
+                {/* Console tab */}
                 {studioRightTab === "console" && (
                   <div className="flex-1 p-2 font-mono text-[9px] leading-loose overflow-y-auto bg-[hsl(220,15%,3%)]">
                     {consoleLogs.map((l, i) => (
@@ -1698,7 +1698,7 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
                   </div>
                 )}
 
-                {/* Actions tab — click to execute */}
+                {/* Actions tab */}
                 {studioRightTab === "actions" && (
                   <div className="flex-1 p-2 flex flex-col gap-1.5 overflow-y-auto">
                     <div className="text-[9px] text-white/20 px-1 mb-1">Klikni akciju → Stellan izvršava</div>
@@ -1729,7 +1729,7 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
                   </div>
                 )}
 
-                {/* Code tab — auto-populated from assistant responses */}
+                {/* Code tab */}
                 {studioRightTab === "code" && (
                   <div className="flex-1 p-2 overflow-y-auto flex flex-col gap-2">
                     <div className="text-[9px] text-white/20 px-1">Kod iz Stellanovog odgovora</div>
@@ -1764,7 +1764,7 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
               </div>
             </div>
 
-            {/* ── BOTTOM COMMAND BAR ── */}
+            {/* BOTTOM COMMAND BAR */}
             <div className="flex items-center gap-2 px-3 py-2 border-t border-white/[0.06] bg-[hsl(220,15%,5%)] shrink-0">
               <input
                 value={studioInput}
