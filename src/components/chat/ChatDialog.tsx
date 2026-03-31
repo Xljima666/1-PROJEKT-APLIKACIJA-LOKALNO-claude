@@ -151,6 +151,8 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
   const [sidebarSearch, setSidebarSearch] = useState("");
   const [thinkingStatus, setThinkingStatus] = useState<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const [isValidating, setIsValidating] = useState(false);
+  const [isAgentActionRunning, setIsAgentActionRunning] = useState(false);
 
   const voiceBaseRef = useRef("");
 
