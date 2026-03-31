@@ -1617,7 +1617,7 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
                       <button
                         onClick={() => studioSend(`Otvori ${previewUrl} u Playwright-u i napravi screenshot`)}
                         className="px-3 py-1.5 rounded-lg text-[10px] text-indigo-300 bg-indigo-500/10 border border-indigo-500/20 hover:bg-indigo-500/20 transition-all"
-                      >▶ Otvori {previewUrl}</button>
+                      >▶ Otvori</button>
                     </div>
                   )}
                 </div>
@@ -1810,7 +1810,7 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
                 <div className="w-1 h-1 rounded-full bg-violet-400" />
                 {selectedModel}
               </div>
-              <div className="text-[9px] text-white/12 ml-1 truncate max-w-[200px]">📍 {previewUrl}</div>
+              <div className="text-[9px] text-white/12 ml-1 truncate max-w-[200px]">📍 <span>{previewUrl}</span></div>
               <button
                 onClick={checkAgentHealth}
                 className="ml-auto text-[9px] text-white/15 hover:text-white/40 transition-colors"
