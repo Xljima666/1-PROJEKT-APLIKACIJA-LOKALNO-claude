@@ -140,6 +140,12 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
   const [studioRightTab, setStudioRightTab] = useState<"steps"|"console"|"actions"|"code">("steps");
   const [studioSidebarTool, setStudioSidebarTool] = useState("playwright");
   const [studioInput, setStudioInput] = useState("");
+  const [consoleLogs, setConsoleLogs] = useState<{t:string,msg:string}[]>([{t:"dim",msg:"Dev Studio spreman"}]);
+  const [agentOnline, setAgentOnline] = useState<boolean|null>(null);
+  const [generatedCode, setGeneratedCode] = useState("");
+  const [previewScreenshot, setPreviewScreenshot] = useState<string | null>(null);
+  const [previewScreenshotUrl, setPreviewScreenshotUrl] = useState<string>("");
+  const consoleEndRef = useRef<HTMLDivElement>(null);
   const [reactions, setReactions] = useState<Record<number, "up" | "down">>({});
   const [pendingImages, setPendingImages] = useState<{name: string, base64: string, size: number}[]>([]);
   const [sidebarSearch, setSidebarSearch] = useState("");
@@ -509,6 +515,23 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
     scrollToBottom();
   }, [messages, thinkingStatus, scrollToBottom]);
 
+
+  useEffect(() => { if (thinkingStatus) addLog("info", thinkingStatus); }, [thinkingStatus]);
+
+  useEffect(() => {
+    const last = messages[messages.length - 1];
+    if (last?.role === "assistant" && last.content) {
+      addLog("ok", "✓ " + last.content.replace(/#+\s/g,"").slice(0,70));
+      const codeMatch = last.content.match(/```(?:typescript|javascript|python)?\n([\s\S]*?)```/);
+      if (codeMatch) setGeneratedCode(codeMatch[1].trim());
+      const b64Match = last.content.match(/!\[.*?\]\((data:image\/[^)]+)\)/);
+      if (b64Match) { setPreviewScreenshot(b64Match[1]); addLog("ok", "📸 screenshot"); }
+      const jsonB64 = last.content.match(/"screenshot_base64"\s*:\s*"([A-Za-z0-9+/=]{20,})"/);
+      if (jsonB64) { setPreviewScreenshot("data:image/png;base64," + jsonB64[1]); addLog("ok", "📸 screenshot"); }
+    }
+  }, [messages.length]);
+
+  useEffect(() => { if (devMode) checkAgentHealth(); }, [devMode]);
   useEffect(() => {
     if (inputRef.current) {
       inputRef.current.style.height = "auto";
@@ -714,6 +737,43 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
   };
 
   const handleDeploy = async () => {
+
+  // ── Dev Studio helpers ────────────────────────────────────
+  const addLog = (t: string, msg: string) => {
+    setConsoleLogs(prev => [...prev.slice(-99), { t, msg }]);
+    setTimeout(() => consoleEndRef.current?.scrollIntoView({ behavior: "smooth" }), 30);
+  };
+
+  const checkAgentHealth = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) { setAgentOnline(false); return; }
+      const res = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/agent-health`,
+        { headers: { Authorization: `Bearer ${session.access_token}`, apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY } }
+      );
+      setAgentOnline(res.ok);
+      addLog(res.ok ? "ok" : "warn", res.ok ? "✓ agent online :8432" : "✗ agent offline");
+    } catch { setAgentOnline(false); addLog("warn", "✗ agent nedostupan"); }
+  };
+
+  const studioSend = (cmd: string) => {
+    if (!cmd.trim()) return;
+    addLog("info", "→ " + cmd.trim().slice(0, 80));
+    setInput(cmd.trim());
+    setStudioInput("");
+    setTimeout(() => {
+      const btn = document.querySelector("[data-send-btn]") as HTMLButtonElement;
+      btn?.click();
+    }, 80);
+  };
+
+  const handleStudioExecute = () => studioSend(studioInput);
+
+  const handleStudioScreenshot = () => studioSend(
+    `Napravi playwright screenshot stranice ${previewUrl} i detaljno opiši što vidiš — sve elemente, tekstove, gumbe, inpute, navigaciju.`
+  );
+
     setIsDeploying(true);
     setDeployStatus("idle");
     try {
@@ -1267,7 +1327,7 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
                         ? "bg-primary text-primary-foreground hover:bg-primary/90"
                         : "bg-white/[0.06] text-white/20 cursor-not-allowed"
                     )}
-                    onClick={send}
+                    onClick={send} data-send-btn
                     disabled={!input.trim() && pendingImages.length === 0}
                   >
                     <Send className="w-3.5 h-3.5" />
@@ -1498,7 +1558,7 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
                   <div className="flex gap-1">
                     {["←","→","↻"].map(a => (
                       <button key={a}
-                        onClick={a === "↻" ? () => { const f = document.getElementById("studio-preview") as HTMLIFrameElement; if(f) f.src=f.src; } : undefined}
+                        onClick={a === "↻" ? () => studioSend(`Napravi playwright screenshot stranice ${previewUrl}`) : undefined}
                         className="w-5 h-5 rounded text-[9px] text-white/25 bg-white/[0.03] border border-white/[0.06] hover:text-white/50 hover:bg-white/[0.07] transition-all flex items-center justify-center">
                         {a}
                       </button>
@@ -1527,14 +1587,40 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
                   </div>
                 </div>
 
-                {/* iframe preview */}
-                <iframe
-                  id="studio-preview"
-                  src={previewUrl}
-                  className="flex-1 w-full border-0 bg-[#0e1018]"
-                  title="Stellan Dev Preview"
-                />
-              </div>
+                {/* Screenshot Preview — Playwright */}
+                <div className="flex-1 relative bg-[#0a0c12] overflow-auto flex items-start justify-center">
+                  {previewScreenshot ? (
+                    <>
+                      <img
+                        src={previewScreenshot}
+                        alt="Playwright screenshot"
+                        className="w-full h-auto object-contain"
+                        style={{maxWidth:"100%"}}
+                      />
+                      <div className="absolute top-2 right-2 flex gap-1.5">
+                        <button
+                          onClick={() => studioSend(`Napravi playwright screenshot stranice ${previewUrl} i opiši promjene`)}
+                          className="px-2 py-1 rounded-md text-[9px] bg-black/60 text-white/50 border border-white/10 hover:bg-black/80 backdrop-blur-sm transition-all"
+                        >↻ Osvježi</button>
+                        <button
+                          onClick={() => setPreviewScreenshot(null)}
+                          className="px-2 py-1 rounded-md text-[9px] bg-black/60 text-white/50 border border-white/10 hover:bg-black/80 backdrop-blur-sm transition-all"
+                        >✕</button>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="flex flex-col items-center justify-center h-full gap-4 p-8 text-center">
+                      <div className="text-4xl opacity-20">🎭</div>
+                      <div className="text-[11px] text-white/20 leading-relaxed max-w-[200px]">
+                        Upiši URL i klikni 📸 ili reci Stellanu da otvori stranicu
+                      </div>
+                      <button
+                        onClick={() => studioSend(`Otvori ${previewUrl} u Playwright-u i napravi screenshot`)}
+                        className="px-3 py-1.5 rounded-lg text-[10px] text-indigo-300 bg-indigo-500/10 border border-indigo-500/20 hover:bg-indigo-500/20 transition-all"
+                      >▶ Otvori {previewUrl}</button>
+                    </div>
+                  )}
+                </div>
 
               {/* Right panel */}
               <div className="w-[220px] border-l border-white/[0.06] flex flex-col bg-[hsl(220,15%,4%)] shrink-0">
@@ -1591,54 +1677,47 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
                   </div>
                 )}
 
-                {/* Console tab */}
+
+                {/* Console tab — live logs */}
                 {studioRightTab === "console" && (
-                  <div className="flex-1 p-2 font-mono text-[9px] leading-loose overflow-y-auto">
-                    {([
-                      { t: "ok",   msg: "agent :8432 ready" },
-                      { t: "info", msg: "playwright init" },
-                      { t: "ok",   msg: "page loaded 342ms" },
-                      { t: "info", msg: "login success" },
-                      { t: "ok",   msg: "navigated /zahtjevi" },
-                      { t: "wait", msg: "waiting for click..." },
-                    ]).map((l, i) => (
-                      <div key={i} className="flex gap-2">
-                        <span className="text-white/15">
-                          {String(i+1).padStart(2,"0")}
-                        </span>
+                  <div className="flex-1 p-2 font-mono text-[9px] leading-loose overflow-y-auto bg-[hsl(220,15%,3%)]">
+                    {consoleLogs.map((l, i) => (
+                      <div key={i} className="flex gap-2 items-start">
+                        <span className="text-white/10 shrink-0">{String(i+1).padStart(2,"0")}</span>
                         <span className={
                           l.t === "ok"   ? "text-emerald-400" :
                           l.t === "info" ? "text-indigo-300" :
                           l.t === "warn" ? "text-amber-300" :
-                          "text-white/25"
+                          l.t === "err"  ? "text-red-400" :
+                          "text-white/20"
                         }>{l.msg}</span>
                       </div>
                     ))}
-                    <div className="flex gap-2">
-                      <span className="text-white/15">07</span>
-                      <span className="text-white/30">_<span className="inline-block w-1.5 h-3 bg-emerald-400/70 animate-pulse align-middle ml-0.5" /></span>
-                    </div>
+                    <div ref={consoleEndRef} />
                   </div>
                 )}
 
-                {/* Actions tab */}
+                {/* Actions tab — click to execute */}
                 {studioRightTab === "actions" && (
                   <div className="flex-1 p-2 flex flex-col gap-1.5 overflow-y-auto">
-                    <div className="text-[9px] text-white/20 px-1 mb-1">Naučene akcije</div>
+                    <div className="text-[9px] text-white/20 px-1 mb-1">Klikni akciju → Stellan izvršava</div>
                     {([
-                      { icon: "🏛️", name: "SDGE prijava",       badge: "ok",  bc: "emerald" },
-                      { icon: "📋", name: "OSS pretraživanje",  badge: "ok",  bc: "emerald" },
-                      { icon: "🧾", name: "Solo novi račun",     badge: "ok",  bc: "emerald" },
-                      { icon: "📂", name: "Drive upload PDF",    badge: "ok",  bc: "emerald" },
-                      { icon: "🔍", name: "OIB lookup",         badge: "ok",  bc: "emerald" },
-                      { icon: "📐", name: "LISP pokretanje",    badge: "beta", bc: "amber" },
-                      { icon: "🗺️", name: "QGIS export",        badge: "wip",  bc: "indigo" },
+                      { icon: "🏛️", name: "SDGE prijava",              cmd: "Otvori SDGE portal playwright-om i prijavi se s kredencijalima", badge: "ok", bc: "emerald" },
+                      { icon: "📋", name: "OSS pretraživanje",          cmd: "Otvori OSS portal playwright-om i pretraži najnovije predmete", badge: "ok", bc: "emerald" },
+                      { icon: "🧾", name: "Solo novi račun",             cmd: "Otvori Solo.hr playwright-om i pripremi novi račun", badge: "ok", bc: "emerald" },
+                      { icon: "📂", name: "Drive pregled foldera",       cmd: "Pretraži firmeni Google Drive i ispiši sadržaj glavnog foldera", badge: "ok", bc: "emerald" },
+                      { icon: "🔍", name: "OIB lookup",                 cmd: "Pokreni provjeru OIB-a za unos korisnika", badge: "ok", bc: "emerald" },
+                      { icon: "📸", name: "Screenshot + analiza",       cmd: `Napravi playwright screenshot stranice ${previewUrl} i detaljno opiši što vidiš`, badge: "live", bc: "indigo" },
+                      { icon: "🗺️", name: "eNekretnine parcela",        cmd: "Otvori eNekretnine playwright-om i pretraži podatke o parceli", badge: "ok", bc: "emerald" },
+                      { icon: "📐", name: "Pokreni LISP skriptu",       cmd: "Pokreni Python skriptu koja poziva AutoCAD LISP funkciju", badge: "beta", bc: "amber" },
+                      { icon: "🔀", name: "Git push deploy",            cmd: "Pokreni git push na GitHub i deploya na Vercel", badge: "ok", bc: "emerald" },
+                      { icon: "🌐", name: "Web scrape stranice",        cmd: `Scrapiraj sadržaj stranice ${previewUrl} i izvuci ključne podatke`, badge: "live", bc: "indigo" },
                     ]).map((a, i) => (
                       <button key={i}
-                        onClick={() => setStudioInput(`Pokreni akciju: ${a.name}`)}
-                        className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-white/[0.03] border border-white/[0.05] hover:bg-white/[0.06] hover:border-white/[0.1] transition-all text-left">
+                        onClick={() => studioSend(a.cmd)}
+                        className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-white/[0.03] border border-white/[0.05] hover:bg-indigo-500/[0.08] hover:border-indigo-500/20 transition-all text-left group">
                         <span className="text-sm">{a.icon}</span>
-                        <span className="flex-1 text-[10px] text-white/50">{a.name}</span>
+                        <span className="flex-1 text-[10px] text-white/45 group-hover:text-white/70">{a.name}</span>
                         <span className={cn("text-[8px] px-1.5 py-0.5 rounded-full border",
                           a.bc === "emerald" ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" :
                           a.bc === "amber"   ? "bg-amber-500/10 text-amber-400 border-amber-500/20" :
@@ -1649,27 +1728,36 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
                   </div>
                 )}
 
-                {/* Code tab */}
+                {/* Code tab — auto-populated from assistant responses */}
                 {studioRightTab === "code" && (
-                  <div className="flex-1 p-2 overflow-y-auto">
-                    <div className="text-[9px] text-white/20 px-1 mb-1.5">Generirani Playwright kod</div>
-                    <div className="bg-white/[0.03] rounded-lg p-2.5 border border-white/[0.05] font-mono text-[9px] text-white/40 leading-relaxed">
-                      <div className="text-indigo-400">await page.goto(</div>
-                      <div className="pl-2 text-amber-300/70">'https://sdge.hr'</div>
-                      <div className="text-indigo-400">);</div>
-                      <div className="mt-1 text-indigo-400">await page.fill(</div>
-                      <div className="pl-2 text-amber-300/70">'#username',</div>
-                      <div className="pl-2 text-emerald-300/70">credentials.user</div>
-                      <div className="text-indigo-400">);</div>
-                      <div className="mt-1 text-indigo-400">await page.click(</div>
-                      <div className="pl-2 text-amber-300/70">'#btn-novi'</div>
-                      <div className="text-indigo-400">);</div>
-                    </div>
-                    <button
-                      onClick={() => { navigator.clipboard.writeText("// Playwright kod"); }}
-                      className="mt-2 w-full py-1.5 text-[9px] text-white/30 border border-white/[0.07] rounded-lg hover:bg-white/[0.04] transition-all">
-                      Kopiraj kod
-                    </button>
+                  <div className="flex-1 p-2 overflow-y-auto flex flex-col gap-2">
+                    <div className="text-[9px] text-white/20 px-1">Kod iz Stellanovog odgovora</div>
+                    {generatedCode ? (
+                      <>
+                        <pre className="bg-white/[0.03] rounded-lg p-2.5 border border-white/[0.05] font-mono text-[9px] text-white/50 leading-relaxed overflow-x-auto whitespace-pre-wrap">
+                          {generatedCode}
+                        </pre>
+                        <div className="flex gap-1.5">
+                          <button
+                            onClick={() => navigator.clipboard.writeText(generatedCode)}
+                            className="flex-1 py-1.5 text-[9px] text-white/30 border border-white/[0.07] rounded-lg hover:bg-white/[0.04] transition-all">
+                            📋 Kopiraj
+                          </button>
+                          <button
+                            onClick={() => studioSend(`Pokreni ovaj kod lokalno:\n\`\`\`\n${generatedCode}\n\`\`\``)}
+                            className="flex-1 py-1.5 text-[9px] text-emerald-400 border border-emerald-500/20 rounded-lg bg-emerald-500/[0.06] hover:bg-emerald-500/10 transition-all">
+                            ▶ Pokreni
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="flex-1 flex items-center justify-center">
+                        <div className="text-center text-[10px] text-white/15 px-4">
+                          <div className="text-2xl mb-2">{ }</div>
+                          Kada Stellan napiše kod, pojavljuje se ovdje
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -1680,51 +1768,58 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
               <input
                 value={studioInput}
                 onChange={e => setStudioInput(e.target.value)}
-                onKeyDown={e => {
-                  if (e.key === "Enter" && studioInput.trim()) {
-                    setInput(studioInput);
-                    setStudioInput("");
-                    setTimeout(() => inputRef.current?.focus(), 50);
-                  }
-                }}
-                placeholder="Nauči Stellana novu akciju ili daj naredbu..."
+                onKeyDown={e => { if (e.key === "Enter") handleStudioExecute(); }}
+                placeholder="Nauči Stellana akciju, daj playwright naredbu..."
                 className="flex-1 bg-white/[0.04] border border-white/[0.07] rounded-lg px-3 py-2 text-[11px] font-mono text-white/50 placeholder:text-white/20 focus:outline-none focus:border-indigo-500/30 focus:text-white/70 transition-colors"
               />
               <button
-                onClick={() => setStudioInput("Napravi screenshot i reci što vidiš")}
-                className="flex items-center gap-1 px-2.5 py-2 rounded-lg text-[10px] text-white/30 bg-white/[0.03] border border-white/[0.06] hover:bg-white/[0.07] hover:text-white/50 transition-all"
-              >📸 Screenshot</button>
+                onClick={handleStudioScreenshot}
+                title="Screenshot trenutne stranice → Stellan analizira"
+                className="flex items-center gap-1 px-2.5 py-2 rounded-lg text-[10px] text-white/35 bg-white/[0.03] border border-white/[0.06] hover:bg-white/[0.07] hover:text-white/60 transition-all"
+              >📸</button>
               <button
-                onClick={() => {
-                  if (studioInput.trim()) {
-                    setInput(studioInput);
-                    setStudioInput("");
-                    setTimeout(() => { inputRef.current?.focus(); send(); }, 50);
-                  }
-                }}
-                className="flex items-center gap-1 px-3 py-2 rounded-lg text-[10px] font-medium text-indigo-200 bg-indigo-500/15 border border-indigo-500/25 hover:bg-indigo-500/25 transition-all"
+                onClick={() => { setStudioRightTab("console"); addLog("info", "→ otvori " + previewUrl); }}
+                title="Otvori URL u previewu"
+                className="flex items-center gap-1 px-2.5 py-2 rounded-lg text-[10px] text-white/35 bg-white/[0.03] border border-white/[0.06] hover:bg-white/[0.07] hover:text-white/60 transition-all"
+              >🌐</button>
+              <button
+                onClick={handleStudioExecute}
+                disabled={!studioInput.trim()}
+                className={cn(
+                  "flex items-center gap-1 px-3 py-2 rounded-lg text-[10px] font-medium border transition-all",
+                  studioInput.trim()
+                    ? "text-indigo-200 bg-indigo-500/15 border-indigo-500/25 hover:bg-indigo-500/25"
+                    : "text-white/15 bg-white/[0.02] border-white/[0.05] cursor-not-allowed"
+                )}
               >▶ Izvedi</button>
             </div>
 
             {/* ── STATUS BAR ── */}
             <div className="flex items-center gap-3 px-3 py-1 border-t border-white/[0.04] bg-[hsl(220,15%,3%)] shrink-0">
-              {[
-                { dot: "bg-emerald-400", text: "Agent :8432" },
-                { dot: "bg-emerald-400", text: "Playwright v1.40" },
-                { dot: "bg-indigo-400",  text: selectedModel },
-              ].map((s, i) => (
-                <div key={i} className="flex items-center gap-1.5 text-[9px] text-white/20">
-                  <div className={cn("w-1 h-1 rounded-full", s.dot)} />
-                  {s.text}
-                </div>
-              ))}
-              <div className="text-[9px] text-white/15 ml-1">📍 {previewUrl}</div>
-              <div className="ml-auto text-[9px] text-white/15">GeoTerra Info d.o.o.</div>
+              <div className="flex items-center gap-1.5 text-[9px] text-white/25">
+                <div className={cn("w-1.5 h-1.5 rounded-full", agentOnline === true ? "bg-emerald-400 animate-pulse" : agentOnline === false ? "bg-red-400" : "bg-white/20")} />
+                {agentOnline === true ? "Agent online" : agentOnline === false ? "Agent offline" : "Agent..."}
+              </div>
+              <div className="w-px h-3 bg-white/[0.07]" />
+              <div className="flex items-center gap-1.5 text-[9px] text-white/20">
+                <div className="w-1 h-1 rounded-full bg-indigo-400" />
+                Playwright
+              </div>
+              <div className="w-px h-3 bg-white/[0.07]" />
+              <div className="flex items-center gap-1.5 text-[9px] text-white/20">
+                <div className="w-1 h-1 rounded-full bg-violet-400" />
+                {selectedModel}
+              </div>
+              <div className="text-[9px] text-white/12 ml-1 truncate max-w-[200px]">📍 {previewUrl}</div>
+              <button
+                onClick={checkAgentHealth}
+                className="ml-auto text-[9px] text-white/15 hover:text-white/40 transition-colors"
+                title="Provjeri status agenta"
+              >↺</button>
             </div>
 
           </div>
         )}
-      </div>
     </div>
   );
 };
