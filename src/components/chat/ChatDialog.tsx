@@ -750,6 +750,24 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
     setTimeout(() => consoleEndRef.current?.scrollIntoView({ behavior: "smooth" }), 30);
   };
 
+  // Direct agent call - bypasses Stellan/Gemini entirely
+  const callAgentDirect = async (endpoint: string, body: object = {}) => {
+    const AGENT_URL = import.meta.env.VITE_AGENT_SERVER_URL || "";
+    const AGENT_KEY = import.meta.env.VITE_AGENT_API_KEY || "";
+    if (!AGENT_URL) { addLog("warn", "AGENT_SERVER_URL nije postavljen"); return null; }
+    try {
+      const res = await fetch(`${AGENT_URL}/${endpoint}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-API-Key": AGENT_KEY, "ngrok-skip-browser-warning": "true" },
+        body: JSON.stringify(body),
+      });
+      return await res.json();
+    } catch (e) {
+      addLog("warn", `Agent greška: ${e}`);
+      return null;
+    }
+  };
+
   const checkAgentHealth = async () => {
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -800,12 +818,7 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
         return;
       }
       const desc = stepDesc || "korak " + (recordedSteps.length + 1);
-      const res = await fetch(`${AGENT_URL}/screenshot/step`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-API-Key": import.meta.env.VITE_AGENT_API_KEY || "" },
-        body: JSON.stringify({ description: desc })
-      });
-      const data = await res.json();
+      const data = await callAgentDirect("screenshot/step", { description: desc });
       if (data.success) {
         const step = { n: recordedSteps.length + 1, url: data.url, desc, screenshot: data.screenshot_base64 };
         setRecordedSteps(prev => [...prev, step]);
@@ -828,8 +841,14 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
     setRecordingName(name);
     setIsRecording(true);
     setRecordedSteps([]);
-    addLog("ok", "Snimanje pokrenuto: " + name);
-    studioSend("Pokreni snimanje Playwright akcija pod imenom: " + name);
+    addLog("info", "Pokrecemo snimanje...");
+    const result = await callAgentDirect("record/start", { name });
+    if (result?.success) {
+      addLog("ok", "Snimanje pokrenuto: " + name);
+    } else {
+      addLog("warn", "Greška pri pokretanju: " + (result?.error || "agent nedostupan"));
+      setIsRecording(false);
+    }
   };
 
   const handleCancelRecording = () => {
@@ -842,12 +861,18 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
 
   const handleSaveAction = async () => {
     if (!recordingName) return;
+    addLog("info", "Spremam akciju...");
+    const result = await callAgentDirect("record/save", { name: recordingName });
+    if (result?.success) {
+      addLog("ok", `Akcija "${recordingName}" spremljena (${result.steps || 0} linija koda)`);
+      if (result.script) setGeneratedCode(result.script);
+      setStudioRightTab("code");
+    } else {
+      addLog("warn", "Greška pri spremanju: " + (result?.error || "agent nedostupan"));
+    }
     setIsRecording(false);
-    addLog("ok", "💾 Spremam akciju: " + recordingName);
-    studioSend("Spremi snimljene korake kao akciju pod imenom: " + recordingName);
     setRecordingName("");
-    // Refresh actions list
-    setTimeout(() => studioSend("Prikaži sve naučene akcije"), 3000);
+    setRecordedSteps([]);
   };
 
   const handleListActions = () => {
