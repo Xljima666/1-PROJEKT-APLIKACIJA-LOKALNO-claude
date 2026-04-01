@@ -1875,44 +1875,63 @@ const devPanelPreview = {
 
         {/* STELLAN DEV STUDIO — powered by DevPanel */}
         {devMode && !isMobile && (
-          <div className="flex-1 border-l border-white/[0.06] min-w-0 overflow-hidden">
-            <DevPanel
-              title="Dev Studio"
-              messages={devPanelMessages}
-              steps={devPanelSteps}
-              preview={devPanelPreview}
-              consoleLogs={consoleLogs}
-              isAgentRunning={isAgentActionRunning}
-              isThinking={isLoading}
-              agentOnline={agentOnline}
-              modelBadge={MODEL_BADGES[selectedModel]}
-              isRecording={isRecording}
-              recordingName={recordingName}
-              isDeploying={isDeploying}
-              deployStatus={deployStatus}
-              savedActions={savedActions}
-              onSendMessage={(msg) => studioSend(msg)}
-              onRunAction={handleDevPanelAction}
-              onStopAgent={() => abortControllerRef.current?.abort()}
-              onClearSteps={() => setRecordedSteps([])}
-              onSelectStep={(step) => {
-                if (step.detail) {
-                  setPreviewUrl(step.detail);
-                }
-              }}
-              onDescribePreview={handlePreviewDescribe}
-              onWaitForLoad={handlePreviewWait}
-              onRefreshScreenshot={handleStudioScreenshot}
-              onDeploy={handleDeploy}
-              onStartAgent={handleStartAgent}
-              onStartRecording={handleStartRecording}
-              onSaveRecording={handleSaveAction}
-              onCancelRecording={handleCancelRecording}
-              onRunSavedAction={handleRunSavedAction}
-              onRefreshActions={handleRefreshActions}
-              onCheckHealth={checkAgentHealth}
-              onPortalAction={(cmd) => studioSend(cmd)}
-            />
+          <div className="flex-1 min-w-0 overflow-hidden flex flex-col">
+            <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/[0.06] bg-[hsl(220,15%,6%)] shrink-0">
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setDevMode(false)}
+                  className="h-8 px-3 rounded-lg bg-white/[0.06] text-white/70 hover:bg-white/[0.10] transition-colors text-[11px]"
+                >
+                  ← Izlaz iz DEV-a
+                </button>
+                <span className="text-[11px] text-white/30">Povratak na Stellan chat</span>
+              </div>
+              <button
+                onClick={onClose}
+                className="w-8 h-8 rounded-lg flex items-center justify-center text-white/30 hover:text-white hover:bg-white/[0.06] transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="flex-1 min-h-0 overflow-hidden">
+              <DevPanel
+                title="Dev Studio"
+                messages={devPanelMessages}
+                steps={devPanelSteps}
+                preview={devPanelPreview}
+                consoleLogs={consoleLogs}
+                isAgentRunning={isAgentActionRunning}
+                isThinking={isLoading}
+                agentOnline={agentOnline}
+                modelBadge={MODEL_BADGES[selectedModel]}
+                isRecording={isRecording}
+                recordingName={recordingName}
+                isDeploying={isDeploying}
+                deployStatus={deployStatus}
+                savedActions={savedActions}
+                onSendMessage={(msg) => studioSend(msg)}
+                onRunAction={handleDevPanelAction}
+                onStopAgent={() => abortControllerRef.current?.abort()}
+                onClearSteps={() => setRecordedSteps([])}
+                onSelectStep={(step) => {
+                  if (step.detail) {
+                    setPreviewUrl(step.detail);
+                  }
+                }}
+                onDescribePreview={handlePreviewDescribe}
+                onWaitForLoad={handlePreviewWait}
+                onRefreshScreenshot={handleStudioScreenshot}
+                onDeploy={handleDeploy}
+                onStartAgent={handleStartAgent}
+                onStartRecording={handleStartRecording}
+                onSaveRecording={handleSaveAction}
+                onCancelRecording={handleCancelRecording}
+                onRunSavedAction={handleRunSavedAction}
+                onRefreshActions={handleRefreshActions}
+                onCheckHealth={checkAgentHealth}
+                onPortalAction={(cmd) => studioSend(cmd)}
+              />
+            </div>
           </div>
         )}
       </div>
