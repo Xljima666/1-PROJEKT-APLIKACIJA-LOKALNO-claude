@@ -1,6 +1,5 @@
 import { cn } from "@/lib/utils";
 import {
-  Bot,
   Globe,
   MousePointerClick,
   Keyboard,
@@ -109,15 +108,6 @@ const quickActions: Array<{
   { key: "type", label: "Type", icon: "⌨️", placeholder: "upiši vrijednost..." },
   { key: "screenshot", label: "Screenshot", icon: "📸" },
   { key: "learn", label: "Learn", icon: "🧠", placeholder: "naziv flowa..." },
-];
-
-const portalButtons = [
-  { icon: "🏛️", name: "SDGE prijava", cmd: "Otvori SDGE portal playwright-om i prijavi se s kredencijalima" },
-  { icon: "📋", name: "OSS pretraživanje", cmd: "Otvori OSS portal playwright-om i pretraži najnovije predmete" },
-  { icon: "🧾", name: "Solo novi račun", cmd: "Otvori Solo.hr playwright-om i pripremi novi račun" },
-  { icon: "📂", name: "Drive pregled", cmd: "Pretraži firmeni Google Drive i ispiši sadržaj glavnog foldera" },
-  { icon: "🔍", name: "OIB lookup", cmd: "Pokreni provjeru OIB-a za unos korisnika" },
-  { icon: "🔀", name: "Git push", cmd: "Pokreni git push na GitHub i deploya na Vercel" },
 ];
 
 /* ──────────────────────────── Helpers ──────────────────────────── */
@@ -239,11 +229,8 @@ export default function DevPanel({
     else if (action === "learn") onRunAction?.("learn", { value: raw });
   };
 
-  /* ──────────────────────────── Render ──────────────────────────── */
-
   return (
     <div className="flex h-full min-w-0 flex-col bg-[hsl(220,15%,4%)]">
-
       {/* ═══ TOP BAR ═══ */}
       <div className="flex items-center justify-between border-b border-white/[0.06] bg-[hsl(220,15%,5%)] px-3 py-2 shrink-0">
         <div className="flex items-center gap-2.5">
@@ -255,7 +242,6 @@ export default function DevPanel({
         </div>
 
         <div className="flex items-center gap-1.5">
-          {/* Agent status */}
           <div className={cn(
             "flex items-center gap-1.5 px-2 py-1 rounded-full text-[9px] font-medium border",
             agentOnline === true ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
@@ -273,7 +259,6 @@ export default function DevPanel({
             {modelBadge}
           </div>
 
-          {/* Record */}
           {isRecording ? (
             <div className="flex items-center gap-1">
               <button onClick={onSaveRecording}
@@ -289,13 +274,11 @@ export default function DevPanel({
             </button>
           )}
 
-          {/* Agent */}
           <button onClick={onStartAgent}
             className="flex items-center gap-1 px-2 py-1 rounded-md text-[9px] font-medium bg-amber-500/10 text-amber-300 border border-amber-500/20 hover:bg-amber-500/15 transition-all">
             <Zap className="w-3 h-3" /> Agent
           </button>
 
-          {/* Deploy */}
           <button onClick={onDeploy} disabled={isDeploying}
             className={cn("flex items-center gap-1 px-2 py-1 rounded-md text-[9px] font-medium border transition-all",
               isDeploying ? "bg-amber-500/10 text-amber-300 border-amber-500/20 cursor-wait"
@@ -307,7 +290,6 @@ export default function DevPanel({
             {isDeploying ? "Deploy..." : deployStatus === "success" ? "✅" : deployStatus === "error" ? "❌" : "Deploy"}
           </button>
 
-          {/* Health check */}
           <button onClick={onCheckHealth} title="Provjeri agent status"
             className="px-1.5 py-1 rounded-md text-white/30 hover:text-white/60 hover:bg-white/[0.05] transition-all">
             <HardDrive className="w-3.5 h-3.5" />
@@ -315,88 +297,10 @@ export default function DevPanel({
         </div>
       </div>
 
-      {/* ═══ BODY — 3 columns ═══ */}
-      <div className="flex min-h-0 flex-1">
-
-        {/* ── LEFT: Chat ── */}
-        <div className="flex min-h-0 w-[35%] min-w-[280px] flex-col border-r border-white/[0.06] bg-[hsl(220,15%,5%)]">
-          {/* Chat header */}
-          <div className="flex items-center justify-between border-b border-white/[0.06] px-3 py-2.5">
-            <div className="flex items-center gap-2">
-              <Bot className="h-4 w-4 text-white/50" />
-              <span className="text-[11px] font-semibold text-white/75">Chat</span>
-            </div>
-            <span className="rounded-full bg-white/[0.06] px-2 py-0.5 text-[10px] text-white/35">{messages.length}</span>
-          </div>
-
-          {/* Messages */}
-          <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
-            <div className="space-y-2.5">
-              {messages.map((msg) => {
-                const isUser = msg.role === "user";
-                const isAssistant = msg.role === "assistant";
-                return (
-                  <div key={msg.id} className={cn("flex", isUser ? "justify-end" : "justify-start")}>
-                    <div className={cn(
-                      "max-w-[92%] rounded-2xl px-3.5 py-2.5 text-[12px] leading-relaxed shadow-sm",
-                      isUser && "bg-white text-black",
-                      isAssistant && "border border-white/[0.08] bg-white/[0.04] text-white/85",
-                      msg.role === "system" && "border border-amber-500/20 bg-amber-500/10 text-amber-200"
-                    )}>
-                      <div className="whitespace-pre-wrap">{msg.content}</div>
-                    </div>
-                  </div>
-                );
-              })}
-
-              {isThinking && (
-                <div className="flex justify-start">
-                  <div className="flex items-center gap-2 rounded-2xl border border-white/[0.08] bg-white/[0.04] px-3.5 py-2.5 text-[12px] text-white/70">
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    <span>Stellan radi...</span>
-                  </div>
-                </div>
-              )}
-              <div ref={messagesEndRef} />
-            </div>
-          </div>
-
-          {/* Input */}
-          <div className="border-t border-white/[0.06] p-2.5">
-            <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-2">
-              <textarea
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submitMessage(); } }}
-                placeholder='Npr. "Otvori sdge.hr, klikni prijavu..."'
-                rows={3}
-                className="w-full resize-none bg-transparent px-2 py-1.5 text-[12px] text-white/85 outline-none placeholder:text-white/20"
-              />
-              <div className="mt-1.5 flex items-center justify-between">
-                <span className="text-[9px] text-white/20">Enter šalje · Shift+Enter novi red</span>
-                <button onClick={submitMessage}
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-white px-3 py-1.5 text-[11px] font-medium text-black transition hover:opacity-90">
-                  <Play className="h-3 w-3" /> Pošalji
-                </button>
-              </div>
-            </div>
-
-            {/* Portal shortcuts */}
-            <div className="mt-2 grid grid-cols-3 gap-1">
-              {portalButtons.map((p) => (
-                <button key={p.name} onClick={() => onPortalAction?.(p.cmd)}
-                  className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg bg-white/[0.03] border border-white/[0.05] hover:bg-indigo-500/[0.08] hover:border-indigo-500/20 transition-all text-left group">
-                  <span className="text-[11px]">{p.icon}</span>
-                  <span className="flex-1 text-[9px] text-white/35 group-hover:text-white/60 truncate">{p.name}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-
+      {/* ═══ BODY — 2 columns ═══ */}
+      <div className="flex min-h-0 flex-1 overflow-hidden">
         {/* ── CENTER: Browser Preview ── */}
         <div className="flex min-h-0 flex-1 flex-col">
-          {/* URL bar */}
           <div className="flex items-center gap-2 border-b border-white/[0.06] bg-[hsl(220,15%,5%)] px-3 py-2">
             <Globe className="h-3.5 w-3.5 text-white/30 shrink-0" />
             <div className="flex-1 truncate rounded-lg border border-white/[0.06] bg-white/[0.03] px-2.5 py-1 text-[11px] font-mono text-white/40">
@@ -430,7 +334,6 @@ export default function DevPanel({
             </div>
           </div>
 
-          {/* Preview area */}
           <div className="relative min-h-0 flex-1 bg-[#0a0c12] overflow-auto">
             <div className="flex h-full flex-col overflow-hidden rounded-none">
               <div className="relative flex-1 overflow-hidden">
@@ -467,9 +370,7 @@ export default function DevPanel({
         </div>
 
         {/* ── RIGHT: Actions & Steps ── */}
-        <div className="flex min-h-0 w-[280px] shrink-0 flex-col border-l border-white/[0.06] bg-[hsl(220,15%,5%)]">
-
-          {/* Right header with agent controls */}
+        <div className="flex min-h-0 w-[320px] shrink-0 flex-col border-l border-white/[0.06] bg-[hsl(220,15%,5%)]">
           <div className="flex items-center justify-between border-b border-white/[0.06] px-3 py-2.5">
             <div>
               <div className="text-[11px] font-semibold text-white/75">Actions</div>
@@ -486,7 +387,6 @@ export default function DevPanel({
             </button>
           </div>
 
-          {/* Quick actions */}
           <div className="border-b border-white/[0.06] p-2.5 space-y-1.5">
             {quickActions.map((action) => {
               const needsInput = action.key !== "screenshot";
@@ -513,7 +413,6 @@ export default function DevPanel({
             })}
           </div>
 
-          {/* Stats */}
           <div className="grid grid-cols-4 gap-1.5 border-b border-white/[0.06] p-2.5">
             <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-2 text-center">
               <div className="text-[9px] text-white/25">Ukupno</div>
@@ -533,7 +432,6 @@ export default function DevPanel({
             </div>
           </div>
 
-          {/* Tabs: Steps / Console / Actions */}
           <div className="flex border-b border-white/[0.06] shrink-0">
             {(["steps", "console", "actions"] as const).map((tab) => (
               <button key={tab} onClick={() => setRightTab(tab)}
@@ -545,10 +443,7 @@ export default function DevPanel({
             ))}
           </div>
 
-          {/* Tab content */}
           <div className="min-h-0 flex-1 overflow-y-auto">
-
-            {/* Steps tab */}
             {rightTab === "steps" && (
               <div className="p-2.5 space-y-2">
                 {onClearSteps && steps.length > 0 && (
@@ -592,7 +487,6 @@ export default function DevPanel({
               </div>
             )}
 
-            {/* Console tab */}
             {rightTab === "console" && (
               <div className="p-2 font-mono text-[9px] leading-loose bg-[hsl(220,15%,3%)] min-h-full">
                 {consoleLogs.map((l, i) => (
@@ -611,7 +505,6 @@ export default function DevPanel({
               </div>
             )}
 
-            {/* Saved actions tab */}
             {rightTab === "actions" && (
               <div className="p-2.5 space-y-2">
                 <div className="flex items-center justify-between">
@@ -640,7 +533,6 @@ export default function DevPanel({
             )}
           </div>
 
-          {/* Recording status */}
           {isRecording && (
             <div className="flex items-center gap-1.5 px-3 py-2 border-t border-white/[0.06] bg-red-500/[0.05] shrink-0">
               <div className="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse" />
