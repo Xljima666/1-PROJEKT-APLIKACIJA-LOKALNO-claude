@@ -1364,8 +1364,7 @@ const devPanelPreview = {
                   <Code2 className="w-3 h-3" />
                   Kodovi
                 </button>
-             </div>
-           )}
+          
               <button
                 onClick={() => setDevMode(!devMode)}
                 title="Dev Mode — live preview"
@@ -1374,8 +1373,8 @@ const devPanelPreview = {
                   devMode
                     ? "bg-violet-500/20 text-violet-400 ring-1 ring-violet-500/30"
                     : "bg-white/[0.06] text-white/40 hover:text-violet-400 hover:bg-violet-500/10"
-                )}
-              >
+                </div>
+           )}
                 <Code2 className="w-3 h-3" />
                 Dev
               </button>
