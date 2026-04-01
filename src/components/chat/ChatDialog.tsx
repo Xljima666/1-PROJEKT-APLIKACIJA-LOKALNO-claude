@@ -139,6 +139,9 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
   const [isRecording, setIsRecording] = useState(false);
   const [recordingName, setRecordingName] = useState("");
   const [savedActions, setSavedActions] = useState<{name:string,file:string}[]>([]);
+  const [recordedSteps, setRecordedSteps] = useState<{n:number,url:string,desc:string,screenshot?:string}[]>([]);
+  const [stepDesc, setStepDesc] = useState("");
+  const [isCapturing, setIsCapturing] = useState(false);
   const [studioTab, setStudioTab] = useState<"playwright"|"terminal"|"files"|"memory"|"webbuilder"|"gis"|"api">("playwright");
   const [studioRightTab, setStudioRightTab] = useState<"steps"|"console"|"actions"|"code">("steps");
   const [studioSidebarTool, setStudioSidebarTool] = useState("playwright");
@@ -777,12 +780,55 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
     `Napravi playwright screenshot stranice ${previewUrl} i detaljno opiši što vidiš — sve elemente, tekstove, gumbe, inpute, navigaciju.`
   );
 
+  const handleCaptureStep = async () => {
+    if (!stepDesc.trim()) {
+      const desc = prompt("Opiši ovaj korak (npr. 'Klikni na Prijava'):");
+      if (!desc) return;
+      setStepDesc(desc);
+    }
+    setIsCapturing(true);
+    addLog("info", "📸 Snimam korak...");
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+      const AGENT_URL = import.meta.env.VITE_AGENT_SERVER_URL || "";
+      if (!AGENT_URL) {
+        // Fallback: ask Stellan to screenshot
+        studioSend(`Napravi screenshot trenutne stranice i opiši korak: ${stepDesc || "trenutni prikaz"}`);
+        setStepDesc("");
+        setIsCapturing(false);
+        return;
+      }
+      const desc = stepDesc || "korak " + (recordedSteps.length + 1);
+      const res = await fetch(`${AGENT_URL}/screenshot/step`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-API-Key": import.meta.env.VITE_AGENT_API_KEY || "" },
+        body: JSON.stringify({ description: desc })
+      });
+      const data = await res.json();
+      if (data.success) {
+        const step = { n: recordedSteps.length + 1, url: data.url, desc, screenshot: data.screenshot_base64 };
+        setRecordedSteps(prev => [...prev, step]);
+        if (data.screenshot_base64) setPreviewScreenshot("data:image/png;base64," + data.screenshot_base64);
+        addLog("ok", `✓ Korak ${step.n}: ${desc}`);
+        setStudioRightTab("steps");
+      } else {
+        addLog("warn", "Screenshot neuspješan: " + (data.error || "greška"));
+      }
+    } catch (e) {
+      studioSend(`Napravi screenshot i zapiši korak: ${stepDesc || "korak"}`);
+    }
+    setStepDesc("");
+    setIsCapturing(false);
+  };
+
   const handleStartRecording = async () => {
     const name = prompt("Ime akcije koju snimas (npr. oss_prijava):");
     if (!name) return;
     setRecordingName(name);
     setIsRecording(true);
-    addLog("ok", "🔴 Snimanje pokrenuto: " + name);
+    setRecordedSteps([]);
+    addLog("ok", "Snimanje pokrenuto: " + name);
     studioSend("Pokreni snimanje Playwright akcija pod imenom: " + name);
   };
 
@@ -1691,35 +1737,43 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
 
                 {/* Steps tab */}
                 {studioRightTab === "steps" && (
-                  <div className="flex-1 p-2 flex flex-col gap-1.5 overflow-y-auto">
-                    {([
-                      { s: "done",   n: "✓", title: "Otvori SDGE portal",        meta: "342ms" },
-                      { s: "done",   n: "✓", title: "Prijava s kredencijalima",   meta: "1.2s" },
-                      { s: "active", n: "3", title: `Klikni "Novi zahtjev"`,      meta: "čeka..." },
-                      { s: "wait",   n: "4", title: "Popuni obrazac (k.č., k.o.)", meta: "" },
-                      { s: "wait",   n: "5", title: "Priloži elaborat PDF",        meta: "" },
-                      { s: "wait",   n: "6", title: "Pošalji i preuzmi potvrdu",   meta: "" },
-                    ]).map((step, i) => (
-                      <div key={i} className={cn("flex items-start gap-2 p-2 rounded-lg",
-                        step.s === "done"   ? "bg-emerald-500/[0.04]" :
-                        step.s === "active" ? "bg-indigo-500/[0.08] border border-indigo-500/20" :
-                        "opacity-40"
-                      )}>
-                        <div className={cn("w-4 h-4 rounded-full flex items-center justify-center text-[8px] shrink-0 mt-0.5",
-                          step.s === "done"   ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/25" :
-                          step.s === "active" ? "bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 animate-pulse" :
-                          "bg-white/[0.04] text-white/20 border border-white/[0.08]"
-                        )}>
-                          {step.n}
+                  <div className="flex-1 flex flex-col min-h-0">
+                    <div className="flex-1 p-2 flex flex-col gap-1.5 overflow-y-auto">
+                      {recordedSteps.length === 0 ? (
+                        <div className="flex-1 flex flex-col items-center justify-center gap-2 py-6 text-center">
+                          <div className="text-2xl opacity-20">📋</div>
+                          <div className="text-[10px] text-white/20 px-3">
+                            {isRecording ? "Navigiraj na stranicu, zatim pritisni 📸 da snimiš korak" : "Pritisni Snimi pa navigiraj kroz stranicu"}
+                          </div>
                         </div>
-                        <div className="flex-1 min-w-0">
-                          <div className={cn("text-[10px] leading-snug",
-                            step.s === "active" ? "text-indigo-200" : step.s === "done" ? "text-white/50" : "text-white/25"
-                          )}>{step.title}</div>
-                          {step.meta && <div className="text-[8px] text-white/20 mt-0.5">{step.meta}</div>}
+                      ) : recordedSteps.map((step, i) => (
+                        <div key={i}
+                          onClick={() => step.screenshot && setPreviewScreenshot("data:image/png;base64," + step.screenshot)}
+                          className="flex items-start gap-2 p-2 rounded-lg bg-emerald-500/[0.04] border border-white/[0.04] cursor-pointer hover:border-emerald-500/20 transition-colors">
+                          <div className="w-4 h-4 rounded-full flex items-center justify-center text-[8px] shrink-0 mt-0.5 bg-emerald-500/15 text-emerald-400 border border-emerald-500/25">
+                            {step.n}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="text-[10px] text-white/60 leading-snug">{step.desc}</div>
+                            <div className="text-[8px] text-white/20 mt-0.5 truncate">{step.url}</div>
+                          </div>
+                          {step.screenshot && <div className="w-8 h-6 rounded overflow-hidden shrink-0 border border-white/10">
+                            <img src={"data:image/png;base64," + step.screenshot} className="w-full h-full object-cover" />
+                          </div>}
                         </div>
+                      ))}
+                    </div>
+                    {isRecording && (
+                      <div className="p-2 border-t border-white/[0.06] shrink-0">
+                        <input
+                          value={stepDesc}
+                          onChange={e => setStepDesc(e.target.value)}
+                          onKeyDown={e => e.key === "Enter" && handleCaptureStep()}
+                          placeholder="Opiši korak pa pritisni 📸..."
+                          className="w-full bg-white/[0.04] border border-white/[0.07] rounded px-2 py-1.5 text-[10px] text-white/50 placeholder:text-white/20 focus:outline-none focus:border-indigo-500/30"
+                        />
                       </div>
-                    ))}
+                    )}
                   </div>
                 )}
 
@@ -1819,10 +1873,16 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
                 className="flex-1 bg-white/[0.04] border border-white/[0.07] rounded-lg px-3 py-2 text-[11px] font-mono text-white/50 placeholder:text-white/20 focus:outline-none focus:border-indigo-500/30 focus:text-white/70 transition-colors"
               />
               <button
-                onClick={handleStudioScreenshot}
-                title="Screenshot trenutne stranice → Stellan analizira"
-                className="flex items-center gap-1 px-2.5 py-2 rounded-lg text-[10px] text-white/35 bg-white/[0.03] border border-white/[0.06] hover:bg-white/[0.07] hover:text-white/60 transition-all"
-              >📸</button>
+                onClick={handleCaptureStep}
+                disabled={isCapturing}
+                title={isRecording ? "Snimi ovaj korak" : "Screenshot stranice"}
+                className={cn(
+                  "flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-[10px] font-medium border transition-all",
+                  isRecording
+                    ? "bg-red-500/15 text-red-300 border-red-500/25 hover:bg-red-500/25 animate-pulse"
+                    : "text-white/35 bg-white/[0.03] border-white/[0.06] hover:bg-white/[0.07] hover:text-white/60"
+                )}
+              >📸 {isRecording ? "Snimaj korak" : ""}</button>
               <button
                 onClick={() => { setStudioRightTab("console"); addLog("info", "→ otvori " + previewUrl); }}
                 title="Otvori URL u previewu"
