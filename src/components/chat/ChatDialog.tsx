@@ -751,15 +751,15 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
   };
 
   // Direct agent call - bypasses Stellan/Gemini entirely
-  const callAgentDirect = async (endpoint: string, body: object = {}) => {
+  const callAgentDirect = async (endpoint: string, body: object = {}, method: "POST" | "GET" = "POST") => {
     const AGENT_URL = import.meta.env.VITE_AGENT_SERVER_URL || "";
     const AGENT_KEY = import.meta.env.VITE_AGENT_API_KEY || "";
     if (!AGENT_URL) { addLog("warn", "AGENT_SERVER_URL nije postavljen"); return null; }
     try {
       const res = await fetch(`${AGENT_URL}/${endpoint}`, {
-        method: "POST",
+        method,
         headers: { "Content-Type": "application/json", "X-API-Key": AGENT_KEY, "ngrok-skip-browser-warning": "true" },
-        body: JSON.stringify(body),
+        body: method === "GET" ? undefined : JSON.stringify(body),
       });
       return await res.json();
     } catch (e) {
@@ -781,22 +781,150 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
     } catch { setAgentOnline(false); addLog("warn", "✗ agent nedostupan"); }
   };
 
-  const studioSend = (cmd: string) => {
-    if (!cmd.trim()) return;
-    addLog("info", "→ " + cmd.trim().slice(0, 80));
-    setInput(cmd.trim());
-    setStudioInput("");
-    setTimeout(() => {
-      const btn = document.querySelector("[data-send-btn]") as HTMLButtonElement;
-      btn?.click();
-    }, 80);
+  const pushAssistantMessage = useCallback((content: string) => {
+    if (!content.trim()) return;
+    setMessages(prev => [...prev, { role: "assistant", content }]);
+  }, []);
+
+  const extractVisibleSummary = (raw: string) => {
+    const clean = raw.replace(/\s+/g, " ").trim();
+    if (!clean) return "";
+    return clean.length > 1400 ? clean.slice(0, 1400) + "…" : clean;
   };
 
-  const handleStudioExecute = () => studioSend(studioInput);
+  const syncPreviewFromAgent = useCallback((data: any) => {
+    if (!data) return;
+    if (data.url) {
+      setPreviewUrl(data.url);
+      setPreviewScreenshotUrl(data.url);
+    }
+    if (data.screenshot_base64) {
+      const src = data.screenshot_base64.startsWith("data:image")
+        ? data.screenshot_base64
+        : `data:image/png;base64,${data.screenshot_base64}`;
+      setPreviewScreenshot(src);
+    }
+  }, []);
 
-  const handleStudioScreenshot = () => studioSend(
-    `Napravi playwright screenshot stranice ${previewUrl} i detaljno opiši što vidiš — sve elemente, tekstove, gumbe, inpute, navigaciju.`
-  );
+  const runPlaywrightAction = useCallback(async (payload: any, options?: { appendSummary?: boolean; summaryPrefix?: string }) => {
+    setIsAgentActionRunning(true);
+    try {
+      const data = await callAgentDirect("playwright", payload);
+      if (!data?.success) {
+        addLog("warn", data?.error || "Agent akcija nije uspjela");
+        pushAssistantMessage(`❌ Agent greška: ${data?.error || "nepoznata greška"}`);
+        return null;
+      }
+      syncPreviewFromAgent(data);
+      if (options?.appendSummary && data.message) {
+        pushAssistantMessage(`${options.summaryPrefix || "✅"} ${data.message}`);
+      }
+      return data;
+    } finally {
+      setIsAgentActionRunning(false);
+    }
+  }, [pushAssistantMessage, syncPreviewFromAgent]);
+
+  const executeStudioCommand = useCallback(async (cmd: string) => {
+    const raw = cmd.trim();
+    if (!raw) return;
+    addLog("info", "→ " + raw.slice(0, 80));
+    setStudioInput("");
+
+    const urlMatch = raw.match(/https?:\/\/[^\s]+/i);
+    const lower = raw.toLowerCase();
+
+    if ((lower.startsWith("idi na ") || lower.startsWith("otvori ") || lower.includes("otvori") || lower.includes("idi na")) && urlMatch) {
+      const nav = await runPlaywrightAction({ action: "navigate", url: urlMatch[0], timeout: 45000 }, { appendSummary: true, summaryPrefix: "🌐" });
+      if (nav?.success) {
+        const extracted = await callAgentDirect("playwright", { action: "extract", timeout: 10000 });
+        const visible = extractVisibleSummary(extracted?.content || "");
+        pushAssistantMessage([
+          `### Stellan vidi u previewu`,
+          nav.title ? `**Naslov:** ${nav.title}` : "",
+          visible ? visible : "Stranica je otvorena, ali nisam izvukao dovoljno teksta za sažetak."
+        ].filter(Boolean).join("\n\n"));
+      }
+      return;
+    }
+
+    if (lower.includes("screenshot") || lower.includes("snimku") || lower.includes("snimi") || lower.includes("što vidiš") || lower.includes("sto vidis")) {
+      const shot = await runPlaywrightAction({ action: "screenshot", full_page: true }, { appendSummary: true, summaryPrefix: "📸" });
+      if (shot?.success) {
+        const extracted = await callAgentDirect("playwright", { action: "extract", timeout: 10000 });
+        const visible = extractVisibleSummary(extracted?.content || "");
+        pushAssistantMessage(`### Pregled stranice\n\n${visible || "Screenshot je osvježen u previewu."}`);
+      }
+      return;
+    }
+
+    const clickMatch = raw.match(/^(klikni|pritisni)\s+(.+)$/i);
+    if (clickMatch) {
+      const target = clickMatch[2].trim().replace(/^['"]|['"]$/g, "");
+      const selector = target.startsWith("#") || target.startsWith(".") || target.startsWith("//") || target.startsWith("text=") ? target : `text=${target}`;
+      const data = await runPlaywrightAction({ action: "click", selector, timeout: 20000 });
+      if (data?.success) {
+        const refreshed = await callAgentDirect("playwright", { action: "screenshot", full_page: false });
+        syncPreviewFromAgent(refreshed);
+        pushAssistantMessage(`✅ Kliknuo sam **${target}** i osvježio preview.`);
+      }
+      return;
+    }
+
+    const fillQuoted = raw.match(/^(upiši|upisi|unesi|unesite)\s+["“](.+?)["”]\s+u\s+["“](.+?)["”]$/i);
+    const fillSimple = raw.match(/^(upiši|upisi|unesi|unesite)\s+(.+?)\s+u\s+(.+)$/i);
+    const fillMatch = fillQuoted || fillSimple;
+    if (fillMatch) {
+      const value = fillMatch[2].trim();
+      const target = fillMatch[3].trim();
+      const selector = target.startsWith("#") || target.startsWith(".") || target.startsWith("//") || target.startsWith("input") || target.startsWith("textarea") || target.startsWith("select")
+        ? target
+        : `input[placeholder*="${target}" i], input[name*="${target}" i], textarea[placeholder*="${target}" i]`;
+      const data = await runPlaywrightAction({ action: "fill", selector, value, timeout: 20000 });
+      if (data?.success) {
+        const refreshed = await callAgentDirect("playwright", { action: "screenshot", full_page: false });
+        syncPreviewFromAgent(refreshed);
+        pushAssistantMessage(`✅ Upisao sam **${value}** u **${target}**.`);
+      }
+      return;
+    }
+
+    const waitSeconds = raw.match(/^(čekaj|cekaj)\s+(\d+)\s*(s|sek|sekundi|sec)?$/i);
+    const waitMs = raw.match(/^(čekaj|cekaj)\s+(\d+)\s*ms$/i);
+    if (waitSeconds || waitMs) {
+      const timeout = waitMs ? Number(waitMs[2]) : Number(waitSeconds?.[2] || 1) * 1000;
+      const data = await runPlaywrightAction({ action: "wait", timeout }, { appendSummary: true, summaryPrefix: "⏳" });
+      if (data?.success) {
+        const refreshed = await callAgentDirect("playwright", { action: "screenshot", full_page: false });
+        syncPreviewFromAgent(refreshed);
+      }
+      return;
+    }
+
+    if (lower.includes("html") || lower.includes("izvuci tekst") || lower.includes("procitaj stranicu") || lower.includes("pročitaj stranicu")) {
+      const extracted = await callAgentDirect("playwright", { action: "extract", timeout: 15000 });
+      if (extracted?.success) {
+        pushAssistantMessage(`### Tekst sa stranice\n\n${extractVisibleSummary(extracted.content || "") || "Nisam uspio izvući tekst."}`);
+      } else {
+        pushAssistantMessage(`❌ Ne mogu izvući tekst: ${extracted?.error || "nepoznata greška"}`);
+      }
+      return;
+    }
+
+    pushAssistantMessage('ℹ️ DEV v2 razumije naredbe tipa: `idi na https://...`, `klikni Prijava`, `upiši "Marko" u "korisničko ime"`, `čekaj 3s`, `screenshot`, `izvuci tekst`. Za sve ostalo trenutno koristi obični chat.');
+  }, [pushAssistantMessage, runPlaywrightAction, syncPreviewFromAgent]);
+
+  const studioSend = (cmd: string) => {
+    void executeStudioCommand(cmd);
+  };
+
+  const handleStudioExecute = () => {
+    void executeStudioCommand(studioInput);
+  };
+
+  const handleStudioScreenshot = () => {
+    void executeStudioCommand(`screenshot ${previewUrl}`);
+  };
 
   const handleCaptureStep = async () => {
     if (!stepDesc.trim()) {
@@ -841,10 +969,10 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
     setRecordingName(name);
     setIsRecording(true);
     setRecordedSteps([]);
-    addLog("info", "Pokrecemo snimanje...");
+    addLog("info", "Pokrećem učenje...");
     const result = await callAgentDirect("record/start", { name });
     if (result?.success) {
-      addLog("ok", "Snimanje pokrenuto: " + name);
+      addLog("ok", "Učenje pokrenuto: " + name);
     } else {
       addLog("warn", "Greška pri pokretanju: " + (result?.error || "agent nedostupan"));
       setIsRecording(false);
@@ -856,7 +984,7 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
     setRecordingName("");
     setRecordedSteps([]);
     setStepDesc("");
-    addLog("warn", "Snimanje prekinuto");
+    addLog("warn", "Učenje prekinuto");
   };
 
   const handleSaveAction = async () => {
@@ -1602,7 +1730,7 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
                     </button>
                     <button
                       onClick={handleCancelRecording}
-                      title="Odustani od snimanja"
+                      title="Odustani od učenja"
                       className="px-2 py-1 rounded-md text-[10px] text-white/30 border border-white/[0.08] hover:bg-red-500/10 hover:text-red-300 hover:border-red-500/20 transition-all"
                     >✕</button>
                   </div>
@@ -1612,7 +1740,7 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
                     className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-medium bg-white/[0.04] text-white/40 border border-white/[0.08] hover:bg-red-500/10 hover:text-red-300 hover:border-red-500/25 transition-all"
                   >
                     <div className="w-1.5 h-1.5 rounded-full bg-white/30" />
-                    Snimi
+                    Učenje
                   </button>
                 )}
                 <button
@@ -1783,7 +1911,7 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
                         <div className="flex-1 flex flex-col items-center justify-center gap-2 py-6 text-center">
                           <div className="text-2xl opacity-20">📋</div>
                           <div className="text-[10px] text-white/20 px-3">
-                            {isRecording ? "Navigiraj na stranicu, zatim pritisni 📸 da snimiš korak" : "Pritisni Snimi pa navigiraj kroz stranicu"}
+                            {isRecording ? "Navigiraj na stranicu, zatim pritisni 📸 da snimiš korak" : "Pritisni Učenje pa navigiraj kroz stranicu"}
                           </div>
                         </div>
                       ) : recordedSteps.map((step, i) => (
