@@ -1364,7 +1364,8 @@ const devPanelPreview = {
                   <Code2 className="w-3 h-3" />
                   Kodovi
                 </button>
-              )}
+             </div>
+)}
               <button
                 onClick={() => setDevMode(!devMode)}
                 title="Dev Mode — live preview"
