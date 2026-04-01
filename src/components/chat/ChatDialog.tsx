@@ -26,6 +26,14 @@ interface Conversation {
 // CodeBlock type imported from ChatMessage
 const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/chat`;
 
+const MODEL_UI: Record<"flash" | "pro" | "flash3" | "pro3", { pill: string; short: string; title: string; header: string }> = {
+  flash: { pill: "FAST", short: "Fast", title: "GPT-5.4 mini · brzo", header: "gpt-5.4-mini" },
+  pro: { pill: "SMART", short: "Smart", title: "GPT-5.4 · pametnije", header: "gpt-5.4" },
+  flash3: { pill: "FAST+", short: "Fast+", title: "GPT-5.4 mini · brži preset", header: "gpt-5.4-mini" },
+  pro3: { pill: "SMART+", short: "Smart+", title: "GPT-5.4 · jači preset", header: "gpt-5.4" },
+};
+
+
 // Extract code blocks from all assistant messages
 function extractCodeBlocks(messages: Message[]): CodeBlock[] {
   const blocks: CodeBlock[] = [];
@@ -1147,7 +1155,7 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
               </div>
               <div>
                 <p className="text-xs font-semibold text-white tracking-tight">Stellan</p>
-                <p className="text-[9px] text-white/30">gpt-4o · vision · memorija ✓ · internet</p>
+                <p className="text-[9px] text-white/30">{MODEL_UI[selectedModel].header} · vision · memorija ✓ · internet</p>
               </div>
             </div>
             <div className="flex items-center gap-1.5">
@@ -1531,18 +1539,19 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
                   R
                 </button>
                 <div className="flex items-center gap-0.5 bg-white/[0.04] rounded-lg p-0.5 border border-white/[0.06]">
-                  {(["flash","pro","flash3","pro3"] as const).map((key) => {
-                    const labels: Record<string,string> = {flash:"2.5F",pro:"2.5P",flash3:"3F",pro3:"3.1P"};
-                    const titles: Record<string,string> = {flash:"Gemini 2.5 Flash",pro:"Gemini 2.5 Pro",flash3:"Gemini 3 Flash Preview",pro3:"Gemini 3.1 Pro Preview"};
-                    return (
-                      <button key={key} onClick={() => setSelectedModel(key)} title={titles[key]}
-                        className={cn("h-7 px-1.5 rounded-md text-[9px] font-bold transition-all",
-                          selectedModel === key ? "bg-primary text-white" : "text-white/30 hover:text-white/60"
-                        )}>
-                        {labels[key]}
-                      </button>
-                    );
-                  })}
+                  {(["flash","pro","flash3","pro3"] as const).map((key) => (
+                    <button
+                      key={key}
+                      onClick={() => setSelectedModel(key)}
+                      title={MODEL_UI[key].title}
+                      className={cn(
+                        "h-7 px-2 rounded-md text-[9px] font-bold transition-all tracking-[0.08em]",
+                        selectedModel === key ? "bg-primary text-white" : "text-white/30 hover:text-white/60"
+                      )}
+                    >
+                      {MODEL_UI[key].pill}
+                    </button>
+                  ))}
                 </div>
                 {isLoading ? (
                   <Button
@@ -1716,7 +1725,7 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
               <div className="flex items-center gap-1.5 px-3 border-l border-white/[0.06] shrink-0">
                 <div className="flex items-center gap-1.5 text-[9px] text-white/30 mr-1">
                   <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                  {selectedModel === "flash" ? "2.5-flash" : selectedModel === "pro" ? "2.5-pro" : selectedModel === "flash3" ? "3-flash" : "3.1-pro"}
+                  {MODEL_UI[selectedModel].header}
                 </div>
                 {/* Record buttons */}
                 {isRecording ? (
@@ -2088,7 +2097,7 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
               <div className="w-px h-3 bg-white/[0.07]" />
               <div className="flex items-center gap-1.5 text-[9px] text-white/20">
                 <div className="w-1 h-1 rounded-full bg-violet-400" />
-                {selectedModel}
+                {MODEL_UI[selectedModel].short}
               </div>
               <div className="text-[9px] text-white/12 ml-1 truncate max-w-[200px]">📍 <span>{previewUrl}</span></div>
               <button
