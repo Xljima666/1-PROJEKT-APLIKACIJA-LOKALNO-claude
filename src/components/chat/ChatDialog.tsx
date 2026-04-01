@@ -953,35 +953,55 @@ const devPanelPreview = {
     }
   }, [pushAssistantMessage, syncPreviewFromAgent, refreshPreviewScreenshot, describeCurrentPreview]);
 
+  const runHighLevelAgentCommand = useCallback(async (command: string) => {
+    setIsAgentActionRunning(true);
+    try {
+      const data = await callAgentDirect("agent/run", { command });
+      if (!data?.success) {
+        addLog("warn", data?.error || "Agent ne razumije naredbu");
+        return null;
+      }
+      syncPreviewFromAgent(data);
+      if (data?.message) addLog("ok", data.message);
+      return data;
+    } finally {
+      setIsAgentActionRunning(false);
+    }
+  }, [syncPreviewFromAgent]);
+
   const executeStudioCommand = useCallback(async (cmd: string) => {
     const raw = cmd.trim();
     if (!raw) return;
     addLog("info", "→ " + raw.slice(0, 80));
     setStudioInput("");
 
-    const urlMatch = raw.match(/https?:\/\/[^\s]+/i);
     const lower = raw.toLowerCase();
+    const urlMatch = raw.match(/((https?:\/\/|www\.)[^\s]+|(?:[a-z0-9-]+\.)+[a-z]{2,}(?:\/[^\s]*)?)/i);
+    const navIntent = /^(idi na|odi na|otvori|open|navigate)/i.test(lower) || (!!urlMatch && !/^(klikni|pritisni|upiši|upisi|unesi|unesite|čekaj|cekaj)/i.test(lower));
 
-    if ((lower.startsWith("idi na ") || lower.startsWith("otvori ") || lower.includes("otvori") || lower.includes("idi na")) && urlMatch) {
-      const nav = await runPlaywrightAction({ action: "navigate", url: urlMatch[0], timeout: 45000 }, { appendSummary: true, summaryPrefix: "🌐" });
-      if (nav?.success) {
+    if (navIntent && urlMatch) {
+      const result = await runHighLevelAgentCommand(raw);
+      if (result?.success) {
         const extracted = await callAgentDirect("playwright", { action: "extract", timeout: 10000 });
         const visible = extractVisibleSummary(extracted?.content || "");
+        setLastPreviewSummary(visible || result.message || "Stranica je otvorena.");
         pushAssistantMessage([
-          `### Stellan vidi u previewu`,
-          nav.title ? `**Naslov:** ${nav.title}` : "",
-          visible ? visible : "Stranica je otvorena, ali nisam izvukao dovoljno teksta za sažetak."
+          "### Stellan vidi u previewu",
+          result.title ? `**Naslov:** ${result.title}` : "",
+          result.url ? `**URL:** ${result.url}` : "",
+          visible || result.message || "Stranica je otvorena i screenshot je osvježen."
         ].filter(Boolean).join("\n\n"));
       }
       return;
     }
 
-    if (lower.includes("screenshot") || lower.includes("snimku") || lower.includes("snimi") || lower.includes("što vidiš") || lower.includes("sto vidis")) {
-      const shot = await runPlaywrightAction({ action: "screenshot", full_page: true }, { appendSummary: true, summaryPrefix: "📸" });
-      if (shot?.success) {
+    if (/(screenshot|snimku|snimi|što vidiš|sto vidis)/i.test(lower)) {
+      const result = await runHighLevelAgentCommand(raw);
+      if (result?.success) {
         const extracted = await callAgentDirect("playwright", { action: "extract", timeout: 10000 });
         const visible = extractVisibleSummary(extracted?.content || "");
-        pushAssistantMessage(`### Pregled stranice\n\n${visible || "Screenshot je osvježen u previewu."}`);
+        setLastPreviewSummary(visible || result.message || "Screenshot je osvježen.");
+        pushAssistantMessage(`### Pregled stranice\n\n${visible || result.message || "Screenshot je osvježen u previewu."}`);
       }
       return;
     }
@@ -1009,7 +1029,7 @@ const devPanelPreview = {
       const target = fillMatch[3].trim();
       const selector = target.startsWith("#") || target.startsWith(".") || target.startsWith("//") || target.startsWith("input") || target.startsWith("textarea") || target.startsWith("select")
         ? target
-        : `input[placeholder*="${target}" i], input[name*="${target}" i], textarea[placeholder*="${target}" i]`;
+        : `input[placeholder*=\"${target}\" i], input[name*=\"${target}\" i], textarea[placeholder*=\"${target}\" i]`;
       const data = await runPlaywrightAction(
         { action: "fill", selector, value, timeout: 20000 },
         { refreshAfter: true, describeAfter: true, describeHeading: `### Stellan vidi nakon unosa u ${target}` }
@@ -1044,8 +1064,8 @@ const devPanelPreview = {
       return;
     }
 
-    pushAssistantMessage('ℹ️ DEV v2 razumije naredbe tipa: `idi na https://...`, `klikni Prijava`, `upiši "Marko" u "korisničko ime"`, `čekaj 3s`, `screenshot`, `izvuci tekst`. Za sve ostalo trenutno koristi obični chat.');
-  }, [pushAssistantMessage, runPlaywrightAction, syncPreviewFromAgent, waitForPreviewReady, describeCurrentPreview]);
+    pushAssistantMessage('ℹ️ DEV v2 razumije naredbe tipa: `idi na oss.uredjenazemlja.hr`, `klikni Prijava`, `upiši "Marko" u "korisničko ime"`, `čekaj 3s`, `screenshot`, `izvuci tekst`.');
+  }, [pushAssistantMessage, runPlaywrightAction, waitForPreviewReady, describeCurrentPreview, runHighLevelAgentCommand]);
 
   const executeStudioFlow = useCallback(async (rawInput: string) => {
     const normalized = rawInput
@@ -1875,25 +1895,25 @@ const devPanelPreview = {
 
         {/* STELLAN DEV STUDIO — powered by DevPanel */}
         {devMode && !isMobile && (
-          <div className="flex-1 min-w-0 overflow-hidden flex flex-col">
-            <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/[0.06] bg-[hsl(220,15%,6%)] shrink-0">
+          <div className="flex-1 min-w-0 overflow-hidden bg-[hsl(220,15%,6%)]">
+            <div className="flex items-center justify-between border-l border-white/[0.06] border-b border-white/[0.06] bg-[hsl(220,15%,5%)] px-3 py-2">
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => setDevMode(false)}
-                  className="h-8 px-3 rounded-lg bg-white/[0.06] text-white/70 hover:bg-white/[0.10] transition-colors text-[11px]"
+                  className="rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-1.5 text-[11px] text-white/70 hover:bg-white/[0.08]"
                 >
-                  ← Izlaz iz DEV-a
+                  ← Natrag na chat
                 </button>
-                <span className="text-[11px] text-white/30">Povratak na Stellan chat</span>
+                <span className="text-[10px] text-white/30">DEV fullscreen</span>
               </div>
               <button
                 onClick={onClose}
-                className="w-8 h-8 rounded-lg flex items-center justify-center text-white/30 hover:text-white hover:bg-white/[0.06] transition-colors"
+                className="rounded-lg border border-white/[0.08] bg-white/[0.04] px-2.5 py-1.5 text-[11px] text-white/60 hover:bg-white/[0.08] hover:text-white"
               >
-                <X className="w-4 h-4" />
+                Zatvori
               </button>
             </div>
-            <div className="flex-1 min-h-0 overflow-hidden">
+            <div className="h-[calc(100%-45px)] border-l border-white/[0.06] min-w-0 overflow-hidden">
               <DevPanel
                 title="Dev Studio"
                 messages={devPanelMessages}
