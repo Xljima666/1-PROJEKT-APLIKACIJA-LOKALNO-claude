@@ -26,13 +26,19 @@ interface Conversation {
 // CodeBlock type imported from ChatMessage
 const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/chat`;
 
-const MODEL_UI: Record<"flash" | "pro" | "flash3" | "pro3", { pill: string; short: string; title: string; header: string }> = {
-  flash: { pill: "FAST", short: "Fast", title: "GPT-5.4 mini · brzo", header: "gpt-5.4-mini" },
-  pro: { pill: "SMART", short: "Smart", title: "GPT-5.4 · pametnije", header: "gpt-5.4" },
-  flash3: { pill: "FAST+", short: "Fast+", title: "GPT-5.4 mini · brži preset", header: "gpt-5.4-mini" },
-  pro3: { pill: "SMART+", short: "Smart+", title: "GPT-5.4 · jači preset", header: "gpt-5.4" },
+const MODEL_LABELS: Record<"flash" | "pro" | "flash3" | "pro3", string> = {
+  flash: "GPT-5.4-mini",
+  pro: "GPT-5.4",
+  flash3: "GPT-5.4-mini+",
+  pro3: "GPT-5.4+",
 };
 
+const MODEL_BADGES: Record<"flash" | "pro" | "flash3" | "pro3", string> = {
+  flash: "FAST",
+  pro: "SMART",
+  flash3: "FAST+",
+  pro3: "SMART+",
+};
 
 // Extract code blocks from all assistant messages
 function extractCodeBlocks(messages: Message[]): CodeBlock[] {
@@ -546,7 +552,17 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
     }
   }, [messages.length]);
 
-  useEffect(() => { if (devMode) checkAgentHealth(); }, [devMode]);
+  useEffect(() => {
+    if (!devMode) return;
+    checkAgentHealth();
+    void (async () => {
+      const result = await callAgentDirect("record/list", {}, "GET");
+      if (result?.success && Array.isArray(result.actions)) {
+        setSavedActions(result.actions);
+        addLog("ok", `✓ Učitano akcija: ${result.actions.length}`);
+      }
+    })();
+  }, [devMode]);
   useEffect(() => {
     if (inputRef.current) {
       inputRef.current.style.height = "auto";
@@ -1011,8 +1027,35 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
     setRecordedSteps([]);
   };
 
+  const handleRunSavedAction = async (name: string) => {
+    addLog("info", `▶ Pokrećem akciju: ${name}`);
+    setStudioRightTab("console");
+    const result = await callAgentDirect("record/run", { name });
+    if (result?.success) {
+      addLog("ok", `✓ Akcija "${name}" izvršena`);
+      if (result.stdout) addLog("dim", result.stdout.slice(0, 400));
+      if (result.stderr) addLog("warn", result.stderr.slice(0, 240));
+      pushAssistantMessage(`✅ Pokrenuo sam akciju **${name}**.`);
+    } else {
+      addLog("warn", `Greška pri pokretanju akcije "${name}": ` + (result?.error || "agent nedostupan"));
+      pushAssistantMessage(`❌ Ne mogu pokrenuti akciju **${name}**: ${result?.error || "agent nedostupan"}`);
+    }
+  };
+
+  const handleRefreshActions = async () => {
+    addLog("info", "Učitavam spremljene akcije...");
+    const result = await callAgentDirect("record/list", {}, "GET");
+    if (result?.success && Array.isArray(result.actions)) {
+      setSavedActions(result.actions);
+      setStudioRightTab("actions");
+      addLog("ok", `✓ Učitano akcija: ${result.actions.length}`);
+    } else {
+      addLog("warn", "Greška pri učitavanju akcija: " + (result?.error || "agent nedostupan"));
+    }
+  };
+
   const handleListActions = () => {
-    studioSend("Prikaži sve naučene i snimljene Playwright akcije");
+    void handleRefreshActions();
   };
 
   const handleDeploy = async () => {
@@ -1155,7 +1198,7 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
               </div>
               <div>
                 <p className="text-xs font-semibold text-white tracking-tight">Stellan</p>
-                <p className="text-[9px] text-white/30">{MODEL_UI[selectedModel].header} · vision · memorija ✓ · internet</p>
+                <p className="text-[9px] text-white/30">{MODEL_LABELS[selectedModel]} · vision · memorija ✓ · internet</p>
               </div>
             </div>
             <div className="flex items-center gap-1.5">
@@ -1539,19 +1582,18 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
                   R
                 </button>
                 <div className="flex items-center gap-0.5 bg-white/[0.04] rounded-lg p-0.5 border border-white/[0.06]">
-                  {(["flash","pro","flash3","pro3"] as const).map((key) => (
-                    <button
-                      key={key}
-                      onClick={() => setSelectedModel(key)}
-                      title={MODEL_UI[key].title}
-                      className={cn(
-                        "h-7 px-2 rounded-md text-[9px] font-bold transition-all tracking-[0.08em]",
-                        selectedModel === key ? "bg-primary text-white" : "text-white/30 hover:text-white/60"
-                      )}
-                    >
-                      {MODEL_UI[key].pill}
-                    </button>
-                  ))}
+                  {(["flash","pro","flash3","pro3"] as const).map((key) => {
+                    const labels: Record<string,string> = {flash:"2.5F",pro:"2.5P",flash3:"3F",pro3:"3.1P"};
+                    const titles: Record<string,string> = {flash:"Gemini 2.5 Flash",pro:"Gemini 2.5 Pro",flash3:"Gemini 3 Flash Preview",pro3:"Gemini 3.1 Pro Preview"};
+                    return (
+                      <button key={key} onClick={() => setSelectedModel(key)} title={titles[key]}
+                        className={cn("h-7 px-1.5 rounded-md text-[9px] font-bold transition-all",
+                          selectedModel === key ? "bg-primary text-white" : "text-white/30 hover:text-white/60"
+                        )}>
+                        {labels[key]}
+                      </button>
+                    );
+                  })}
                 </div>
                 {isLoading ? (
                   <Button
@@ -1725,7 +1767,7 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
               <div className="flex items-center gap-1.5 px-3 border-l border-white/[0.06] shrink-0">
                 <div className="flex items-center gap-1.5 text-[9px] text-white/30 mr-1">
                   <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                  {MODEL_UI[selectedModel].header}
+                  {MODEL_BADGES[selectedModel]}
                 </div>
                 {/* Record buttons */}
                 {isRecording ? (
@@ -1976,8 +2018,48 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
 
                 {/* Actions tab */}
                 {studioRightTab === "actions" && (
-                  <div className="flex-1 p-2 flex flex-col gap-1.5 overflow-y-auto">
-                    <div className="text-[9px] text-white/20 px-1 mb-1">Klikni akciju → Stellan izvršava</div>
+                  <div className="flex-1 p-2 flex flex-col gap-2 overflow-y-auto">
+                    <div className="flex items-center justify-between px-1">
+                      <div className="text-[9px] text-white/20">Klikni akciju → Stellan izvršava</div>
+                      <button
+                        onClick={handleRefreshActions}
+                        className="px-1.5 py-0.5 rounded text-[8px] text-white/35 border border-white/[0.08] hover:bg-white/[0.05] hover:text-white/60 transition-all"
+                      >
+                        ↻ Osvježi
+                      </button>
+                    </div>
+
+                    <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-2">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="text-[9px] text-white/35">Naučene akcije</div>
+                        <div className="text-[8px] text-white/15">{savedActions.length}</div>
+                      </div>
+                      <div className="flex flex-col gap-1.5">
+                        {savedActions.length === 0 ? (
+                          <div className="text-[9px] text-white/20 px-1 py-2">Još nema spremljenih akcija.</div>
+                        ) : (
+                          savedActions.map((action) => (
+                            <div
+                              key={action.file}
+                              className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-white/[0.03] border border-white/[0.05]"
+                            >
+                              <span className="text-[12px]">🎬</span>
+                              <div className="flex-1 min-w-0">
+                                <div className="text-[10px] text-white/60 truncate">{action.name}</div>
+                                <div className="text-[8px] text-white/20 truncate">{action.file}</div>
+                              </div>
+                              <button
+                                onClick={() => handleRunSavedAction(action.name)}
+                                className="px-2 py-1 rounded text-[8px] text-emerald-300 border border-emerald-500/20 bg-emerald-500/10 hover:bg-emerald-500/20 transition-all"
+                              >
+                                ▶ Pokreni
+                              </button>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+
                     {([
                       { icon: "🏛️", name: "SDGE prijava",              cmd: "Otvori SDGE portal playwright-om i prijavi se s kredencijalima", badge: "ok", bc: "emerald" },
                       { icon: "📋", name: "OSS pretraživanje",          cmd: "Otvori OSS portal playwright-om i pretraži najnovije predmete", badge: "ok", bc: "emerald" },
@@ -2097,7 +2179,7 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
               <div className="w-px h-3 bg-white/[0.07]" />
               <div className="flex items-center gap-1.5 text-[9px] text-white/20">
                 <div className="w-1 h-1 rounded-full bg-violet-400" />
-                {MODEL_UI[selectedModel].short}
+                {MODEL_BADGES[selectedModel]}
               </div>
               <div className="text-[9px] text-white/12 ml-1 truncate max-w-[200px]">📍 <span>{previewUrl}</span></div>
               <button
