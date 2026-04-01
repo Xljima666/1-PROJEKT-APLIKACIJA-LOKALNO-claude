@@ -136,6 +136,9 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
   const [isDeploying, setIsDeploying] = useState(false);
   const [deployStatus, setDeployStatus] = useState<"idle" | "success" | "error">("idle");
   const [isStartingAgent, setIsStartingAgent] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingName, setRecordingName] = useState("");
+  const [savedActions, setSavedActions] = useState<{name:string,file:string}[]>([]);
   const [studioTab, setStudioTab] = useState<"playwright"|"terminal"|"files"|"memory"|"webbuilder"|"gis"|"api">("playwright");
   const [studioRightTab, setStudioRightTab] = useState<"steps"|"console"|"actions"|"code">("steps");
   const [studioSidebarTool, setStudioSidebarTool] = useState("playwright");
@@ -773,6 +776,29 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
   const handleStudioScreenshot = () => studioSend(
     `Napravi playwright screenshot stranice ${previewUrl} i detaljno opiši što vidiš — sve elemente, tekstove, gumbe, inpute, navigaciju.`
   );
+
+  const handleStartRecording = async () => {
+    const name = prompt("Ime akcije koju snimas (npr. oss_prijava):");
+    if (!name) return;
+    setRecordingName(name);
+    setIsRecording(true);
+    addLog("ok", "🔴 Snimanje pokrenuto: " + name);
+    studioSend("Pokreni snimanje Playwright akcija pod imenom: " + name);
+  };
+
+  const handleSaveAction = async () => {
+    if (!recordingName) return;
+    setIsRecording(false);
+    addLog("ok", "💾 Spremam akciju: " + recordingName);
+    studioSend("Spremi snimljene korake kao akciju pod imenom: " + recordingName);
+    setRecordingName("");
+    // Refresh actions list
+    setTimeout(() => studioSend("Prikaži sve naučene akcije"), 3000);
+  };
+
+  const handleListActions = () => {
+    studioSend("Prikaži sve naučene i snimljene Playwright akcije");
+  };
 
   const handleDeploy = async () => {
     setIsDeploying(true);
@@ -1485,6 +1511,24 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
                   <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                   {selectedModel === "flash" ? "2.5-flash" : selectedModel === "pro" ? "2.5-pro" : selectedModel === "flash3" ? "3-flash" : "3.1-pro"}
                 </div>
+                {/* Record buttons */}
+                {isRecording ? (
+                  <button
+                    onClick={handleSaveAction}
+                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-semibold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/25 transition-all animate-pulse"
+                  >
+                    <div className="w-1.5 h-1.5 rounded-full bg-red-400" />
+                    Spremi akciju
+                  </button>
+                ) : (
+                  <button
+                    onClick={handleStartRecording}
+                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-medium bg-white/[0.04] text-white/40 border border-white/[0.08] hover:bg-red-500/10 hover:text-red-300 hover:border-red-500/25 transition-all"
+                  >
+                    <div className="w-1.5 h-1.5 rounded-full bg-white/30" />
+                    Snimi
+                  </button>
+                )}
                 <button
                   onClick={handleStartAgent}
                   className="flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-medium bg-amber-500/10 text-amber-300 border border-amber-500/20 hover:bg-amber-500/15 transition-all"
@@ -1798,6 +1842,12 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
 
             {/* STATUS BAR */}
             <div className="flex items-center gap-3 px-3 py-1 border-t border-white/[0.04] bg-[hsl(220,15%,3%)] shrink-0">
+              {isRecording && (
+                <div className="flex items-center gap-1.5 text-[9px] text-red-300 animate-pulse">
+                  <div className="w-1.5 h-1.5 rounded-full bg-red-400" />
+                  Snimam: {recordingName}
+                </div>
+              )}
               <div className="flex items-center gap-1.5 text-[9px] text-white/25">
                 <div className={cn("w-1.5 h-1.5 rounded-full", agentOnline === true ? "bg-emerald-400 animate-pulse" : agentOnline === false ? "bg-red-400" : "bg-white/20")} />
                 {agentOnline === true ? "Agent online" : agentOnline === false ? "Agent offline" : "Agent..."}
