@@ -832,6 +832,14 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
     studioSend("Pokreni snimanje Playwright akcija pod imenom: " + name);
   };
 
+  const handleCancelRecording = () => {
+    setIsRecording(false);
+    setRecordingName("");
+    setRecordedSteps([]);
+    setStepDesc("");
+    addLog("warn", "Snimanje prekinuto");
+  };
+
   const handleSaveAction = async () => {
     if (!recordingName) return;
     setIsRecording(false);
@@ -1559,13 +1567,20 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
                 </div>
                 {/* Record buttons */}
                 {isRecording ? (
-                  <button
-                    onClick={handleSaveAction}
-                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-semibold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/25 transition-all animate-pulse"
-                  >
-                    <div className="w-1.5 h-1.5 rounded-full bg-red-400" />
-                    Spremi akciju
-                  </button>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={handleSaveAction}
+                      className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-semibold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/25 transition-all"
+                    >
+                      <div className="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse" />
+                      Spremi
+                    </button>
+                    <button
+                      onClick={handleCancelRecording}
+                      title="Odustani od snimanja"
+                      className="px-2 py-1 rounded-md text-[10px] text-white/30 border border-white/[0.08] hover:bg-red-500/10 hover:text-red-300 hover:border-red-500/20 transition-all"
+                    >✕</button>
+                  </div>
                 ) : (
                   <button
                     onClick={handleStartRecording}
