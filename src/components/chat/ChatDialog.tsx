@@ -165,6 +165,7 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
   const [generatedCode, setGeneratedCode] = useState("");
   const [previewScreenshot, setPreviewScreenshot] = useState<string | null>(null);
   const [previewScreenshotUrl, setPreviewScreenshotUrl] = useState<string>("");
+  const [lastPreviewSummary, setLastPreviewSummary] = useState<string>("");
   const consoleEndRef = useRef<HTMLDivElement>(null);
   const [reactions, setReactions] = useState<Record<number, "up" | "down">>({});
   const [pendingImages, setPendingImages] = useState<{name: string, base64: string, size: number}[]>([]);
@@ -830,7 +831,53 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
     }
   }, []);
 
-  const runPlaywrightAction = useCallback(async (payload: any, options?: { appendSummary?: boolean; summaryPrefix?: string }) => {
+  const describeCurrentPreview = useCallback(async (options?: { heading?: string; fallback?: string; silent?: boolean }) => {
+    const extracted = await callAgentDirect("playwright", { action: "extract", timeout: 15000 });
+    if (!extracted?.success) {
+      const fallback = options?.fallback || "Ne mogu trenutno očitati sadržaj stranice.";
+      if (!options?.silent) pushAssistantMessage(`⚠️ ${fallback}`);
+      return "";
+    }
+
+    const visible = extractVisibleSummary(extracted?.content || "");
+    setLastPreviewSummary(visible || options?.fallback || "");
+
+    if (!options?.silent) {
+      const titleLine = extracted?.url ? `**URL:** ${extracted.url}` : "";
+      pushAssistantMessage([
+        options?.heading || "### Stellan vidi u previewu",
+        titleLine,
+        visible || options?.fallback || "Stranica je otvorena, ali nisam izvukao dovoljno teksta za sažetak.",
+      ].filter(Boolean).join("
+
+"));
+    }
+
+    return visible;
+  }, [pushAssistantMessage]);
+
+  const refreshPreviewScreenshot = useCallback(async (options?: { fullPage?: boolean; silent?: boolean }) => {
+    const refreshed = await callAgentDirect("playwright", { action: "screenshot", full_page: options?.fullPage ?? false, timeout: 15000 });
+    if (refreshed?.success) {
+      syncPreviewFromAgent(refreshed);
+    } else if (!options?.silent) {
+      pushAssistantMessage(`⚠️ Ne mogu osvježiti preview: ${refreshed?.error || "agent nedostupan"}`);
+    }
+    return refreshed;
+  }, [pushAssistantMessage, syncPreviewFromAgent]);
+
+  const waitForPreviewReady = useCallback(async (timeoutMs = 5000) => {
+    const waited = await callAgentDirect("playwright", { action: "wait", timeout: timeoutMs });
+    if (waited?.success) {
+      addLog("ok", `✓ Pričekao sam ${timeoutMs}ms za učitavanje`);
+      await refreshPreviewScreenshot({ silent: true });
+    } else {
+      addLog("warn", "Čekanje nije uspjelo: " + (waited?.error || "agent nedostupan"));
+    }
+    return waited;
+  }, [refreshPreviewScreenshot]);
+
+  const runPlaywrightAction = useCallback(async (payload: any, options?: { appendSummary?: boolean; summaryPrefix?: string; refreshAfter?: boolean; describeAfter?: boolean; describeHeading?: string }) => {
     setIsAgentActionRunning(true);
     try {
       const data = await callAgentDirect("playwright", payload);
@@ -843,11 +890,17 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
       if (options?.appendSummary && data.message) {
         pushAssistantMessage(`${options.summaryPrefix || "✅"} ${data.message}`);
       }
+      if (options?.refreshAfter) {
+        await refreshPreviewScreenshot({ silent: true });
+      }
+      if (options?.describeAfter) {
+        await describeCurrentPreview({ heading: options.describeHeading || "### Stellan vidi u previewu", fallback: "Akcija je izvršena, ali nisam izvukao dovoljno teksta za sažetak." });
+      }
       return data;
     } finally {
       setIsAgentActionRunning(false);
     }
-  }, [pushAssistantMessage, syncPreviewFromAgent]);
+  }, [pushAssistantMessage, syncPreviewFromAgent, refreshPreviewScreenshot, describeCurrentPreview]);
 
   const executeStudioCommand = useCallback(async (cmd: string) => {
     const raw = cmd.trim();
@@ -886,11 +939,13 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
     if (clickMatch) {
       const target = clickMatch[2].trim().replace(/^['"]|['"]$/g, "");
       const selector = target.startsWith("#") || target.startsWith(".") || target.startsWith("//") || target.startsWith("text=") ? target : `text=${target}`;
-      const data = await runPlaywrightAction({ action: "click", selector, timeout: 20000 });
+      const data = await runPlaywrightAction(
+        { action: "click", selector, timeout: 20000 },
+        { refreshAfter: true, describeAfter: true, describeHeading: `### Stellan vidi nakon klika na ${target}` }
+      );
       if (data?.success) {
-        const refreshed = await callAgentDirect("playwright", { action: "screenshot", full_page: false });
-        syncPreviewFromAgent(refreshed);
-        pushAssistantMessage(`✅ Kliknuo sam **${target}** i osvježio preview.`);
+        await waitForPreviewReady(1500);
+        pushAssistantMessage(`✅ Kliknuo sam **${target}**.`);
       }
       return;
     }
@@ -904,10 +959,11 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
       const selector = target.startsWith("#") || target.startsWith(".") || target.startsWith("//") || target.startsWith("input") || target.startsWith("textarea") || target.startsWith("select")
         ? target
         : `input[placeholder*="${target}" i], input[name*="${target}" i], textarea[placeholder*="${target}" i]`;
-      const data = await runPlaywrightAction({ action: "fill", selector, value, timeout: 20000 });
+      const data = await runPlaywrightAction(
+        { action: "fill", selector, value, timeout: 20000 },
+        { refreshAfter: true, describeAfter: true, describeHeading: `### Stellan vidi nakon unosa u ${target}` }
+      );
       if (data?.success) {
-        const refreshed = await callAgentDirect("playwright", { action: "screenshot", full_page: false });
-        syncPreviewFromAgent(refreshed);
         pushAssistantMessage(`✅ Upisao sam **${value}** u **${target}**.`);
       }
       return;
@@ -917,10 +973,12 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
     const waitMs = raw.match(/^(čekaj|cekaj)\s+(\d+)\s*ms$/i);
     if (waitSeconds || waitMs) {
       const timeout = waitMs ? Number(waitMs[2]) : Number(waitSeconds?.[2] || 1) * 1000;
-      const data = await runPlaywrightAction({ action: "wait", timeout }, { appendSummary: true, summaryPrefix: "⏳" });
+      const data = await runPlaywrightAction(
+        { action: "wait", timeout },
+        { appendSummary: true, summaryPrefix: "⏳", refreshAfter: true, describeAfter: true, describeHeading: "### Stellan vidi nakon čekanja" }
+      );
       if (data?.success) {
-        const refreshed = await callAgentDirect("playwright", { action: "screenshot", full_page: false });
-        syncPreviewFromAgent(refreshed);
+        setLastPreviewSummary(`Pričekao sam ${timeout}ms i osvježio preview.`);
       }
       return;
     }
@@ -936,7 +994,7 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
     }
 
     pushAssistantMessage('ℹ️ DEV v2 razumije naredbe tipa: `idi na https://...`, `klikni Prijava`, `upiši "Marko" u "korisničko ime"`, `čekaj 3s`, `screenshot`, `izvuci tekst`. Za sve ostalo trenutno koristi obični chat.');
-  }, [pushAssistantMessage, runPlaywrightAction, syncPreviewFromAgent]);
+  }, [pushAssistantMessage, runPlaywrightAction, syncPreviewFromAgent, waitForPreviewReady, describeCurrentPreview]);
 
   const studioSend = (cmd: string) => {
     void executeStudioCommand(cmd);
@@ -948,6 +1006,18 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
 
   const handleStudioScreenshot = () => {
     void executeStudioCommand(`screenshot ${previewUrl}`);
+  };
+
+  const handlePreviewDescribe = () => {
+    void describeCurrentPreview({ heading: "### Stellan vidi u previewu", fallback: "Preview je osvježen, ali nema dovoljno teksta za sažetak." });
+  };
+
+  const handlePreviewWait = () => {
+    void waitForPreviewReady(2500).then((result) => {
+      if (result?.success) {
+        void describeCurrentPreview({ heading: "### Stellan vidi nakon čekanja", fallback: "Stranica je čekala učitavanje, ali nema dovoljno teksta za sažetak." });
+      }
+    });
   };
 
   const handleCaptureStep = async () => {
@@ -1913,10 +1983,23 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
                           className="px-2 py-1 rounded-md text-[9px] bg-black/60 text-white/50 border border-white/10 hover:bg-black/80 backdrop-blur-sm transition-all"
                         >↻ Osvježi</button>
                         <button
+                          onClick={handlePreviewWait}
+                          className="px-2 py-1 rounded-md text-[9px] bg-black/60 text-white/50 border border-white/10 hover:bg-black/80 backdrop-blur-sm transition-all"
+                        >⏳ Čekaj</button>
+                        <button
+                          onClick={handlePreviewDescribe}
+                          className="px-2 py-1 rounded-md text-[9px] bg-black/60 text-white/50 border border-white/10 hover:bg-black/80 backdrop-blur-sm transition-all"
+                        >👁 Opiši</button>
+                        <button
                           onClick={() => setPreviewScreenshot(null)}
                           className="px-2 py-1 rounded-md text-[9px] bg-black/60 text-white/50 border border-white/10 hover:bg-black/80 backdrop-blur-sm transition-all"
                         >✕</button>
                       </div>
+                      {lastPreviewSummary && (
+                        <div className="absolute left-2 right-2 bottom-2 rounded-lg bg-black/60 border border-white/10 backdrop-blur-sm px-3 py-2 text-[10px] leading-relaxed text-white/70">
+                          {lastPreviewSummary}
+                        </div>
+                      )}
                     </>
                   ) : (
                     <div className="flex flex-col items-center justify-center h-full gap-4 p-8 text-center">
