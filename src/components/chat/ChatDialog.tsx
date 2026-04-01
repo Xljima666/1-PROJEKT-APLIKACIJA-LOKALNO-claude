@@ -1,3 +1,4 @@
+import DevPanel from "../dev/DevPanel";
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { X, Send, Sparkles, Plus, MessageSquare, Trash2, Code2, PanelLeftClose, PanelLeftOpen, PanelRightClose, Mic, Square, ClipboardList, Upload, Camera, Image, File, Paperclip, HardDrive, ArrowDown, Search, Download } from "lucide-react";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -174,7 +175,58 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
   const abortControllerRef = useRef<AbortController | null>(null);
   const [isValidating, setIsValidating] = useState(false);
   const [isAgentActionRunning, setIsAgentActionRunning] = useState(false);
+const handleDevPanelAction = async (
+  action: "open" | "click" | "type" | "screenshot" | "learn",
+  payload?: { url?: string; target?: string; value?: string }
+) => {
+  if (action === "open" && payload?.url) {
+    await executeStudioFlow(`idi na ${payload.url}`);
+    return;
+  }
 
+  if (action === "click" && payload?.target) {
+    await executeStudioFlow(`klikni ${payload.target}`);
+    return;
+  }
+
+  if (action === "type" && payload?.value) {
+    await executeStudioFlow(`upiši "${payload.value}" u "input"`);
+    return;
+  }
+
+  if (action === "screenshot") {
+    await refreshPreviewScreenshot();
+    return;
+  }
+
+  if (action === "learn") {
+    handleStartRecording();
+  }
+};  
+const devPanelMessages = messages.map((m, index) => ({
+  id: `msg-${index}`,
+  role: m.role,
+  content: m.content,
+  createdAt: undefined,
+}));
+
+const devPanelSteps = recordedSteps.map((step, index) => ({
+  id: `step-${index}`,
+  action: "screenshot" as const,
+  label: step.desc || `Korak ${step.n}`,
+  status: "done" as const,
+  detail: step.url,
+  target: step.url,
+  createdAt: undefined,
+}));
+
+const devPanelPreview = {
+  url: previewUrl,
+  title: "Playwright preview",
+  screenshotUrl: previewScreenshot,
+  isLive: agentOnline === true,
+  summary: lastPreviewSummary,
+};
   const voiceBaseRef = useRef("");
 
   const toggleVoice = useCallback(() => {
