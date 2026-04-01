@@ -1350,21 +1350,34 @@ const devPanelPreview = {
               </div>
             </div>
             <div className="flex items-center gap-1.5">
+{hasCode && (
+  <button
+    onClick={() => setShowCodePanel(!showCodePanel)}
+    className={cn(
+      "h-7 px-2.5 rounded-lg flex items-center gap-1.5 text-[10px] transition-colors",
+      showCodePanel
+        ? "bg-primary/20 text-primary"
+        : "bg-white/[0.06] text-white/40 hover:text-white/60"
+    )}
+  >
+    <Code2 className="w-3 h-3" />
+    Kodovi
+  </button>
+)}
 
-              {hasCode && (
-                <button
-                  onClick={() => setShowCodePanel(!showCodePanel)}
-                  className={cn(
-                    "h-7 px-2.5 rounded-lg flex items-center gap-1.5 text-[10px] transition-colors",
-                    showCodePanel
-                      ? "bg-primary/20 text-primary"
-                      : "bg-white/[0.06] text-white/40 hover:text-white/60"
-                  )}
-                >
-                  <Code2 className="w-3 h-3" />
-                  Kodovi
-                </button>
-          
+<button
+  onClick={() => setDevMode(!devMode)}
+  title="Dev Mode — live preview"
+  className={cn(
+    "h-7 px-2.5 rounded-lg flex items-center gap-1.5 text-[10px] transition-colors",
+    devMode
+      ? "bg-violet-500/20 text-violet-400 ring-1 ring-violet-500/30"
+      : "bg-white/[0.06] text-white/40 hover:text-violet-400 hover:bg-violet-500/10"
+  )}
+>
+  <Code2 className="w-3 h-3" />
+  Dev
+</button>
               <button
                 onClick={() => setDevMode(!devMode)}
                 title="Dev Mode — live preview"
