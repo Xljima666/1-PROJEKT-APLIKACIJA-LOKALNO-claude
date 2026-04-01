@@ -848,9 +848,7 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
         options?.heading || "### Stellan vidi u previewu",
         titleLine,
         visible || options?.fallback || "Stranica je otvorena, ali nisam izvukao dovoljno teksta za sažetak.",
-      ].filter(Boolean).join("
-
-"));
+      ].filter(Boolean).join("\n\n"));
     }
 
     return visible;
@@ -996,12 +994,38 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
     pushAssistantMessage('ℹ️ DEV v2 razumije naredbe tipa: `idi na https://...`, `klikni Prijava`, `upiši "Marko" u "korisničko ime"`, `čekaj 3s`, `screenshot`, `izvuci tekst`. Za sve ostalo trenutno koristi obični chat.');
   }, [pushAssistantMessage, runPlaywrightAction, syncPreviewFromAgent, waitForPreviewReady, describeCurrentPreview]);
 
+  const executeStudioFlow = useCallback(async (rawInput: string) => {
+    const normalized = rawInput
+      .split("\n")
+      .map(s => s.trim())
+      .filter(Boolean)
+      .join("\n");
+
+    const steps = normalized
+      .split(/\n+|\s+onda\s+/i)
+      .map(s => s.trim())
+      .filter(Boolean);
+
+    if (steps.length <= 1) {
+      await executeStudioCommand(rawInput);
+      return;
+    }
+
+    pushAssistantMessage(`### DEV flow\n\nPokrećem **${steps.length}** koraka redom.`);
+    for (let i = 0; i < steps.length; i++) {
+      const step = steps[i];
+      addLog("info", `Flow ${i + 1}/${steps.length}: ${step}`);
+      await executeStudioCommand(step);
+    }
+    pushAssistantMessage("✅ DEV flow je završen.");
+  }, [executeStudioCommand, pushAssistantMessage]);
+
   const studioSend = (cmd: string) => {
-    void executeStudioCommand(cmd);
+    void executeStudioFlow(cmd);
   };
 
   const handleStudioExecute = () => {
-    void executeStudioCommand(studioInput);
+    void executeStudioFlow(studioInput);
   };
 
   const handleStudioScreenshot = () => {
