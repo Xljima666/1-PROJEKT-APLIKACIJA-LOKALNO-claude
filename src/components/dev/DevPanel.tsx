@@ -16,8 +16,14 @@ import {
   Square,
   ChevronRight,
   PanelRight,
+  Rocket,
+  Zap,
+  RefreshCw,
+  HardDrive,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+
+/* ──────────────────────────── Types ──────────────────────────── */
 
 export type DevActionType = "open" | "click" | "type" | "screenshot" | "learn";
 export type StepStatus = "queued" | "running" | "done" | "error";
@@ -48,6 +54,8 @@ export type DevChatMessage = {
   createdAt?: string;
 };
 
+export type ConsoleLog = { t: string; msg: string };
+
 type ActionPayload = {
   url?: string;
   target?: string;
@@ -59,8 +67,16 @@ type Props = {
   messages: DevChatMessage[];
   steps: DevStep[];
   preview: DevPreviewState;
+  consoleLogs?: ConsoleLog[];
   isAgentRunning?: boolean;
   isThinking?: boolean;
+  agentOnline?: boolean | null;
+  modelBadge?: string;
+  isRecording?: boolean;
+  recordingName?: string;
+  isDeploying?: boolean;
+  deployStatus?: "idle" | "success" | "error";
+  savedActions?: { name: string; file: string }[];
   onSendMessage?: (message: string) => void;
   onRunAction?: (action: DevActionType, payload?: ActionPayload) => void;
   onStopAgent?: () => void;
@@ -69,133 +85,102 @@ type Props = {
   onDescribePreview?: () => void;
   onWaitForLoad?: () => void;
   onRefreshScreenshot?: () => void;
+  onDeploy?: () => void;
+  onStartAgent?: () => void;
+  onStartRecording?: () => void;
+  onSaveRecording?: () => void;
+  onCancelRecording?: () => void;
+  onRunSavedAction?: (name: string) => void;
+  onRefreshActions?: () => void;
+  onCheckHealth?: () => void;
+  onPortalAction?: (cmd: string) => void;
 };
+
+/* ──────────────────────────── Quick Actions ──────────────────────────── */
 
 const quickActions: Array<{
   key: DevActionType;
   label: string;
+  icon: string;
   placeholder?: string;
 }> = [
-  { key: "open", label: "Open", placeholder: "https://..." },
-  { key: "click", label: "Click", placeholder: "tekst, selector, gumb..." },
-  { key: "type", label: "Type", placeholder: "upiši vrijednost..." },
-  { key: "screenshot", label: "Screenshot" },
-  { key: "learn", label: "Learn", placeholder: "naziv flowa ili napomena..." },
+  { key: "open", label: "Open", icon: "🌐", placeholder: "https://..." },
+  { key: "click", label: "Click", icon: "👆", placeholder: "tekst, selector, gumb..." },
+  { key: "type", label: "Type", icon: "⌨️", placeholder: "upiši vrijednost..." },
+  { key: "screenshot", label: "Screenshot", icon: "📸" },
+  { key: "learn", label: "Learn", icon: "🧠", placeholder: "naziv flowa..." },
 ];
+
+const portalButtons = [
+  { icon: "🏛️", name: "SDGE prijava", cmd: "Otvori SDGE portal playwright-om i prijavi se s kredencijalima" },
+  { icon: "📋", name: "OSS pretraživanje", cmd: "Otvori OSS portal playwright-om i pretraži najnovije predmete" },
+  { icon: "🧾", name: "Solo novi račun", cmd: "Otvori Solo.hr playwright-om i pripremi novi račun" },
+  { icon: "📂", name: "Drive pregled", cmd: "Pretraži firmeni Google Drive i ispiši sadržaj glavnog foldera" },
+  { icon: "🔍", name: "OIB lookup", cmd: "Pokreni provjeru OIB-a za unos korisnika" },
+  { icon: "🔀", name: "Git push", cmd: "Pokreni git push na GitHub i deploya na Vercel" },
+];
+
+/* ──────────────────────────── Helpers ──────────────────────────── */
 
 function getActionIcon(action: DevActionType) {
   switch (action) {
-    case "open":
-      return Globe;
-    case "click":
-      return MousePointerClick;
-    case "type":
-      return Keyboard;
-    case "screenshot":
-      return Camera;
-    case "learn":
-      return Brain;
-    default:
-      return ChevronRight;
+    case "open": return Globe;
+    case "click": return MousePointerClick;
+    case "type": return Keyboard;
+    case "screenshot": return Camera;
+    case "learn": return Brain;
+    default: return ChevronRight;
   }
 }
 
 function getStatusIcon(status: StepStatus) {
   switch (status) {
-    case "queued":
-      return Clock3;
-    case "running":
-      return Loader2;
-    case "done":
-      return CheckCircle2;
-    case "error":
-      return AlertCircle;
-    default:
-      return Clock3;
+    case "queued": return Clock3;
+    case "running": return Loader2;
+    case "done": return CheckCircle2;
+    case "error": return AlertCircle;
+    default: return Clock3;
   }
 }
 
-function getStatusTone(status: StepStatus) {
+function getStatusColor(status: StepStatus) {
   switch (status) {
-    case "queued":
-      return "border-slate-200 bg-slate-100 text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300";
-    case "running":
-      return "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-300";
-    case "done":
-      return "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300";
-    case "error":
-      return "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300";
-    default:
-      return "border-slate-200 bg-slate-100 text-slate-700";
+    case "queued": return "border-white/[0.08] bg-white/[0.03] text-white/45";
+    case "running": return "border-blue-500/20 bg-blue-500/10 text-blue-300";
+    case "done": return "border-emerald-500/20 bg-emerald-500/10 text-emerald-300";
+    case "error": return "border-rose-500/20 bg-rose-500/10 text-rose-300";
+    default: return "border-white/[0.08] bg-white/[0.03] text-white/45";
   }
 }
 
 function formatActionLabel(action: DevActionType) {
   switch (action) {
-    case "open":
-      return "Open";
-    case "click":
-      return "Click";
-    case "type":
-      return "Type";
-    case "screenshot":
-      return "Screenshot";
-    case "learn":
-      return "Learn";
-    default:
-      return action;
+    case "open": return "Open";
+    case "click": return "Click";
+    case "type": return "Type";
+    case "screenshot": return "Screenshot";
+    case "learn": return "Learn";
+    default: return action;
   }
 }
 
-function MiniActionCard({
-  action,
-  value,
-  onValueChange,
-  onRun,
-}: {
-  action: (typeof quickActions)[number];
-  value: string;
-  onValueChange: (value: string) => void;
-  onRun: () => void;
-}) {
-  const needsInput = action.key !== "screenshot";
-
-  return (
-    <div className="rounded-2xl border border-white/[0.08] bg-white/[0.03] p-2.5">
-      <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-white/35">
-        {action.label}
-      </div>
-
-      {needsInput ? (
-        <input
-          value={value}
-          onChange={(e) => onValueChange(e.target.value)}
-          placeholder={action.placeholder}
-          className="mb-2 h-10 w-full rounded-xl border border-white/[0.08] bg-black/20 px-3 text-sm text-white/80 outline-none placeholder:text-white/20"
-        />
-      ) : (
-        <div className="mb-2 flex h-10 items-center rounded-xl border border-dashed border-white/[0.08] bg-black/20 px-3 text-xs text-white/20">
-          Nema dodatnog unosa
-        </div>
-      )}
-
-      <button
-        onClick={onRun}
-        className="inline-flex h-10 w-full items-center justify-center rounded-xl bg-white px-3 text-sm font-medium text-black transition hover:opacity-90"
-      >
-        {action.label}
-      </button>
-    </div>
-  );
-}
+/* ──────────────────────────── Component ──────────────────────────── */
 
 export default function DevPanel({
   title = "Stellan DEV",
   messages,
   steps,
   preview,
+  consoleLogs = [],
   isAgentRunning = false,
   isThinking = false,
+  agentOnline = null,
+  modelBadge = "FAST",
+  isRecording = false,
+  recordingName = "",
+  isDeploying = false,
+  deployStatus = "idle",
+  savedActions = [],
   onSendMessage,
   onRunAction,
   onStopAgent,
@@ -204,31 +189,39 @@ export default function DevPanel({
   onDescribePreview,
   onWaitForLoad,
   onRefreshScreenshot,
+  onDeploy,
+  onStartAgent,
+  onStartRecording,
+  onSaveRecording,
+  onCancelRecording,
+  onRunSavedAction,
+  onRefreshActions,
+  onCheckHealth,
+  onPortalAction,
 }: Props) {
   const [input, setInput] = useState("");
-  const [actionValue, setActionValue] = useState<Record<DevActionType, string>>({
-    open: "",
-    click: "",
-    type: "",
-    screenshot: "",
-    learn: "",
+  const [actionValues, setActionValues] = useState<Record<DevActionType, string>>({
+    open: "", click: "", type: "", screenshot: "", learn: "",
   });
+  const [rightTab, setRightTab] = useState<"steps" | "console" | "actions">("steps");
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const consoleEndRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isThinking]);
 
-  const stats = useMemo(
-    () => ({
-      total: steps.length,
-      running: steps.filter((s) => s.status === "running").length,
-      done: steps.filter((s) => s.status === "done").length,
-      errors: steps.filter((s) => s.status === "error").length,
-    }),
-    [steps]
-  );
+  useEffect(() => {
+    consoleEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [consoleLogs]);
+
+  const stats = useMemo(() => ({
+    total: steps.length,
+    running: steps.filter((s) => s.status === "running").length,
+    done: steps.filter((s) => s.status === "done").length,
+    errors: steps.filter((s) => s.status === "error").length,
+  }), [steps]);
 
   const submitMessage = () => {
     const value = input.trim();
@@ -238,77 +231,119 @@ export default function DevPanel({
   };
 
   const runAction = (action: DevActionType) => {
-    const raw = actionValue[action]?.trim();
-
-    if (action === "open") {
-      onRunAction?.("open", { url: raw });
-      return;
-    }
-
-    if (action === "click") {
-      onRunAction?.("click", { target: raw });
-      return;
-    }
-
-    if (action === "type") {
-      onRunAction?.("type", { value: raw });
-      return;
-    }
-
-    if (action === "screenshot") {
-      onRunAction?.("screenshot");
-      return;
-    }
-
-    if (action === "learn") {
-      onRunAction?.("learn", { value: raw });
-      return;
-    }
+    const raw = actionValues[action]?.trim();
+    if (action === "open") onRunAction?.("open", { url: raw });
+    else if (action === "click") onRunAction?.("click", { target: raw });
+    else if (action === "type") onRunAction?.("type", { value: raw });
+    else if (action === "screenshot") onRunAction?.("screenshot");
+    else if (action === "learn") onRunAction?.("learn", { value: raw });
   };
 
+  /* ──────────────────────────── Render ──────────────────────────── */
+
   return (
-    <div className="flex h-full min-w-0 bg-[hsl(220,15%,4%)]">
-      <div className="grid min-h-0 flex-1 grid-cols-[430px_minmax(0,1fr)_340px]">
-        <aside className="flex min-h-0 flex-col border-r border-white/[0.06] bg-[hsl(220,15%,5%)]">
-          <div className="flex items-center justify-between border-b border-white/[0.06] px-4 py-3">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-white text-black">
-                <Bot className="h-5 w-5" />
-              </div>
+    <div className="flex h-full min-w-0 flex-col bg-[hsl(220,15%,4%)]">
 
-              <div>
-                <div className="text-sm font-semibold text-white/85">{title}</div>
-                <div className="text-xs text-white/30">C-style DEV panel</div>
-              </div>
-            </div>
+      {/* ═══ TOP BAR ═══ */}
+      <div className="flex items-center justify-between border-b border-white/[0.06] bg-[hsl(220,15%,5%)] px-3 py-2 shrink-0">
+        <div className="flex items-center gap-2.5">
+          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-600 text-xs font-bold text-white">S</div>
+          <div>
+            <div className="text-[11px] font-semibold text-white/75 leading-tight">{title}</div>
+            <div className="text-[9px] text-white/25 leading-tight">GeoTerra Info</div>
+          </div>
+        </div>
 
-            <div className="rounded-full bg-white/[0.06] px-2.5 py-1 text-xs font-medium text-white/45">
-              {messages.length} poruka
-            </div>
+        <div className="flex items-center gap-1.5">
+          {/* Agent status */}
+          <div className={cn(
+            "flex items-center gap-1.5 px-2 py-1 rounded-full text-[9px] font-medium border",
+            agentOnline === true ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+              : agentOnline === false ? "bg-red-500/10 text-red-400 border-red-500/20"
+              : "bg-white/[0.04] text-white/30 border-white/[0.06]"
+          )}>
+            <div className={cn("w-1.5 h-1.5 rounded-full",
+              agentOnline === true ? "bg-emerald-400 animate-pulse" : agentOnline === false ? "bg-red-400" : "bg-white/20"
+            )} />
+            {agentOnline === true ? "Online" : agentOnline === false ? "Offline" : "..."}
           </div>
 
+          <div className="flex items-center gap-1 text-[9px] text-white/25">
+            <div className="w-1 h-1 rounded-full bg-violet-400" />
+            {modelBadge}
+          </div>
+
+          {/* Record */}
+          {isRecording ? (
+            <div className="flex items-center gap-1">
+              <button onClick={onSaveRecording}
+                className="flex items-center gap-1 px-2 py-1 rounded-md text-[9px] font-semibold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/25 transition-all">
+                <div className="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse" /> Spremi
+              </button>
+              <button onClick={onCancelRecording} className="px-1.5 py-1 rounded-md text-[9px] text-white/30 border border-white/[0.08] hover:bg-red-500/10 hover:text-red-300 transition-all">✕</button>
+            </div>
+          ) : (
+            <button onClick={onStartRecording}
+              className="flex items-center gap-1 px-2 py-1 rounded-md text-[9px] font-medium bg-white/[0.04] text-white/40 border border-white/[0.08] hover:bg-red-500/10 hover:text-red-300 transition-all">
+              <div className="w-1.5 h-1.5 rounded-full bg-white/30" /> Učenje
+            </button>
+          )}
+
+          {/* Agent */}
+          <button onClick={onStartAgent}
+            className="flex items-center gap-1 px-2 py-1 rounded-md text-[9px] font-medium bg-amber-500/10 text-amber-300 border border-amber-500/20 hover:bg-amber-500/15 transition-all">
+            <Zap className="w-3 h-3" /> Agent
+          </button>
+
+          {/* Deploy */}
+          <button onClick={onDeploy} disabled={isDeploying}
+            className={cn("flex items-center gap-1 px-2 py-1 rounded-md text-[9px] font-medium border transition-all",
+              isDeploying ? "bg-amber-500/10 text-amber-300 border-amber-500/20 cursor-wait"
+                : deployStatus === "success" ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/20"
+                : deployStatus === "error" ? "bg-red-500/10 text-red-300 border-red-500/20"
+                : "bg-emerald-500/10 text-emerald-300 border-emerald-500/20 hover:bg-emerald-500/15"
+            )}>
+            <Rocket className="w-3 h-3" />
+            {isDeploying ? "Deploy..." : deployStatus === "success" ? "✅" : deployStatus === "error" ? "❌" : "Deploy"}
+          </button>
+
+          {/* Health check */}
+          <button onClick={onCheckHealth} title="Provjeri agent status"
+            className="px-1.5 py-1 rounded-md text-white/30 hover:text-white/60 hover:bg-white/[0.05] transition-all">
+            <HardDrive className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      </div>
+
+      {/* ═══ BODY — 3 columns ═══ */}
+      <div className="flex min-h-0 flex-1">
+
+        {/* ── LEFT: Chat ── */}
+        <div className="flex min-h-0 w-[35%] min-w-[280px] flex-col border-r border-white/[0.06] bg-[hsl(220,15%,5%)]">
+          {/* Chat header */}
+          <div className="flex items-center justify-between border-b border-white/[0.06] px-3 py-2.5">
+            <div className="flex items-center gap-2">
+              <Bot className="h-4 w-4 text-white/50" />
+              <span className="text-[11px] font-semibold text-white/75">Chat</span>
+            </div>
+            <span className="rounded-full bg-white/[0.06] px-2 py-0.5 text-[10px] text-white/35">{messages.length}</span>
+          </div>
+
+          {/* Messages */}
           <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
-            <div className="space-y-3">
+            <div className="space-y-2.5">
               {messages.map((msg) => {
                 const isUser = msg.role === "user";
                 const isAssistant = msg.role === "assistant";
-
                 return (
                   <div key={msg.id} className={cn("flex", isUser ? "justify-end" : "justify-start")}>
-                    <div
-                      className={cn(
-                        "max-w-[92%] rounded-2xl px-4 py-3 text-sm leading-6 shadow-sm",
-                        isUser && "bg-white text-black",
-                        isAssistant && "border border-white/[0.08] bg-white/[0.04] text-white/85",
-                        msg.role === "system" && "border border-amber-500/20 bg-amber-500/10 text-amber-200"
-                      )}
-                    >
+                    <div className={cn(
+                      "max-w-[92%] rounded-2xl px-3.5 py-2.5 text-[12px] leading-relaxed shadow-sm",
+                      isUser && "bg-white text-black",
+                      isAssistant && "border border-white/[0.08] bg-white/[0.04] text-white/85",
+                      msg.role === "system" && "border border-amber-500/20 bg-amber-500/10 text-amber-200"
+                    )}>
                       <div className="whitespace-pre-wrap">{msg.content}</div>
-                      {msg.createdAt && (
-                        <div className={cn("mt-2 text-[11px]", isUser ? "text-black/50" : "text-white/25")}>
-                          {msg.createdAt}
-                        </div>
-                      )}
                     </div>
                   </div>
                 );
@@ -316,295 +351,303 @@ export default function DevPanel({
 
               {isThinking && (
                 <div className="flex justify-start">
-                  <div className="flex max-w-[90%] items-center gap-2 rounded-2xl border border-white/[0.08] bg-white/[0.04] px-4 py-3 text-sm text-white/70">
-                    <Loader2 className="h-4 w-4 animate-spin" />
+                  <div className="flex items-center gap-2 rounded-2xl border border-white/[0.08] bg-white/[0.04] px-3.5 py-2.5 text-[12px] text-white/70">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
                     <span>Stellan radi...</span>
                   </div>
                 </div>
               )}
-
               <div ref={messagesEndRef} />
             </div>
           </div>
 
-          <div className="border-t border-white/[0.06] p-3">
-            <div className="rounded-2xl border border-white/[0.08] bg-white/[0.03] p-2">
+          {/* Input */}
+          <div className="border-t border-white/[0.06] p-2.5">
+            <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-2">
               <textarea
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    submitMessage();
-                  }
-                }}
-                placeholder='Npr. Otvori sdge.hr, klikni prijavu i pokaži mi stanje u previewu.'
-                rows={4}
-                className="w-full resize-none bg-transparent px-2 py-2 text-sm text-white/85 outline-none placeholder:text-white/20"
+                onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submitMessage(); } }}
+                placeholder='Npr. "Otvori sdge.hr, klikni prijavu..."'
+                rows={3}
+                className="w-full resize-none bg-transparent px-2 py-1.5 text-[12px] text-white/85 outline-none placeholder:text-white/20"
               />
-
-              <div className="mt-2 flex items-center justify-between gap-2">
-                <div className="text-xs text-white/25">Enter šalje • Shift+Enter novi red</div>
-
-                <button
-                  onClick={submitMessage}
-                  className="inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2 text-sm font-medium text-black transition hover:opacity-90"
-                >
-                  <Play className="h-4 w-4" />
-                  Pošalji
+              <div className="mt-1.5 flex items-center justify-between">
+                <span className="text-[9px] text-white/20">Enter šalje · Shift+Enter novi red</span>
+                <button onClick={submitMessage}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-white px-3 py-1.5 text-[11px] font-medium text-black transition hover:opacity-90">
+                  <Play className="h-3 w-3" /> Pošalji
                 </button>
               </div>
             </div>
-          </div>
-        </aside>
 
-        <main className="flex min-h-0 flex-col border-r border-white/[0.06]">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/[0.06] px-4 py-3 bg-[hsl(220,15%,5%)]">
-            <div className="min-w-0">
-              <div className="flex items-center gap-2 text-sm font-semibold text-white/85">
-                <Globe className="h-4 w-4" />
-                Browser Preview
-              </div>
-              <div className="truncate text-xs text-white/30">{preview.url || "Nema aktivnog previewa"}</div>
+            {/* Portal shortcuts */}
+            <div className="mt-2 grid grid-cols-3 gap-1">
+              {portalButtons.map((p) => (
+                <button key={p.name} onClick={() => onPortalAction?.(p.cmd)}
+                  className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg bg-white/[0.03] border border-white/[0.05] hover:bg-indigo-500/[0.08] hover:border-indigo-500/20 transition-all text-left group">
+                  <span className="text-[11px]">{p.icon}</span>
+                  <span className="flex-1 text-[9px] text-white/35 group-hover:text-white/60 truncate">{p.name}</span>
+                </button>
+              ))}
             </div>
+          </div>
+        </div>
 
-            <div className="flex items-center gap-2">
+        {/* ── CENTER: Browser Preview ── */}
+        <div className="flex min-h-0 flex-1 flex-col">
+          {/* URL bar */}
+          <div className="flex items-center gap-2 border-b border-white/[0.06] bg-[hsl(220,15%,5%)] px-3 py-2">
+            <Globe className="h-3.5 w-3.5 text-white/30 shrink-0" />
+            <div className="flex-1 truncate rounded-lg border border-white/[0.06] bg-white/[0.03] px-2.5 py-1 text-[11px] font-mono text-white/40">
+              {preview.url || "Nema aktivnog previewa"}
+            </div>
+            <div className="flex items-center gap-1.5">
               {preview.url && (
-                <a
-                  href={preview.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center gap-2 rounded-xl border border-white/[0.08] px-3 py-2 text-sm font-medium text-white/70 transition hover:bg-white/[0.05]"
-                >
-                  <ExternalLink className="h-4 w-4" />
-                  Otvori
+                <a href={preview.url} target="_blank" rel="noreferrer"
+                  className="rounded-lg border border-white/[0.08] px-2 py-1.5 text-[10px] text-white/50 transition hover:bg-white/[0.05]">
+                  <ExternalLink className="h-3.5 w-3.5" />
                 </a>
               )}
-
-              <button
-                onClick={onRefreshScreenshot}
-                className="rounded-xl border border-white/[0.08] px-3 py-2 text-sm font-medium text-white/70 transition hover:bg-white/[0.05]"
-              >
-                Screenshot
+              <button onClick={onRefreshScreenshot}
+                className="rounded-lg border border-white/[0.08] px-2 py-1.5 text-[10px] text-white/50 transition hover:bg-white/[0.05]">
+                📸
               </button>
-
-              <button
-                onClick={onWaitForLoad}
-                className="rounded-xl border border-white/[0.08] px-3 py-2 text-sm font-medium text-white/70 transition hover:bg-white/[0.05]"
-              >
-                Čekaj
+              <button onClick={onWaitForLoad}
+                className="rounded-lg border border-white/[0.08] px-2 py-1.5 text-[10px] text-white/50 transition hover:bg-white/[0.05]">
+                ⏳
               </button>
-
-              <button
-                onClick={onDescribePreview}
-                className="rounded-xl border border-white/[0.08] px-3 py-2 text-sm font-medium text-white/70 transition hover:bg-white/[0.05]"
-              >
-                Opiši
+              <button onClick={onDescribePreview}
+                className="rounded-lg border border-white/[0.08] px-2 py-1.5 text-[10px] text-white/50 transition hover:bg-white/[0.05]">
+                👁
               </button>
-
-              <div
-                className={cn(
-                  "rounded-full border px-2.5 py-1 text-xs font-medium",
-                  preview.isLive
-                    ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-300"
-                    : "border-white/[0.08] bg-white/[0.05] text-white/45"
-                )}
-              >
+              <div className={cn(
+                "rounded-full border px-2 py-0.5 text-[9px] font-medium",
+                preview.isLive ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-300" : "border-white/[0.08] bg-white/[0.05] text-white/35"
+              )}>
                 {preview.isLive ? "LIVE" : "STATIC"}
               </div>
             </div>
           </div>
 
-          <div className="min-h-0 flex-1 bg-[#0a0c12] p-4">
-            <div className="flex h-full min-h-[320px] flex-col overflow-hidden rounded-[26px] border border-white/[0.08] bg-black/20 shadow-inner">
-              <div className="flex items-center gap-2 border-b border-white/[0.08] px-4 py-3">
-                <div className="h-3 w-3 rounded-full bg-rose-400" />
-                <div className="h-3 w-3 rounded-full bg-amber-400" />
-                <div className="h-3 w-3 rounded-full bg-emerald-400" />
-                <div className="ml-3 truncate rounded-xl border border-white/[0.08] bg-white/[0.04] px-3 py-1.5 text-xs text-white/35">
-                  {preview.title || preview.url || "Playwright preview"}
-                </div>
-              </div>
-
+          {/* Preview area */}
+          <div className="relative min-h-0 flex-1 bg-[#0a0c12] overflow-auto">
+            <div className="flex h-full flex-col overflow-hidden rounded-none">
               <div className="relative flex-1 overflow-hidden">
                 {preview.screenshotUrl ? (
-                  <img
-                    src={preview.screenshotUrl}
-                    alt="Preview screenshot"
-                    className="h-full w-full object-contain bg-[#0a0c12]"
-                  />
+                  <img src={preview.screenshotUrl} alt="Preview" className="h-full w-full object-contain bg-[#0a0c12]" />
                 ) : (
                   <div className="flex h-full items-center justify-center p-8">
-                    <div className="max-w-md text-center">
-                      <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-3xl bg-white/[0.04]">
-                        <PanelRight className="h-7 w-7 text-white/25" />
+                    <div className="max-w-xs text-center">
+                      <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-white/[0.04]">
+                        <PanelRight className="h-6 w-6 text-white/20" />
                       </div>
-                      <div className="text-lg font-semibold text-white/85">Preview će biti ovdje</div>
-                      <div className="mt-2 text-sm leading-6 text-white/30">
-                        Kada agent otvori stranicu ili napravi screenshot, ovdje se prikazuje stanje browsera.
+                      <div className="text-sm font-semibold text-white/70">Preview</div>
+                      <div className="mt-1.5 text-[11px] leading-5 text-white/25">
+                        Kada agent otvori stranicu ili napravi screenshot, ovdje se prikazuje stanje.
                       </div>
                     </div>
                   </div>
                 )}
 
                 {preview.summary && (
-                  <div className="absolute bottom-4 left-4 right-4 rounded-2xl border border-white/[0.08] bg-black/65 px-3 py-2 text-xs text-white/70 backdrop-blur">
+                  <div className="absolute bottom-3 left-3 right-3 rounded-xl border border-white/[0.08] bg-black/65 px-3 py-2 text-[11px] text-white/65 backdrop-blur">
                     {preview.summary}
                   </div>
                 )}
 
                 {isAgentRunning && (
-                  <div className="absolute top-4 right-4 rounded-2xl border border-white/[0.08] bg-black/65 px-3 py-2 text-xs font-medium text-white/70 backdrop-blur">
+                  <div className="absolute top-3 right-3 rounded-xl border border-white/[0.08] bg-black/65 px-3 py-2 text-[11px] font-medium text-white/65 backdrop-blur">
                     Agent izvršava korake...
                   </div>
                 )}
               </div>
             </div>
           </div>
-        </main>
+        </div>
 
-        <aside className="flex min-h-0 flex-col bg-[hsl(220,15%,5%)]">
-          <div className="flex items-center justify-between border-b border-white/[0.06] px-4 py-3">
+        {/* ── RIGHT: Actions & Steps ── */}
+        <div className="flex min-h-0 w-[280px] shrink-0 flex-col border-l border-white/[0.06] bg-[hsl(220,15%,5%)]">
+
+          {/* Right header with agent controls */}
+          <div className="flex items-center justify-between border-b border-white/[0.06] px-3 py-2.5">
             <div>
-              <div className="text-sm font-semibold text-white/85">Actions</div>
-              <div className="text-xs text-white/30">Brze DEV akcije i koraci agenta</div>
+              <div className="text-[11px] font-semibold text-white/75">Actions</div>
+              <div className="text-[9px] text-white/25">DEV akcije i koraci</div>
             </div>
-
             <button
               onClick={isAgentRunning ? onStopAgent : undefined}
               className={cn(
-                "inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-medium transition",
-                isAgentRunning
-                  ? "border-rose-500/20 bg-rose-500/10 text-rose-300 hover:bg-rose-500/15"
-                  : "border-white/[0.08] bg-white/[0.04] text-white/45"
-              )}
-            >
-              {isAgentRunning ? <Square className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+                "inline-flex items-center gap-1.5 rounded-lg border px-2 py-1.5 text-[10px] font-medium transition",
+                isAgentRunning ? "border-rose-500/20 bg-rose-500/10 text-rose-300 hover:bg-rose-500/15" : "border-white/[0.08] bg-white/[0.04] text-white/35"
+              )}>
+              {isAgentRunning ? <Square className="h-3 w-3" /> : <Play className="h-3 w-3" />}
               {isAgentRunning ? "Stop" : "Idle"}
             </button>
           </div>
 
-          <div className="border-b border-white/[0.06] p-3">
-            <div className="grid grid-cols-1 gap-2">
-              {quickActions.map((action) => (
-                <MiniActionCard
-                  key={action.key}
-                  action={action}
-                  value={actionValue[action.key]}
-                  onValueChange={(value) => setActionValue((prev) => ({ ...prev, [action.key]: value }))}
-                  onRun={() => runAction(action.key)}
-                />
-              ))}
+          {/* Quick actions */}
+          <div className="border-b border-white/[0.06] p-2.5 space-y-1.5">
+            {quickActions.map((action) => {
+              const needsInput = action.key !== "screenshot";
+              return (
+                <div key={action.key} className="flex items-center gap-1.5">
+                  <span className="text-[11px] w-4 text-center shrink-0">{action.icon}</span>
+                  {needsInput ? (
+                    <input
+                      value={actionValues[action.key]}
+                      onChange={(e) => setActionValues((prev) => ({ ...prev, [action.key]: e.target.value }))}
+                      onKeyDown={(e) => { if (e.key === "Enter") runAction(action.key); }}
+                      placeholder={action.placeholder}
+                      className="flex-1 h-7 rounded-lg border border-white/[0.08] bg-black/20 px-2 text-[11px] text-white/70 outline-none placeholder:text-white/15"
+                    />
+                  ) : (
+                    <div className="flex-1 h-7 rounded-lg border border-dashed border-white/[0.08] bg-black/10 px-2 flex items-center text-[10px] text-white/15">—</div>
+                  )}
+                  <button onClick={() => runAction(action.key)}
+                    className="h-7 px-2.5 rounded-lg bg-white/[0.06] text-[10px] font-medium text-white/50 hover:bg-white/[0.1] hover:text-white/80 transition-all border border-white/[0.08]">
+                    {action.label}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Stats */}
+          <div className="grid grid-cols-4 gap-1.5 border-b border-white/[0.06] p-2.5">
+            <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-2 text-center">
+              <div className="text-[9px] text-white/25">Ukupno</div>
+              <div className="text-sm font-semibold text-white/75">{stats.total}</div>
+            </div>
+            <div className="rounded-xl border border-blue-500/20 bg-blue-500/10 p-2 text-center">
+              <div className="text-[9px] text-blue-300">Run</div>
+              <div className="text-sm font-semibold text-blue-200">{stats.running}</div>
+            </div>
+            <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 p-2 text-center">
+              <div className="text-[9px] text-emerald-300">Done</div>
+              <div className="text-sm font-semibold text-emerald-200">{stats.done}</div>
+            </div>
+            <div className="rounded-xl border border-rose-500/20 bg-rose-500/10 p-2 text-center">
+              <div className="text-[9px] text-rose-300">Err</div>
+              <div className="text-sm font-semibold text-rose-200">{stats.errors}</div>
             </div>
           </div>
 
-          <div className="grid grid-cols-4 gap-2 border-b border-white/[0.06] p-3">
-            <div className="rounded-2xl border border-white/[0.08] bg-white/[0.03] p-3">
-              <div className="text-[11px] text-white/25">Ukupno</div>
-              <div className="mt-1 text-base font-semibold text-white/85">{stats.total}</div>
-            </div>
-            <div className="rounded-2xl border border-blue-500/20 bg-blue-500/10 p-3">
-              <div className="text-[11px] text-blue-300">Run</div>
-              <div className="mt-1 text-base font-semibold text-blue-200">{stats.running}</div>
-            </div>
-            <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-3">
-              <div className="text-[11px] text-emerald-300">Done</div>
-              <div className="mt-1 text-base font-semibold text-emerald-200">{stats.done}</div>
-            </div>
-            <div className="rounded-2xl border border-rose-500/20 bg-rose-500/10 p-3">
-              <div className="text-[11px] text-rose-300">Err</div>
-              <div className="mt-1 text-base font-semibold text-rose-200">{stats.errors}</div>
-            </div>
-          </div>
-
-          <div className="flex items-center justify-between border-b border-white/[0.06] px-4 py-3">
-            <div className="text-sm font-semibold text-white/85">Steps</div>
-
-            {onClearSteps && (
-              <button
-                onClick={onClearSteps}
-                className="inline-flex items-center gap-2 rounded-xl border border-white/[0.08] px-3 py-2 text-sm font-medium text-white/70 transition hover:bg-white/[0.05]"
-              >
-                <Trash2 className="h-4 w-4" />
-                Clear
+          {/* Tabs: Steps / Console / Actions */}
+          <div className="flex border-b border-white/[0.06] shrink-0">
+            {(["steps", "console", "actions"] as const).map((tab) => (
+              <button key={tab} onClick={() => setRightTab(tab)}
+                className={cn("flex-1 py-2 text-[10px] border-b-[1.5px] transition-all capitalize",
+                  rightTab === tab ? "text-indigo-300 border-indigo-500" : "text-white/20 border-transparent hover:text-white/40"
+                )}>
+                {tab === "steps" ? `Koraci (${steps.length})` : tab === "console" ? `Log (${consoleLogs.length})` : `Akcije (${savedActions.length})`}
               </button>
+            ))}
+          </div>
+
+          {/* Tab content */}
+          <div className="min-h-0 flex-1 overflow-y-auto">
+
+            {/* Steps tab */}
+            {rightTab === "steps" && (
+              <div className="p-2.5 space-y-2">
+                {onClearSteps && steps.length > 0 && (
+                  <button onClick={onClearSteps}
+                    className="flex items-center gap-1 text-[10px] text-white/30 hover:text-white/60 transition-colors mb-1">
+                    <Trash2 className="h-3 w-3" /> Očisti
+                  </button>
+                )}
+                {steps.length === 0 ? (
+                  <div className="rounded-xl border border-dashed border-white/[0.1] p-6 text-center text-[11px] text-white/25">
+                    Još nema koraka. Pokreni akciju.
+                  </div>
+                ) : steps.map((step, index) => {
+                  const ActionIcon = getActionIcon(step.action);
+                  const StatusIcon = getStatusIcon(step.status);
+                  return (
+                    <button key={step.id} type="button" onClick={() => onSelectStep?.(step)}
+                      className="w-full rounded-xl border border-white/[0.08] bg-white/[0.03] p-3 text-left shadow-sm transition hover:border-white/[0.14] hover:bg-white/[0.05]">
+                      <div className="flex items-start gap-2.5">
+                        <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-white/[0.05] text-white/65">
+                          <ActionIcon className="h-4 w-4" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="truncate text-[11px] font-semibold text-white/80">{index + 1}. {step.label}</div>
+                            <div className={cn("inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[9px] font-medium", getStatusColor(step.status))}>
+                              <StatusIcon className={cn("h-3 w-3", step.status === "running" && "animate-spin")} />
+                              {step.status}
+                            </div>
+                          </div>
+                          <div className="mt-1.5 flex flex-wrap gap-1">
+                            <span className="rounded-full bg-white/[0.05] px-2 py-0.5 text-[9px] font-medium text-white/35">{formatActionLabel(step.action)}</span>
+                            {step.target && <span className="max-w-full truncate rounded-full bg-white/[0.05] px-2 py-0.5 text-[9px] text-white/35">{step.target}</span>}
+                          </div>
+                          {step.detail && <div className="mt-2 text-[11px] leading-5 text-white/40">{step.detail}</div>}
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Console tab */}
+            {rightTab === "console" && (
+              <div className="p-2 font-mono text-[9px] leading-loose bg-[hsl(220,15%,3%)] min-h-full">
+                {consoleLogs.map((l, i) => (
+                  <div key={i} className="flex gap-2 items-start">
+                    <span className="text-white/10 shrink-0">{String(i + 1).padStart(2, "0")}</span>
+                    <span className={
+                      l.t === "ok" ? "text-emerald-400" :
+                      l.t === "info" ? "text-indigo-300" :
+                      l.t === "warn" ? "text-amber-300" :
+                      l.t === "err" ? "text-red-400" :
+                      "text-white/20"
+                    }>{l.msg}</span>
+                  </div>
+                ))}
+                <div ref={consoleEndRef} />
+              </div>
+            )}
+
+            {/* Saved actions tab */}
+            {rightTab === "actions" && (
+              <div className="p-2.5 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[9px] text-white/20">Naučene akcije</span>
+                  <button onClick={onRefreshActions}
+                    className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] text-white/30 border border-white/[0.08] hover:bg-white/[0.05] transition-all">
+                    <RefreshCw className="h-2.5 w-2.5" /> Osvježi
+                  </button>
+                </div>
+                {savedActions.length === 0 ? (
+                  <div className="text-[10px] text-white/20 px-1 py-4 text-center">Još nema spremljenih akcija.</div>
+                ) : savedActions.map((action) => (
+                  <div key={action.file} className="flex items-center gap-2 px-2.5 py-2 rounded-lg bg-white/[0.03] border border-white/[0.05]">
+                    <span className="text-[11px]">🎬</span>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[10px] text-white/60 truncate">{action.name}</div>
+                      <div className="text-[8px] text-white/20 truncate">{action.file}</div>
+                    </div>
+                    <button onClick={() => onRunSavedAction?.(action.name)}
+                      className="px-2 py-1 rounded text-[9px] text-emerald-300 border border-emerald-500/20 bg-emerald-500/10 hover:bg-emerald-500/20 transition-all">
+                      ▶ Pokreni
+                    </button>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
 
-          <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
-            <div className="space-y-3">
-              {steps.length === 0 && (
-                <div className="rounded-2xl border border-dashed border-white/[0.12] p-6 text-center text-sm text-white/30">
-                  Još nema koraka. Pokreni open, click, type ili screenshot.
-                </div>
-              )}
-
-              {steps.map((step, index) => {
-                const ActionIcon = getActionIcon(step.action);
-                const StatusIcon = getStatusIcon(step.status);
-
-                return (
-                  <button
-                    key={step.id}
-                    type="button"
-                    onClick={() => onSelectStep?.(step)}
-                    className="w-full rounded-2xl border border-white/[0.08] bg-white/[0.03] p-4 text-left shadow-sm transition hover:border-white/[0.14] hover:bg-white/[0.05]"
-                  >
-                    <div className="flex items-start gap-3">
-                      <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-white/[0.05] text-white/75">
-                        <ActionIcon className="h-5 w-5" />
-                      </div>
-
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="truncate text-sm font-semibold text-white/85">
-                            {index + 1}. {step.label}
-                          </div>
-
-                          <div
-                            className={cn(
-                              "inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-medium",
-                              getStatusTone(step.status)
-                            )}
-                          >
-                            <StatusIcon className={cn("h-3.5 w-3.5", step.status === "running" && "animate-spin")} />
-                            {step.status}
-                          </div>
-                        </div>
-
-                        <div className="mt-2 flex flex-wrap gap-2">
-                          <span className="rounded-full bg-white/[0.05] px-2.5 py-1 text-[11px] font-medium text-white/45">
-                            {formatActionLabel(step.action)}
-                          </span>
-
-                          {step.target && (
-                            <span className="max-w-full truncate rounded-full bg-white/[0.05] px-2.5 py-1 text-[11px] font-medium text-white/45">
-                              Target: {step.target}
-                            </span>
-                          )}
-
-                          {step.value && (
-                            <span className="max-w-full truncate rounded-full bg-white/[0.05] px-2.5 py-1 text-[11px] font-medium text-white/45">
-                              Value: {step.value}
-                            </span>
-                          )}
-                        </div>
-
-                        {step.detail && (
-                          <div className="mt-3 text-sm leading-6 text-white/50">{step.detail}</div>
-                        )}
-
-                        {step.createdAt && (
-                          <div className="mt-3 text-[11px] text-white/20">{step.createdAt}</div>
-                        )}
-                      </div>
-                    </div>
-                  </button>
-                );
-              })}
+          {/* Recording status */}
+          {isRecording && (
+            <div className="flex items-center gap-1.5 px-3 py-2 border-t border-white/[0.06] bg-red-500/[0.05] shrink-0">
+              <div className="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse" />
+              <span className="text-[9px] text-red-300">Snimam: {recordingName}</span>
             </div>
-          </div>
-        </aside>
+          )}
+        </div>
       </div>
     </div>
   );
