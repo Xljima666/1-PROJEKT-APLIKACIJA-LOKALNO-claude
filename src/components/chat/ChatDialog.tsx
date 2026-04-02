@@ -1,7 +1,7 @@
 import DevPanel from "../dev/DevPanel";
 import type { ConsoleLog } from "../dev/DevPanel";
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
-import { X, Send, Sparkles, Plus, MessageSquare, Trash2, Code2, PanelLeftClose, PanelLeftOpen, PanelRightClose, Mic, Square, ClipboardList, Upload, Camera, Image, File, Paperclip, HardDrive, ArrowDown, Search, Download } from "lucide-react";
+import { X, Send, Sparkles, Plus, MessageSquare, Trash2, Code2, PanelLeftClose, PanelLeftOpen, PanelRightClose, Mic, Square, ClipboardList, Upload, Camera, Image, File, FileText, Paperclip, HardDrive, ArrowDown, Search, Download } from "lucide-react";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -174,6 +174,7 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
   const consoleEndRef = useRef<HTMLDivElement>(null);
   const [reactions, setReactions] = useState<Record<number, "up" | "down">>({});
   const [pendingImages, setPendingImages] = useState<{name: string, base64: string, size: number}[]>([]);
+  const [pendingFiles, setPendingFiles] = useState<{name: string, size: number, type: string, content?: string, language?: string, pdfText?: string, pdfPages?: number, pdfUrl?: string}[]>([]);
   const [sidebarSearch, setSidebarSearch] = useState("");
   const [thinkingStatus, setThinkingStatus] = useState<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -376,7 +377,6 @@ const devPanelPreview = {
   const handleFileDrop = useCallback(async (files: FileList) => {
     if (!user || files.length === 0) return;
     
-    // Process multiple files
     const filesToProcess = Array.from(files).slice(0, 10);
     
     for (const file of filesToProcess) {
@@ -404,10 +404,9 @@ const devPanelPreview = {
       const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
       if (isPdf) {
         try {
-          setMessages(prev => [...prev, { role: "assistant", content: `⏳ Parsiram PDF: **${file.name}**...` }]);
           const arrayBuffer = await file.arrayBuffer();
 
-          // Upload PDF to storage so Stellan can reference it by URL
+          // Upload PDF to storage
           let pdfStorageUrl = "";
           try {
             const timestamp = Date.now();
@@ -443,24 +442,23 @@ const devPanelPreview = {
             if (pageText) fullText += `\n--- Stranica ${p} ---\n${pageText}`;
           }
           if (fullText.length > 30000) fullText = fullText.slice(0, 30000) + "\n...[skraćeno]";
-          const pageInfo = pdf.numPages > 50 ? ` (prikazano 50/${pdf.numPages} stranica)` : ` (${pdf.numPages} str.)`;
-          const urlLine = pdfStorageUrl ? `\n\n🔗 PDF URL za uređivanje: ${pdfStorageUrl}` : "";
-          // Remove the "parsing" message and add real content
-          setMessages(prev => {
-            const filtered = prev.filter(m => !m.content.includes(`Parsiram PDF: **${file.name}**`));
-            return [...filtered, { role: "user", content: `📄 PDF: **${file.name}**${pageInfo} (${(file.size / 1024).toFixed(1)} KB)${urlLine}\n\n${fullText.trim() || "_Nema tekstualnog sadržaja (skenirani dokument)_"}` }];
-          });
-          setInput(prev => prev + (prev ? "\n" : "") + `[Priložen PDF: ${file.name}]`);
+
+          setPendingFiles(prev => [...prev, {
+            name: file.name,
+            size: file.size,
+            type: "application/pdf",
+            pdfText: fullText.trim() || "_Nema tekstualnog sadržaja (skenirani dokument)_",
+            pdfPages: pdf.numPages,
+            pdfUrl: pdfStorageUrl || undefined,
+          }]);
         } catch (err) {
-          setMessages(prev => {
-            const filtered = prev.filter(m => !m.content.includes(`Parsiram PDF: **${file.name}**`));
-            return [...filtered, { role: "assistant", content: `❌ Greška pri parsiranju PDF-a: **${file.name}**` }];
-          });
+          console.error("PDF parse error:", err);
+          setPendingFiles(prev => [...prev, { name: file.name, size: file.size, type: "application/pdf" }]);
         }
         continue;
       }
 
-      // Try to read as text - broad detection
+      // Try to read as text
       const textExtensions = [
         ".txt", ".md", ".csv", ".json", ".xml", ".kml", ".gml", ".html", ".htm",
         ".css", ".js", ".jsx", ".ts", ".tsx", ".py", ".sql", ".yaml", ".yml",
@@ -481,7 +479,6 @@ const devPanelPreview = {
           let fileContent = await file.text();
           if (fileContent.length > 30000) fileContent = fileContent.slice(0, 30000) + "\n...[skraćeno]";
           
-          // Detect language for syntax highlighting
           const ext = file.name.split('.').pop()?.toLowerCase() || "";
           const langMap: Record<string, string> = {
             js: "javascript", jsx: "jsx", ts: "typescript", tsx: "tsx", py: "python",
@@ -492,21 +489,21 @@ const devPanelPreview = {
           };
           const lang = langMap[ext] || ext || "text";
           
-          const uploadMsg = `📎 Učitana datoteka: **${file.name}** (${(file.size / 1024).toFixed(1)} KB)\n\n\`\`\`${lang}\n${fileContent}\n\`\`\``;
-          setInput(prev => prev + (prev ? "\n" : "") + `[Priložena datoteka: ${file.name}]`);
-          setMessages(prev => [...prev, { role: "user", content: uploadMsg }]);
+          setPendingFiles(prev => [...prev, {
+            name: file.name,
+            size: file.size,
+            type: file.type || "text/plain",
+            content: fileContent,
+            language: lang,
+          }]);
         } catch {
-          const uploadMsg = `📎 Učitana datoteka: **${file.name}** (${(file.size / 1024).toFixed(1)} KB, ${file.type || "nepoznat tip"})`;
-          setInput(prev => prev + (prev ? "\n" : "") + `[Priložena datoteka: ${file.name}]`);
-          setMessages(prev => [...prev, { role: "user", content: uploadMsg }]);
+          setPendingFiles(prev => [...prev, { name: file.name, size: file.size, type: file.type || "unknown" }]);
         }
         continue;
       }
 
-      // Binary file - just note it
-      const uploadMsg = `📎 Učitana datoteka: **${file.name}** (${(file.size / 1024).toFixed(1)} KB, ${file.type || "nepoznat tip"})`;
-      setInput(prev => prev + (prev ? "\n" : "") + `[Priložena datoteka: ${file.name}]`);
-      setMessages(prev => [...prev, { role: "user", content: uploadMsg }]);
+      // Binary file — just metadata
+      setPendingFiles(prev => [...prev, { name: file.name, size: file.size, type: file.type || "unknown" }]);
     }
   }, [user]);
 
@@ -656,13 +653,11 @@ const devPanelPreview = {
 
   const send = async () => {
     const rawText = input.trim();
-    if (!rawText && pendingImages.length === 0) return;
+    if (!rawText && pendingImages.length === 0 && pendingFiles.length === 0) return;
     if (isLoading || !user) return;
 
     // ── DEV MODE INTERCEPT ──
-    // When devMode is on, detect agent-like commands and route through executeStudioFlow
-    // instead of sending to Gemini (which may be down or irrelevant for agent tasks)
-    if (devMode && pendingImages.length === 0 && rawText) {
+    if (devMode && pendingImages.length === 0 && pendingFiles.length === 0 && rawText) {
       const lower = rawText.toLowerCase();
       const hasUrl = /https?:\/\/[^\s]+/i.test(rawText);
       const isAgentCommand = hasUrl
@@ -672,10 +667,8 @@ const devPanelPreview = {
         || lower.includes("screenshot") || lower.includes("izvuci tekst");
 
       if (isAgentCommand) {
-        // Show user message in chat
         setMessages(prev => [...prev, { role: "user", content: rawText }]);
         setInput("");
-        // Route through agent — this tracks steps automatically
         await executeStudioFlow(rawText);
         return;
       }
@@ -685,16 +678,38 @@ const devPanelPreview = {
       ? `Pretraži firmeni Google Drive I Trello za: ${rawText}. Prikaži sve relevantne rezultate s linkovima, označi izvor (Drive ili Trello).`
       : rawText;
 
+    // Build message content: files + images + text
+    const parts: string[] = [];
+
+    // Pending files → structured format for AI + nice rendering in ChatMessage
+    for (const f of pendingFiles) {
+      const sizeStr = `${(f.size / 1024).toFixed(1)} KB`;
+      if (f.pdfText) {
+        const pageInfo = f.pdfPages ? ` (${f.pdfPages} str.)` : "";
+        const urlLine = f.pdfUrl ? `\n\n🔗 PDF URL za uređivanje: ${f.pdfUrl}` : "";
+        parts.push(`📄 PDF: **${f.name}**${pageInfo} (${sizeStr})${urlLine}\n\n${f.pdfText}`);
+      } else if (f.content && f.language) {
+        parts.push(`📎 Učitana datoteka: **${f.name}** (${sizeStr})\n\n\`\`\`${f.language}\n${f.content}\n\`\`\``);
+      } else {
+        parts.push(`📎 Učitana datoteka: **${f.name}** (${sizeStr}, ${f.type || "nepoznat tip"})`);
+      }
+    }
+
+    // Pending images
     const imagesMd = pendingImages.map(img => `![${img.name}](${img.base64})`).join('\n');
-    const text = imagesMd
-      ? (imagesMd + (baseText ? '\n\n' + baseText : ''))
-      : baseText;
+    if (imagesMd) parts.push(imagesMd);
+
+    // User text
+    if (baseText) parts.push(baseText);
+
+    const text = parts.join('\n\n');
 
     const userMsg: Message = { role: "user", content: text };
     const newMessages = [...messages, userMsg];
     setMessages(newMessages);
     setInput("");
     setPendingImages([]);
+    setPendingFiles([]);
     setDriveSearchMode(false);
     setIsLoading(true);
     forceScrollToBottom();
@@ -1687,11 +1702,11 @@ const devPanelPreview = {
             </div>
           )}
           <div className="bg-white/[0.04] border border-white/[0.08] rounded-xl focus-within:border-primary/40 transition-colors flex flex-col">
-            {/* Pending image previews */}
-            {pendingImages.length > 0 && (
+            {/* Pending attachment previews */}
+            {(pendingImages.length > 0 || pendingFiles.length > 0) && (
               <div className="flex gap-2 flex-wrap px-3 pt-3 pb-1">
                 {pendingImages.map((img, i) => (
-                  <div key={i} className="relative group">
+                  <div key={`img-${i}`} className="relative group">
                     <img
                       src={img.base64}
                       alt={img.name}
@@ -1704,6 +1719,30 @@ const devPanelPreview = {
                     <div className="text-[9px] text-white/30 mt-0.5 truncate w-16">{img.name}</div>
                   </div>
                 ))}
+                {pendingFiles.map((file, i) => {
+                  const ext = file.name.split('.').pop()?.toLowerCase() || "";
+                  const badgeColors: Record<string, string> = {
+                    zip: "#fbbf24", rar: "#fbbf24", "7z": "#fbbf24", gz: "#fbbf24", tar: "#fbbf24",
+                    pdf: "#ef4444", doc: "#3b82f6", docx: "#3b82f6",
+                    ts: "#3178c6", tsx: "#3178c6", js: "#f7df1e", jsx: "#61dafb", py: "#3776ab",
+                    html: "#e34f26", css: "#264de4", json: "#a8a8a8", sql: "#f29111",
+                    csv: "#22c55e", xls: "#22c55e", xlsx: "#22c55e",
+                  };
+                  const color = badgeColors[ext] || "#8b8b8b";
+                  return (
+                    <div key={`file-${i}`} className="relative group">
+                      <div className="h-16 w-20 rounded-lg border border-white/10 bg-white/[0.04] flex flex-col items-center justify-center gap-1 px-1">
+                        <FileText className="w-4 h-4" style={{ color }} />
+                        <span className="text-[8px] font-bold uppercase tracking-wide px-1 py-0.5 rounded" style={{ color, background: `${color}20` }}>{ext || "FILE"}</span>
+                      </div>
+                      <button
+                        onClick={() => setPendingFiles(prev => prev.filter((_, j) => j !== i))}
+                        className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-red-500 hover:bg-red-400 text-white text-[10px] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-md"
+                      >×</button>
+                      <div className="text-[9px] text-white/30 mt-0.5 truncate w-20">{file.name}</div>
+                    </div>
+                  );
+                })}
               </div>
             )}
             <textarea
@@ -1872,12 +1911,12 @@ const devPanelPreview = {
                     size="icon"
                     className={cn(
                       "h-8 w-8 rounded-lg transition-all",
-                      (input.trim() || pendingImages.length > 0)
+                      (input.trim() || pendingImages.length > 0 || pendingFiles.length > 0)
                         ? "bg-primary text-primary-foreground hover:bg-primary/90"
                         : "bg-white/[0.06] text-white/20 cursor-not-allowed"
                     )}
                     onClick={send} data-send-btn
-                    disabled={!input.trim() && pendingImages.length === 0}
+                    disabled={!input.trim() && pendingImages.length === 0 && pendingFiles.length === 0}
                   >
                     <Send className="w-3.5 h-3.5" />
                   </Button>
