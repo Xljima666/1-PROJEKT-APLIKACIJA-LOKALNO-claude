@@ -477,7 +477,7 @@ const devPanelPreview = {
       if (isText) {
         try {
           let fileContent = await file.text();
-          if (fileContent.length > 30000) fileContent = fileContent.slice(0, 30000) + "\n...[skraćeno]";
+          if (fileContent.length > 200000) fileContent = fileContent.slice(0, 200000) + "\n...[skraćeno]";
           
           const ext = file.name.split('.').pop()?.toLowerCase() || "";
           const langMap: Record<string, string> = {
