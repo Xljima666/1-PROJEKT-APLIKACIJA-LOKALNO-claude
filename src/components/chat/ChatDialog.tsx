@@ -1022,7 +1022,7 @@ const devPanelPreview = {
     // CLICK
     const clickMatch = raw.match(/^(klikni|pritisni)\s+(.+)$/i);
     if (clickMatch) {
-      const target = clickMatch[2].trim().replace(/^['"]|['"]$/g, "");
+      const target = clickMatch[2].trim().replace(/^na\s+/i, "").replace(/^['"]|['"]$/g, "");
       const selector = target.startsWith("#") || target.startsWith(".") || target.startsWith("//") || target.startsWith("text=") ? target : `text=${target}`;
       const stepId = addDevStep("click", `Click "${target}"`, target);
       const data = await runPlaywrightAction(
@@ -1061,6 +1061,37 @@ const devPanelPreview = {
       } else {
         updateDevStep(stepId, "error", data?.error || "Unos nije uspio");
         pushAssistantMessage(`❌ Unos u **${target}** nije uspio: ${data?.error || "greška"}`);
+      }
+      return;
+    }
+
+    // SIMPLE TYPE (no target — types into currently focused element)
+    // e.g. "upiši darpet" without "u [polje]"
+    const simpleType = raw.match(/^(upiši|upisi|unesi|unesite)\s+(.+)$/i);
+    if (simpleType) {
+      const value = simpleType[2].trim();
+      const stepId = addDevStep("type", `Type "${value}"`, "fokusirano polje");
+      // Try focused element first, then fall back to any visible input
+      const data = await runPlaywrightAction(
+        { action: "fill", selector: ":focus", value, timeout: 10000 },
+        { refreshAfter: true }
+      );
+      if (data?.success) {
+        updateDevStep(stepId, "done");
+        pushAssistantMessage(`✅ Upisao sam **${value}**.`);
+      } else {
+        // Fallback: try the first empty visible input
+        const fallback = await runPlaywrightAction(
+          { action: "fill", selector: "input:visible:not([type=hidden]):not([readonly]), textarea:visible", value, timeout: 10000 },
+          { refreshAfter: true }
+        );
+        if (fallback?.success) {
+          updateDevStep(stepId, "done");
+          pushAssistantMessage(`✅ Upisao sam **${value}**.`);
+        } else {
+          updateDevStep(stepId, "error", "Nema fokusiranog polja");
+          pushAssistantMessage(`❌ Nema fokusiranog polja za unos. Probaj: \`klikni Korisničko ime\` pa onda \`upiši ${value}\``);
+        }
       }
       return;
     }
@@ -1106,7 +1137,7 @@ const devPanelPreview = {
       .join("\n");
 
     const steps = normalized
-      .split(/\n+|\s+onda\s+/i)
+      .split(/\n+|\s+onda\s+|\s+i\s+(?=otvori|idi\s+na|klikni|pritisni|upiši|upisi|unesi|čekaj|cekaj|screenshot|snimi|izvuci)/i)
       .map(s => s.trim())
       .filter(Boolean);
 
