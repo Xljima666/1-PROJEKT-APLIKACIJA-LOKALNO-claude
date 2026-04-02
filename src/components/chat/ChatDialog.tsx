@@ -721,18 +721,39 @@ const devPanelPreview = {
 
     let assistantSoFar = "";
     isStreamingRef.current = true;
+    // streamTimeoutId is declared here so it's accessible in both try and cleanup
+    let streamTimeoutId: ReturnType<typeof setTimeout> | null = null;
 
     try {
       const { data: { session: currentSession } } = await supabase.auth.getSession();
-      // Send messages as-is — backend converts inline base64 images to OpenAI vision format
-      const cleanMessages = newMessages;
+
+      // Guard: if session has expired the publishable key is not a valid JWT — fail early
+      if (!currentSession?.access_token) {
+        console.error("[Chat] Nema aktivne sesije — ne mogu poslati poruku");
+        setMessages((prev) => [...prev, { role: "assistant", content: "⚠️ Sesija je istekla. Osvježi stranicu i pokušaj ponovo." }]);
+        setIsLoading(false);
+        isStreamingRef.current = false;
+        return;
+      }
+
+      // Truncate history to last 40 messages to avoid context-window overflow and slow timeouts
+      const MAX_HISTORY = 40;
+      const cleanMessages = newMessages.length > MAX_HISTORY ? newMessages.slice(-MAX_HISTORY) : newMessages;
+
       const abortController = new AbortController();
       abortControllerRef.current = abortController;
+
+      // Abort the stream after 130 s so the UI never stays locked indefinitely
+      streamTimeoutId = setTimeout(() => {
+        console.warn("[Chat] Stream timeout — prekidam zahtjev nakon 130 s");
+        abortController.abort();
+      }, 130_000);
+
       const resp = await fetch(CHAT_URL, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${currentSession?.access_token || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
+          Authorization: `Bearer ${currentSession.access_token}`,
         },
         body: JSON.stringify({
           messages: cleanMessages,
@@ -743,11 +764,27 @@ const devPanelPreview = {
         signal: abortController.signal,
       });
 
-      if (!resp.ok || !resp.body) {
-        const err = await resp.json().catch(() => ({ error: "Greška" }));
-        setMessages((prev) => [...prev, { role: "assistant", content: err.error || "Greška u komunikaciji." }]);
-        setIsLoading(false);
+      if (!resp.ok) {
+        let errMsg = "Greška u komunikaciji s AI servisom.";
+        try { const b = await resp.json(); errMsg = b.error || errMsg; } catch { /* not JSON */ }
+        console.error("[Chat] HTTP greška:", resp.status, errMsg);
+        setMessages((prev) => [...prev, { role: "assistant", content: errMsg }]);
+        if (streamTimeoutId) clearTimeout(streamTimeoutId);
+        abortControllerRef.current = null;
         isStreamingRef.current = false;
+        setThinkingStatus(null);
+        setIsLoading(false);
+        return;
+      }
+
+      if (!resp.body) {
+        console.error("[Chat] Nema tijela odgovora od servera");
+        setMessages((prev) => [...prev, { role: "assistant", content: "Nema odgovora od servera." }]);
+        if (streamTimeoutId) clearTimeout(streamTimeoutId);
+        abortControllerRef.current = null;
+        isStreamingRef.current = false;
+        setThinkingStatus(null);
+        setIsLoading(false);
         return;
       }
 
@@ -814,17 +851,19 @@ const devPanelPreview = {
       flushUpdate();
     } catch (e: any) {
       if (e?.name === "AbortError") {
-        // User stopped generation — keep what we have so far
+        // User stopped generation (or 130 s timeout) — keep what we have so far
         if (!assistantSoFar) {
           assistantSoFar = "⏹ Generiranje zaustavljeno.";
           setMessages((prev) => [...prev, { role: "assistant", content: assistantSoFar }]);
         }
       } else {
+        console.error("[Chat] Greška pri slanju poruke:", e);
         assistantSoFar = "Greška u povezivanju s AI servisom.";
         setMessages((prev) => [...prev, { role: "assistant", content: assistantSoFar }]);
       }
     }
 
+    if (streamTimeoutId) clearTimeout(streamTimeoutId);
     abortControllerRef.current = null;
     isStreamingRef.current = false;
     setThinkingStatus(null);
