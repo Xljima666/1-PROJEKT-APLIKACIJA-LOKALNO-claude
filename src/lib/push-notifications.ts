@@ -103,34 +103,28 @@ export async function requestNotificationPermission(): Promise<PushSetupResult> 
       auth,
     };
 
-    const { error: upsertError } = await supabase
+    const { data: existing, error: existingError } = await supabase
       .from("push_subscriptions")
-      .upsert(payload, { onConflict: "user_id,endpoint" });
+      .select("id")
+      .eq("user_id", user.id)
+      .eq("endpoint", endpoint)
+      .maybeSingle();
 
-    if (upsertError) {
-      const { data: existing, error: existingError } = await supabase
+    if (existingError) throw existingError;
+
+    if (existing?.id) {
+      const { error: updateError } = await supabase
         .from("push_subscriptions")
-        .select("id")
-        .eq("user_id", user.id)
-        .eq("endpoint", endpoint)
-        .maybeSingle();
+        .update({ p256dh, auth })
+        .eq("id", existing.id);
 
-      if (existingError) throw existingError;
+      if (updateError) throw updateError;
+    } else {
+      const { error: insertError } = await supabase
+        .from("push_subscriptions")
+        .insert(payload);
 
-      if (existing?.id) {
-        const { error: updateError } = await supabase
-          .from("push_subscriptions")
-          .update({ p256dh, auth })
-          .eq("id", existing.id);
-
-        if (updateError) throw updateError;
-      } else {
-        const { error: insertError } = await supabase
-          .from("push_subscriptions")
-          .insert(payload);
-
-        if (insertError) throw insertError;
-      }
+      if (insertError) throw insertError;
     }
 
     // Keep only the current active endpoint for this user.
