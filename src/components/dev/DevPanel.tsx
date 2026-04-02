@@ -70,6 +70,7 @@ type Props = {
   onRunAction?: (action: DevActionType, payload?: ActionPayload) => void;
   onStopAgent?: () => void;
   onClearSteps?: () => void;
+  onDeleteStep?: (stepId: string) => void;
   onSelectStep?: (step: DevStep) => void;
   onDescribePreview?: () => void;
   onWaitForLoad?: () => void;
@@ -156,6 +157,7 @@ export default function DevPanel({
   onRunAction,
   onStopAgent,
   onClearSteps,
+  onDeleteStep,
   onSelectStep,
   onDescribePreview,
   onWaitForLoad,
@@ -398,9 +400,17 @@ export default function DevPanel({
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center justify-between gap-2">
                             <div className="truncate text-[11px] font-semibold text-white/80">{index + 1}. {step.label}</div>
-                            <div className={cn("inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[9px] font-medium", getStatusColor(step.status))}>
-                              <StatusIcon className={cn("h-3 w-3", step.status === "running" && "animate-spin")} />
-                              {step.status}
+                            <div className="flex items-center gap-1.5">
+                              <div className={cn("inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[9px] font-medium", getStatusColor(step.status))}>
+                                <StatusIcon className={cn("h-3 w-3", step.status === "running" && "animate-spin")} />
+                                {step.status}
+                              </div>
+                              {onDeleteStep && (
+                                <div onClick={(e) => { e.stopPropagation(); onDeleteStep(step.id); }}
+                                  className="flex h-5 w-5 items-center justify-center rounded-md text-white/15 hover:text-red-400 hover:bg-red-500/10 transition-all cursor-pointer">
+                                  <Trash2 className="h-3 w-3" />
+                                </div>
+                              )}
                             </div>
                           </div>
                           {step.target && (
