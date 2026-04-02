@@ -1,5 +1,5 @@
 import { memo, useState, useCallback } from "react";
-import { Copy, Check, Code2, Sparkles, ThumbsUp, ThumbsDown } from "lucide-react";
+import { Copy, Check, Code2, Sparkles, ThumbsUp, ThumbsDown, FileText, FileCode2, FileArchive, FileImage, FileSpreadsheet, File, ChevronDown, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -30,7 +30,249 @@ const SECTION_COLORS = [
   { bg: "rgba(239,68,68,0.18)", border: "rgba(239,68,68,0.45)", left: "#f87171", title: "#fca5a5" },
 ];
 
-// Split markdown na sekcije po ## headinzima
+// ─── File type detection ────────────────────────────────────
+const FILE_TYPE_MAP: Record<string, { icon: typeof File; color: string; badge: string; badgeColor: string }> = {
+  // Archives
+  zip:  { icon: FileArchive, color: "#fbbf24", badge: "ZIP", badgeColor: "rgba(251,191,36,0.15)" },
+  rar:  { icon: FileArchive, color: "#fbbf24", badge: "RAR", badgeColor: "rgba(251,191,36,0.15)" },
+  "7z": { icon: FileArchive, color: "#fbbf24", badge: "7Z", badgeColor: "rgba(251,191,36,0.15)" },
+  tar:  { icon: FileArchive, color: "#fbbf24", badge: "TAR", badgeColor: "rgba(251,191,36,0.15)" },
+  gz:   { icon: FileArchive, color: "#fbbf24", badge: "GZ", badgeColor: "rgba(251,191,36,0.15)" },
+  // Documents
+  pdf:  { icon: FileText, color: "#ef4444", badge: "PDF", badgeColor: "rgba(239,68,68,0.15)" },
+  doc:  { icon: FileText, color: "#3b82f6", badge: "DOC", badgeColor: "rgba(59,130,246,0.15)" },
+  docx: { icon: FileText, color: "#3b82f6", badge: "DOCX", badgeColor: "rgba(59,130,246,0.15)" },
+  // Spreadsheets
+  csv:  { icon: FileSpreadsheet, color: "#22c55e", badge: "CSV", badgeColor: "rgba(34,197,94,0.15)" },
+  xls:  { icon: FileSpreadsheet, color: "#22c55e", badge: "XLS", badgeColor: "rgba(34,197,94,0.15)" },
+  xlsx: { icon: FileSpreadsheet, color: "#22c55e", badge: "XLSX", badgeColor: "rgba(34,197,94,0.15)" },
+  // Code
+  ts:   { icon: FileCode2, color: "#3178c6", badge: "TS", badgeColor: "rgba(49,120,198,0.15)" },
+  tsx:  { icon: FileCode2, color: "#3178c6", badge: "TSX", badgeColor: "rgba(49,120,198,0.15)" },
+  js:   { icon: FileCode2, color: "#f7df1e", badge: "JS", badgeColor: "rgba(247,223,30,0.15)" },
+  jsx:  { icon: FileCode2, color: "#61dafb", badge: "JSX", badgeColor: "rgba(97,218,251,0.15)" },
+  py:   { icon: FileCode2, color: "#3776ab", badge: "PY", badgeColor: "rgba(55,118,171,0.15)" },
+  html: { icon: FileCode2, color: "#e34f26", badge: "HTML", badgeColor: "rgba(227,79,38,0.15)" },
+  css:  { icon: FileCode2, color: "#264de4", badge: "CSS", badgeColor: "rgba(38,77,228,0.15)" },
+  json: { icon: FileCode2, color: "#a8a8a8", badge: "JSON", badgeColor: "rgba(168,168,168,0.15)" },
+  sql:  { icon: FileCode2, color: "#f29111", badge: "SQL", badgeColor: "rgba(242,145,17,0.15)" },
+  xml:  { icon: FileCode2, color: "#f16529", badge: "XML", badgeColor: "rgba(241,101,41,0.15)" },
+  yaml: { icon: FileCode2, color: "#cb171e", badge: "YAML", badgeColor: "rgba(203,23,30,0.15)" },
+  yml:  { icon: FileCode2, color: "#cb171e", badge: "YML", badgeColor: "rgba(203,23,30,0.15)" },
+  sh:   { icon: FileCode2, color: "#89e051", badge: "SH", badgeColor: "rgba(137,224,81,0.15)" },
+  md:   { icon: FileText, color: "#ffffff", badge: "MD", badgeColor: "rgba(255,255,255,0.1)" },
+  // Images
+  png:  { icon: FileImage, color: "#a855f7", badge: "PNG", badgeColor: "rgba(168,85,247,0.15)" },
+  jpg:  { icon: FileImage, color: "#a855f7", badge: "JPG", badgeColor: "rgba(168,85,247,0.15)" },
+  jpeg: { icon: FileImage, color: "#a855f7", badge: "JPEG", badgeColor: "rgba(168,85,247,0.15)" },
+  gif:  { icon: FileImage, color: "#a855f7", badge: "GIF", badgeColor: "rgba(168,85,247,0.15)" },
+  svg:  { icon: FileImage, color: "#a855f7", badge: "SVG", badgeColor: "rgba(168,85,247,0.15)" },
+  webp: { icon: FileImage, color: "#a855f7", badge: "WEBP", badgeColor: "rgba(168,85,247,0.15)" },
+};
+
+function getFileType(filename: string) {
+  const ext = filename.split(".").pop()?.toLowerCase() || "";
+  return FILE_TYPE_MAP[ext] || { icon: File, color: "#8b8b8b", badge: ext.toUpperCase() || "FILE", badgeColor: "rgba(139,139,139,0.15)" };
+}
+
+// ─── File card component ────────────────────────────────────
+function FileCard({ filename, size, extra }: { filename: string; size?: string; extra?: string }) {
+  const ft = getFileType(filename);
+  const Icon = ft.icon;
+  return (
+    <div style={{
+      display: "inline-flex", flexDirection: "column", gap: "8px",
+      background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.1)",
+      borderRadius: "14px", padding: "14px 16px", minWidth: "160px", maxWidth: "240px",
+    }}>
+      <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+        <div style={{
+          width: "36px", height: "36px", borderRadius: "10px",
+          background: `${ft.color}15`, border: `1px solid ${ft.color}30`,
+          display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+        }}>
+          <Icon style={{ width: "18px", height: "18px", color: ft.color }} />
+        </div>
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div style={{
+            fontSize: "13px", fontWeight: 600, color: "rgba(255,255,255,0.9)",
+            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const,
+          }}>{filename}</div>
+          {size && <div style={{ fontSize: "11px", color: "rgba(255,255,255,0.35)", marginTop: "1px" }}>{size}</div>}
+        </div>
+      </div>
+      <div style={{
+        display: "inline-flex", alignSelf: "flex-start",
+        fontSize: "10px", fontWeight: 700, letterSpacing: "0.05em",
+        padding: "3px 8px", borderRadius: "6px",
+        background: ft.badgeColor, color: ft.color,
+      }}>
+        {ft.badge}
+      </div>
+      {extra && <div style={{ fontSize: "11px", color: "rgba(255,255,255,0.35)" }}>{extra}</div>}
+    </div>
+  );
+}
+
+// ─── Collapsible code attachment ────────────────────────────
+function CodeAttachment({ filename, size, language, code }: { filename: string; size?: string; language: string; code: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const ft = getFileType(filename);
+  const Icon = ft.icon;
+  const previewLines = code.split("\n").slice(0, 6).join("\n");
+  const lineCount = code.split("\n").length;
+
+  return (
+    <div style={{
+      background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)",
+      borderRadius: "14px", overflow: "hidden", maxWidth: "100%",
+    }}>
+      {/* File header */}
+      <button
+        onClick={() => setExpanded(!expanded)}
+        style={{
+          display: "flex", alignItems: "center", gap: "10px", width: "100%",
+          padding: "12px 14px", background: "transparent", border: "none",
+          cursor: "pointer", textAlign: "left" as const,
+        }}
+      >
+        <div style={{
+          width: "32px", height: "32px", borderRadius: "8px",
+          background: `${ft.color}15`, border: `1px solid ${ft.color}25`,
+          display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+        }}>
+          <Icon style={{ width: "16px", height: "16px", color: ft.color }} />
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: "13px", fontWeight: 600, color: "rgba(255,255,255,0.9)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const }}>{filename}</div>
+          <div style={{ fontSize: "10px", color: "rgba(255,255,255,0.3)", marginTop: "1px" }}>
+            {size ? `${size} · ` : ""}{lineCount} linija · {ft.badge}
+          </div>
+        </div>
+        {expanded
+          ? <ChevronDown style={{ width: "14px", height: "14px", color: "rgba(255,255,255,0.3)", flexShrink: 0 }} />
+          : <ChevronRight style={{ width: "14px", height: "14px", color: "rgba(255,255,255,0.3)", flexShrink: 0 }} />
+        }
+      </button>
+
+      {/* Code preview / full code */}
+      <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+        {expanded ? (
+          <div style={{ maxHeight: "400px", overflow: "auto" }}>
+            <SyntaxHighlighter language={language} style={oneDark} customStyle={{
+              margin: 0, background: "#0d1117", fontSize: "12px", lineHeight: "1.6",
+              borderRadius: 0, padding: "12px 14px",
+            }} wrapLongLines>{code}</SyntaxHighlighter>
+          </div>
+        ) : (
+          <div style={{ position: "relative" }}>
+            <SyntaxHighlighter language={language} style={oneDark} customStyle={{
+              margin: 0, background: "#0d1117", fontSize: "12px", lineHeight: "1.6",
+              borderRadius: 0, padding: "12px 14px", maxHeight: "120px", overflow: "hidden",
+            }} wrapLongLines>{previewLines}</SyntaxHighlighter>
+            <div style={{
+              position: "absolute", bottom: 0, left: 0, right: 0, height: "50px",
+              background: "linear-gradient(transparent, #0d1117)",
+              display: "flex", alignItems: "flex-end", justifyContent: "center", paddingBottom: "6px",
+            }}>
+              <span style={{ fontSize: "10px", color: "rgba(255,255,255,0.4)", fontWeight: 500 }}>
+                Klikni za proširenje · {lineCount - 6 > 0 ? `još ${lineCount - 6} linija` : ""}
+              </span>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Parse user message for file attachments ────────────────
+interface ParsedUserContent {
+  textBefore: string;
+  attachments: Array<
+    | { type: "file"; filename: string; size?: string; extra?: string }
+    | { type: "code-file"; filename: string; size?: string; language: string; code: string }
+    | { type: "image"; name: string; src: string }
+    | { type: "pdf"; filename: string; size?: string; pages?: string; url?: string; content: string }
+  >;
+  textAfter: string;
+}
+
+function parseUserContent(content: string): ParsedUserContent {
+  const result: ParsedUserContent = { textBefore: "", attachments: [], textAfter: "" };
+
+  // Check for image markdown: ![name](data:image/...)
+  const imageRegex = /!\[([^\]]*)\]\((data:image\/[^)]+)\)/g;
+  const images: { name: string; src: string }[] = [];
+  let cleanContent = content;
+  let imgMatch;
+  while ((imgMatch = imageRegex.exec(content)) !== null) {
+    images.push({ name: imgMatch[1] || "Slika", src: imgMatch[2] });
+  }
+  if (images.length > 0) {
+    cleanContent = content.replace(imageRegex, "").trim();
+    images.forEach(img => result.attachments.push({ type: "image", ...img }));
+  }
+
+  // Check for code file attachment: 📎 Učitana datoteka: **name** (size)\n\n```lang\n...\n```
+  const codeFileRegex = /📎\s*Učitana datoteka:\s*\*\*([^*]+)\*\*\s*\(([^)]+)\)\s*\n\n```(\w+)\n([\s\S]*?)```/;
+  const codeMatch = codeFileRegex.exec(cleanContent);
+  if (codeMatch) {
+    const before = cleanContent.slice(0, codeMatch.index).trim();
+    const after = cleanContent.slice(codeMatch.index + codeMatch[0].length).trim();
+    result.attachments.push({
+      type: "code-file",
+      filename: codeMatch[1],
+      size: codeMatch[2],
+      language: codeMatch[3],
+      code: codeMatch[4].trimEnd(),
+    });
+    result.textBefore = before;
+    result.textAfter = after;
+    return result;
+  }
+
+  // Check for binary file attachment: 📎 Učitana datoteka: **name** (size, type)
+  const binaryFileRegex = /📎\s*Učitana datoteka:\s*\*\*([^*]+)\*\*\s*\(([^)]+)\)/;
+  const binaryMatch = binaryFileRegex.exec(cleanContent);
+  if (binaryMatch) {
+    const before = cleanContent.slice(0, binaryMatch.index).trim();
+    const after = cleanContent.slice(binaryMatch.index + binaryMatch[0].length).trim();
+    result.attachments.push({ type: "file", filename: binaryMatch[1], size: binaryMatch[2] });
+    result.textBefore = before;
+    result.textAfter = after;
+    return result;
+  }
+
+  // Check for PDF: 📄 PDF: **name** (pages) (size)\n\n...
+  const pdfRegex = /📄\s*PDF:\s*\*\*([^*]+)\*\*([^]*?)(?:\n\n🔗[^\n]*)?\n\n([\s\S]*)/;
+  const pdfMatch = pdfRegex.exec(cleanContent);
+  if (pdfMatch) {
+    const before = cleanContent.slice(0, pdfMatch.index).trim();
+    const meta = pdfMatch[2].trim();
+    const pdfContent = pdfMatch[3].trim();
+    // Extract size from meta like "(3 str.) (45.2 KB)"
+    const sizeMatch = meta.match(/\(([^)]*KB[^)]*)\)/);
+    const pagesMatch = meta.match(/\((\d+\s*str\.?[^)]*)\)/);
+    const urlMatch = cleanContent.match(/🔗\s*PDF URL[^\n]*?(https?:\/\/[^\s)]+)/);
+    result.attachments.push({
+      type: "pdf",
+      filename: pdfMatch[1],
+      size: sizeMatch?.[1],
+      pages: pagesMatch?.[1],
+      url: urlMatch?.[1],
+      content: pdfContent,
+    });
+    result.textBefore = before;
+    return result;
+  }
+
+  // No special attachment detected — return raw
+  result.textBefore = cleanContent;
+  return result;
+}
+
+// ─── Split markdown into sections (for assistant messages) ──
 function splitSections(content: string): { heading: string | null; body: string }[] {
   const lines = content.split("\n");
   const sections: { heading: string | null; body: string }[] = [];
@@ -54,6 +296,7 @@ function splitSections(content: string): { heading: string | null; body: string 
   return sections;
 }
 
+// ─── Copy button ────────────────────────────────────────────
 const CopyButton = memo(({ text, size = "normal" }: { text: string; size?: "normal" | "small" }) => {
   const [copied, setCopied] = useState(false);
   const copy = () => { navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 2000); };
@@ -71,6 +314,7 @@ const CopyButton = memo(({ text, size = "normal" }: { text: string; size?: "norm
 });
 CopyButton.displayName = "CopyButton";
 
+// ─── Markdown components for assistant messages ─────────────
 function makeComponents(codeBlocks: CodeBlock[], hasCode: boolean, onScrollToCode: (i: number) => void, handleCodeClick: (i: number) => void) {
   return {
     code({ className, children, ...props }: any) {
@@ -103,7 +347,7 @@ function makeComponents(codeBlocks: CodeBlock[], hasCode: boolean, onScrollToCod
     h3: ({ children }: any) => <div style={{fontSize:"12px",fontWeight:600,color:"rgba(255,255,255,0.45)",textTransform:"uppercase" as const,letterSpacing:"0.06em",marginBottom:"6px",marginTop:"4px"}}>{children}</div>,
     h4: ({ children }: any) => <div style={{fontSize:"13px",fontWeight:500,color:"rgba(255,255,255,0.6)",marginBottom:"4px",marginTop:"6px"}}>{children}</div>,
     strong({ children }: any) {
-      const text = typeof children === "string" ? children : Array.isArray(children) ? children.filter(c => typeof c === "string").join("") : "";
+      const text = typeof children === "string" ? children : Array.isArray(children) ? children.filter((c: any) => typeof c === "string").join("") : "";
       const upper = text.toUpperCase().trim();
       if (["NAPOMENA","SAVJET","GOTOVO","UPOZORENJE","VAŽNO","INFO"].includes(upper)) {
         const colors: Record<string,string> = {"NAPOMENA":"#EF9F27","SAVJET":"#EF9F27","UPOZORENJE":"#ef4444","GOTOVO":"#00ff95","VAŽNO":"#ef4444","INFO":"#3399ff"};
@@ -135,6 +379,86 @@ function makeComponents(codeBlocks: CodeBlock[], hasCode: boolean, onScrollToCod
   };
 }
 
+// ─── User message content renderer ──────────────────────────
+function UserContent({ content }: { content: string }) {
+  const parsed = parseUserContent(content);
+
+  // If no special attachments detected, render as before
+  if (parsed.attachments.length === 0) {
+    return (
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={{
+        img:({src,alt}:any)=><img src={src} alt={alt||""} className="max-w-full max-h-80 rounded-xl my-2 border border-white/[0.08]"/>,
+      }}>{content}</ReactMarkdown>
+    );
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+      {/* Images as thumbnails */}
+      {parsed.attachments.filter(a => a.type === "image").length > 0 && (
+        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" as const }}>
+          {parsed.attachments.filter(a => a.type === "image").map((a, i) => {
+            if (a.type !== "image") return null;
+            return (
+              <img key={i} src={a.src} alt={a.name}
+                style={{
+                  maxHeight: "200px", maxWidth: "300px", borderRadius: "12px",
+                  border: "1px solid rgba(255,255,255,0.1)", objectFit: "cover" as const,
+                }}
+              />
+            );
+          })}
+        </div>
+      )}
+
+      {/* File cards */}
+      {parsed.attachments.filter(a => a.type === "file").map((a, i) => {
+        if (a.type !== "file") return null;
+        return <FileCard key={`file-${i}`} filename={a.filename} size={a.size} />;
+      })}
+
+      {/* Code file attachments */}
+      {parsed.attachments.filter(a => a.type === "code-file").map((a, i) => {
+        if (a.type !== "code-file") return null;
+        return <CodeAttachment key={`code-${i}`} filename={a.filename} size={a.size} language={a.language} code={a.code} />;
+      })}
+
+      {/* PDF attachments */}
+      {parsed.attachments.filter(a => a.type === "pdf").map((a, i) => {
+        if (a.type !== "pdf") return null;
+        return (
+          <div key={`pdf-${i}`} style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+            <FileCard filename={a.filename} size={a.size} extra={a.pages} />
+            {a.url && (
+              <a href={a.url} target="_blank" rel="noopener noreferrer"
+                style={{ fontSize: "11px", color: "#3399ff", textDecoration: "underline" }}>
+                Otvori PDF
+              </a>
+            )}
+          </div>
+        );
+      })}
+
+      {/* Remaining text (the actual user message) */}
+      {parsed.textBefore && (
+        <div style={{ fontSize: "15px", lineHeight: "1.75", color: "rgba(255,255,255,0.9)" }}>
+          <ReactMarkdown remarkPlugins={[remarkGfm]} components={{
+            img:({src,alt}:any)=><img src={src} alt={alt||""} className="max-w-full max-h-80 rounded-xl my-2 border border-white/[0.08]"/>,
+          }}>{parsed.textBefore}</ReactMarkdown>
+        </div>
+      )}
+      {parsed.textAfter && (
+        <div style={{ fontSize: "15px", lineHeight: "1.75", color: "rgba(255,255,255,0.9)" }}>
+          <ReactMarkdown remarkPlugins={[remarkGfm]} components={{
+            img:({src,alt}:any)=><img src={src} alt={alt||""} className="max-w-full max-h-80 rounded-xl my-2 border border-white/[0.08]"/>,
+          }}>{parsed.textAfter}</ReactMarkdown>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Main ChatMessage component ─────────────────────────────
 const ChatMessage = memo(({ role, content, isLatest, isStreaming, codeBlocks, hasCode, onShowCodePanel, onScrollToCode, messageIndex, onReaction, reaction }: ChatMessageProps) => {
   const [showActions, setShowActions] = useState(false);
   const streaming = isStreaming ?? false;
@@ -176,13 +500,14 @@ const ChatMessage = memo(({ role, content, isLatest, isStreaming, codeBlocks, ha
             ?"bg-gradient-to-br from-white/[0.10] to-white/[0.06] text-white/90 rounded-2xl rounded-br-sm px-4 py-3 leading-relaxed border border-white/[0.08]"
             :"text-white/90 w-full"
         )}>
-          {role === "assistant" ? (
+          {role === "user" ? (
+            <UserContent content={content} />
+          ) : (
             <div style={{fontSize:"15px",lineHeight:"1.85",color:"rgba(255,255,255,0.85)"}}>
               {hasSections ? (
                 <div style={{display:"flex",flexDirection:"column",gap:"10px"}}>
                   {sections!.map((sec, i) => {
                     if (sec.heading === null) {
-                      // Uvodni tekst — teal oblak
                       return sec.body ? (
                         <div key={i} style={{background:"rgba(0,196,255,0.15)", border:"1px solid rgba(0,196,255,0.40)", borderLeft:"3px solid rgba(0,196,255,0.8)", borderRadius:"14px", padding:"14px 16px"}}>
                           <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>{sec.body}</ReactMarkdown>
@@ -204,12 +529,6 @@ const ChatMessage = memo(({ role, content, isLatest, isStreaming, codeBlocks, ha
               ) : (
                 <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>{content}</ReactMarkdown>
               )}
-            </div>
-          ) : (
-            <div>
-              <ReactMarkdown remarkPlugins={[remarkGfm]} components={{
-                img:({src,alt}:any)=><img src={src} alt={alt||""} className="max-w-full max-h-80 rounded-xl my-2 border border-white/[0.08]"/>
-              }}>{content}</ReactMarkdown>
             </div>
           )}
         </div>
