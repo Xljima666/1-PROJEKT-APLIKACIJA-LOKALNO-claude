@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { Check, ChevronDown } from "lucide-react";
-.
+
 export type Provider = "openai" | "anthropic" | "google" | "xai";
 
 export interface ProviderModel {
