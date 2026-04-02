@@ -94,7 +94,7 @@ const DashboardContent = () => {
       .catch((err) => {
         console.error("Push auto-resubscribe failed:", err);
       });
-  }, [user]);
+  }, [user?.id]);
 
   const fetchEvents = async () => {
     const start = startOfMonth(currentMonth);
