@@ -13,7 +13,7 @@ import type { CodeBlock } from "./ChatMessage";
 import { motion } from "framer-motion";
 import { useAuth } from "@/hooks/useAuth";
 import ProviderSelector, { PROVIDERS, type Provider } from "./ProviderSelector";
-,
+
 interface Message {
   role: "user" | "assistant";
   content: string;
