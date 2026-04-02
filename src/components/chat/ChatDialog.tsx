@@ -656,6 +656,28 @@ const devPanelPreview = {
     if (!rawText && pendingImages.length === 0) return;
     if (isLoading || !user) return;
 
+    // ── DEV MODE INTERCEPT ──
+    // When devMode is on, detect agent-like commands and route through executeStudioFlow
+    // instead of sending to Gemini (which may be down or irrelevant for agent tasks)
+    if (devMode && pendingImages.length === 0 && rawText) {
+      const lower = rawText.toLowerCase();
+      const hasUrl = /https?:\/\/[^\s]+/i.test(rawText);
+      const isAgentCommand = hasUrl
+        || /^(otvori|idi na|klikni|pritisni|upiši|upisi|unesi|čekaj|cekaj|screenshot|snimi|snimku)/i.test(lower)
+        || lower.includes("otvori ") || lower.includes("idi na ")
+        || lower.includes("klikni ") || lower.includes("pritisni ")
+        || lower.includes("screenshot") || lower.includes("izvuci tekst");
+
+      if (isAgentCommand) {
+        // Show user message in chat
+        setMessages(prev => [...prev, { role: "user", content: rawText }]);
+        setInput("");
+        // Route through agent — this tracks steps automatically
+        await executeStudioFlow(rawText);
+        return;
+      }
+    }
+
     const baseText = driveSearchMode
       ? `Pretraži firmeni Google Drive I Trello za: ${rawText}. Prikaži sve relevantne rezultate s linkovima, označi izvor (Drive ili Trello).`
       : rawText;
@@ -1919,6 +1941,7 @@ const devPanelPreview = {
               onRunAction={handleDevPanelAction}
               onStopAgent={() => abortControllerRef.current?.abort()}
               onClearSteps={() => { setDevSteps([]); setRecordedSteps([]); }}
+              onDeleteStep={(stepId) => setDevSteps(prev => prev.filter(s => s.id !== stepId))}
               onSelectStep={(step) => {
                 if (step.target) {
                   setPreviewUrl(step.target);
