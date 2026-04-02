@@ -203,21 +203,28 @@ const handleDevPanelAction = async (
   if (action === "learn") {
     handleStartRecording();
   }
-};  
-const devPanelMessages = messages.map((m, index) => ({
-  id: `msg-${index}`,
-  role: m.role,
-  content: m.content,
-  createdAt: undefined,
-}));
+};
 
-const devPanelSteps = recordedSteps.map((step, index) => ({
-  id: `step-${index}`,
-  action: "screenshot" as const,
-  label: step.desc || `Korak ${step.n}`,
-  status: "done" as const,
-  detail: step.url,
-  target: step.url,
+// Track all agent steps (not just recorded ones)
+const [devSteps, setDevSteps] = useState<{id:string;action:string;label:string;status:"queued"|"running"|"done"|"error";detail?:string;target?:string}[]>([]);
+
+const addDevStep = (action: string, label: string, target?: string) => {
+  const id = `step-${Date.now()}`;
+  setDevSteps(prev => [...prev, { id, action, label, status: "running", target }]);
+  return id;
+};
+
+const updateDevStep = (id: string, status: "done" | "error", detail?: string) => {
+  setDevSteps(prev => prev.map(s => s.id === id ? { ...s, status, detail } : s));
+};
+
+const devPanelSteps = devSteps.map((step) => ({
+  id: step.id,
+  action: (step.action as "open" | "click" | "type" | "screenshot" | "learn") || "open",
+  label: step.label,
+  status: step.status,
+  detail: step.detail,
+  target: step.target,
   createdAt: undefined,
 }));
 
@@ -962,46 +969,57 @@ const devPanelPreview = {
     const urlMatch = raw.match(/https?:\/\/[^\s]+/i);
     const lower = raw.toLowerCase();
 
+    // NAVIGATE
     if ((lower.startsWith("idi na ") || lower.startsWith("otvori ") || lower.includes("otvori") || lower.includes("idi na")) && urlMatch) {
+      const stepId = addDevStep("open", `Open ${urlMatch[0]}`, urlMatch[0]);
       const nav = await runPlaywrightAction({ action: "navigate", url: urlMatch[0], timeout: 45000 }, { appendSummary: true, summaryPrefix: "🌐" });
       if (nav?.success) {
-        const extracted = await callAgentDirect("playwright", { action: "extract", timeout: 10000 });
-        const visible = extractVisibleSummary(extracted?.content || "");
-        pushAssistantMessage([
-          `### Stellan vidi u previewu`,
-          nav.title ? `**Naslov:** ${nav.title}` : "",
-          visible ? visible : "Stranica je otvorena, ali nisam izvukao dovoljno teksta za sažetak."
-        ].filter(Boolean).join("\n\n"));
+        updateDevStep(stepId, "done", nav.title || urlMatch[0]);
+        const titleLine = nav.title ? `**${nav.title}**` : urlMatch[0];
+        pushAssistantMessage(`🌐 Otvorio sam ${titleLine}. Screenshot je u previewu.`);
+      } else {
+        updateDevStep(stepId, "error", nav?.error || "Navigacija nije uspjela");
+        pushAssistantMessage(`❌ Ne mogu otvoriti ${urlMatch[0]}: ${nav?.error || "greška"}`);
       }
       return;
     }
 
+    // SCREENSHOT
     if (lower.includes("screenshot") || lower.includes("snimku") || lower.includes("snimi") || lower.includes("što vidiš") || lower.includes("sto vidis")) {
+      const stepId = addDevStep("screenshot", "Screenshot", previewUrl);
       const shot = await runPlaywrightAction({ action: "screenshot", full_page: true }, { appendSummary: true, summaryPrefix: "📸" });
       if (shot?.success) {
-        const extracted = await callAgentDirect("playwright", { action: "extract", timeout: 10000 });
-        const visible = extractVisibleSummary(extracted?.content || "");
-        pushAssistantMessage(`### Pregled stranice\n\n${visible || "Screenshot je osvježen u previewu."}`);
+        updateDevStep(stepId, "done", "Screenshot osvježen");
+        pushAssistantMessage(`📸 Screenshot osvježen u previewu.`);
+      } else {
+        updateDevStep(stepId, "error", shot?.error || "Screenshot nije uspio");
       }
       return;
     }
 
+    // CLICK
     const clickMatch = raw.match(/^(klikni|pritisni)\s+(.+)$/i);
     if (clickMatch) {
       const target = clickMatch[2].trim().replace(/^['"]|['"]$/g, "");
       const selector = target.startsWith("#") || target.startsWith(".") || target.startsWith("//") || target.startsWith("text=") ? target : `text=${target}`;
+      const stepId = addDevStep("click", `Click "${target}"`, target);
       const data = await runPlaywrightAction(
         { action: "click", selector, timeout: 20000 },
-        { refreshAfter: true, describeAfter: true, describeHeading: `### Stellan vidi nakon klika na ${target}` }
+        { refreshAfter: true }
       );
       if (data?.success) {
         await waitForPreviewReady(1500);
+        updateDevStep(stepId, "done");
         pushAssistantMessage(`✅ Kliknuo sam **${target}**.`);
+      } else {
+        updateDevStep(stepId, "error", data?.error || "Klik nije uspio");
+        pushAssistantMessage(`❌ Klik na **${target}** nije uspio: ${data?.error || "greška"}`);
       }
       return;
     }
 
-    const fillQuoted = raw.match(/^(upiši|upisi|unesi|unesite)\s+["“](.+?)["”]\s+u\s+["“](.+?)["”]$/i);
+    // FILL / TYPE
+    const fillQuoted = raw.match(/^(upiši|upisi|unesi|unesite)\s+[""\u201C](.+?)[""\u201D]\s+u\s+[""\u201C](.+?)[""\u201D]$/i);
     const fillSimple = raw.match(/^(upiši|upisi|unesi|unesite)\s+(.+?)\s+u\s+(.+)$/i);
     const fillMatch = fillQuoted || fillSimple;
     if (fillMatch) {
@@ -1010,30 +1028,41 @@ const devPanelPreview = {
       const selector = target.startsWith("#") || target.startsWith(".") || target.startsWith("//") || target.startsWith("input") || target.startsWith("textarea") || target.startsWith("select")
         ? target
         : `input[placeholder*="${target}" i], input[name*="${target}" i], textarea[placeholder*="${target}" i]`;
+      const stepId = addDevStep("type", `Type "${value}" → ${target}`, target);
       const data = await runPlaywrightAction(
         { action: "fill", selector, value, timeout: 20000 },
-        { refreshAfter: true, describeAfter: true, describeHeading: `### Stellan vidi nakon unosa u ${target}` }
+        { refreshAfter: true }
       );
       if (data?.success) {
+        updateDevStep(stepId, "done");
         pushAssistantMessage(`✅ Upisao sam **${value}** u **${target}**.`);
+      } else {
+        updateDevStep(stepId, "error", data?.error || "Unos nije uspio");
+        pushAssistantMessage(`❌ Unos u **${target}** nije uspio: ${data?.error || "greška"}`);
       }
       return;
     }
 
+    // WAIT
     const waitSeconds = raw.match(/^(čekaj|cekaj)\s+(\d+)\s*(s|sek|sekundi|sec)?$/i);
     const waitMs = raw.match(/^(čekaj|cekaj)\s+(\d+)\s*ms$/i);
     if (waitSeconds || waitMs) {
       const timeout = waitMs ? Number(waitMs[2]) : Number(waitSeconds?.[2] || 1) * 1000;
+      const stepId = addDevStep("open", `Wait ${timeout}ms`);
       const data = await runPlaywrightAction(
         { action: "wait", timeout },
-        { appendSummary: true, summaryPrefix: "⏳", refreshAfter: true, describeAfter: true, describeHeading: "### Stellan vidi nakon čekanja" }
+        { refreshAfter: true }
       );
       if (data?.success) {
+        updateDevStep(stepId, "done", `Pričekao ${timeout}ms`);
         setLastPreviewSummary(`Pričekao sam ${timeout}ms i osvježio preview.`);
+      } else {
+        updateDevStep(stepId, "error");
       }
       return;
     }
 
+    // EXTRACT TEXT (only when explicitly asked)
     if (lower.includes("html") || lower.includes("izvuci tekst") || lower.includes("procitaj stranicu") || lower.includes("pročitaj stranicu")) {
       const extracted = await callAgentDirect("playwright", { action: "extract", timeout: 15000 });
       if (extracted?.success) {
@@ -1044,7 +1073,7 @@ const devPanelPreview = {
       return;
     }
 
-    pushAssistantMessage('ℹ️ DEV v2 razumije naredbe tipa: `idi na https://...`, `klikni Prijava`, `upiši "Marko" u "korisničko ime"`, `čekaj 3s`, `screenshot`, `izvuci tekst`. Za sve ostalo trenutno koristi obični chat.');
+    pushAssistantMessage('ℹ️ DEV v2 razumije: `idi na https://...`, `klikni Prijava`, `upiši "Marko" u "ime"`, `čekaj 3s`, `screenshot`, `izvuci tekst`.');
   }, [pushAssistantMessage, runPlaywrightAction, syncPreviewFromAgent, waitForPreviewReady, describeCurrentPreview]);
 
   const executeStudioFlow = useCallback(async (rawInput: string) => {
@@ -1876,12 +1905,10 @@ const devPanelPreview = {
           <div className="flex-1 border-l border-white/[0.06] min-w-0 overflow-hidden">
             <DevPanel
               title="Dev Studio"
-              messages={devPanelMessages}
               steps={devPanelSteps}
               preview={devPanelPreview}
               consoleLogs={consoleLogs}
               isAgentRunning={isAgentActionRunning}
-              isThinking={isLoading}
               agentOnline={agentOnline}
               modelBadge={MODEL_BADGES[selectedModel]}
               isRecording={isRecording}
@@ -1889,13 +1916,12 @@ const devPanelPreview = {
               isDeploying={isDeploying}
               deployStatus={deployStatus}
               savedActions={savedActions}
-              onSendMessage={(msg) => studioSend(msg)}
               onRunAction={handleDevPanelAction}
               onStopAgent={() => abortControllerRef.current?.abort()}
-              onClearSteps={() => setRecordedSteps([])}
+              onClearSteps={() => { setDevSteps([]); setRecordedSteps([]); }}
               onSelectStep={(step) => {
-                if (step.detail) {
-                  setPreviewUrl(step.detail);
+                if (step.target) {
+                  setPreviewUrl(step.target);
                 }
               }}
               onDescribePreview={handlePreviewDescribe}
@@ -1909,7 +1935,6 @@ const devPanelPreview = {
               onRunSavedAction={handleRunSavedAction}
               onRefreshActions={handleRefreshActions}
               onCheckHealth={checkAgentHealth}
-              onPortalAction={(cmd) => studioSend(cmd)}
             />
           </div>
         )}
