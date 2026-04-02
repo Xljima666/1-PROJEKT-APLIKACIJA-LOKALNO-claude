@@ -12,6 +12,7 @@ import { ChatMessage, CopyButton } from "./ChatMessage";
 import type { CodeBlock } from "./ChatMessage";
 import { motion } from "framer-motion";
 import { useAuth } from "@/hooks/useAuth";
+import ProviderSelector, { PROVIDERS, type Provider } from "./ProviderSelector";
 
 interface Message {
   role: "user" | "assistant";
@@ -148,6 +149,8 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
   const [reasoningMode, setReasoningMode] = useState(false);
   const [devMode, setDevMode] = useState(false);
   const [selectedModel, setSelectedModel] = useState<"flash" | "pro" | "flash3" | "pro3">("flash");
+  const [selectedProvider, setSelectedProvider] = useState<Provider>("openai");
+  const [selectedProviderModel, setSelectedProviderModel] = useState<string>("gpt-4o");
   const [previewUrl, setPreviewUrl] = useState("http://localhost:8080");
   const [isDeploying, setIsDeploying] = useState(false);
   const [deployStatus, setDeployStatus] = useState<"idle" | "success" | "error">("idle");
@@ -760,6 +763,8 @@ const devPanelPreview = {
           conversation_id: convId,
           reasoning: reasoningMode,
           model: selectedModel,
+          provider: selectedProvider,
+          provider_model: selectedProviderModel,
         }),
         signal: abortController.signal,
       });
@@ -1466,7 +1471,7 @@ const devPanelPreview = {
               </div>
               <div>
                 <p className="text-xs font-semibold text-white tracking-tight">Stellan</p>
-                <p className="text-[9px] text-white/30">{MODEL_LABELS[selectedModel]} · vision · memorija ✓ · internet</p>
+                <p className="text-[9px] text-white/30">{PROVIDERS[selectedProvider].icon} {PROVIDERS[selectedProvider].label} · {PROVIDERS[selectedProvider].models.find(m => m.id === selectedProviderModel)?.label || selectedProviderModel} · vision · memorija ✓</p>
               </div>
             </div>
             <div className="flex items-center gap-1.5">
@@ -1596,7 +1601,6 @@ const devPanelPreview = {
                         role={msg.role}
                         content={msg.role === "user" && imgs.length > 0 ? cleanContent : msg.content}
                         isLatest={i === messages.length - 1}
-                        isStreaming={i === messages.length - 1 && isStreamingRef.current}
                         codeBlocks={codeBlocks}
                         hasCode={hasCode}
                         onShowCodePanel={() => setShowCodePanel(true)}
@@ -1849,20 +1853,12 @@ const devPanelPreview = {
                 >
                   R
                 </button>
-                <div className="flex items-center gap-0.5 bg-white/[0.04] rounded-lg p-0.5 border border-white/[0.06]">
-                  {(["flash","pro","flash3","pro3"] as const).map((key) => {
-                    const labels: Record<string,string> = {flash:"2.5F",pro:"2.5P",flash3:"3F",pro3:"3.1P"};
-                    const titles: Record<string,string> = {flash:"Gemini 2.5 Flash",pro:"Gemini 2.5 Pro",flash3:"Gemini 3 Flash Preview",pro3:"Gemini 3.1 Pro Preview"};
-                    return (
-                      <button key={key} onClick={() => setSelectedModel(key)} title={titles[key]}
-                        className={cn("h-7 px-1.5 rounded-md text-[9px] font-bold transition-all",
-                          selectedModel === key ? "bg-primary text-white" : "text-white/30 hover:text-white/60"
-                        )}>
-                        {labels[key]}
-                      </button>
-                    );
-                  })}
-                </div>
+                <ProviderSelector
+                  selectedProvider={selectedProvider}
+                  selectedModel={selectedProviderModel}
+                  onProviderChange={setSelectedProvider}
+                  onModelChange={setSelectedProviderModel}
+                />
                 {isLoading ? (
                   <Button
                     size="icon"
