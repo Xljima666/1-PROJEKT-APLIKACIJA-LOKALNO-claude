@@ -14,13 +14,18 @@ import {
   Play,
   Square,
   ChevronRight,
+  ChevronDown,
   PanelRight,
   Rocket,
   Zap,
   RefreshCw,
   HardDrive,
+  Wifi,
+  WifiOff,
+  Copy,
+  Check,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 
 /* ──────────────────────────── Types ──────────────────────────── */
 
@@ -174,8 +179,90 @@ export default function DevPanel({
   const [actionValues, setActionValues] = useState<Record<DevActionType, string>>({
     open: "", click: "", type: "", screenshot: "", learn: "",
   });
-  const [rightTab, setRightTab] = useState<"steps" | "console" | "actions">("steps");
+  const [rightTab, setRightTab] = useState<"steps" | "console" | "actions" | "network">("steps");
   const consoleEndRef = useRef<HTMLDivElement | null>(null);
+
+  // ─── Network capture state ──────────────────────────────
+  const [networkCapturing, setNetworkCapturing] = useState(false);
+  const [networkLogs, setNetworkLogs] = useState<Array<{
+    id: number; timestamp: string; method: string; url: string;
+    request_body?: string | null; status?: number | null;
+    response_body?: string | null; response_type?: string | null;
+  }>>([]);
+  const [expandedLog, setExpandedLog] = useState<number | null>(null);
+  const [copied, setCopied] = useState(false);
+  const networkEndRef = useRef<HTMLDivElement | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Agent URL from env
+  const agentBaseUrl = useMemo(() => {
+    try { return (import.meta as any).env?.VITE_AGENT_SERVER_URL || ""; } catch { return ""; }
+  }, []);
+  const agentApiKey = useMemo(() => {
+    try { return (import.meta as any).env?.VITE_AGENT_API_KEY || "promijeni-me-na-siguran-kljuc-123"; } catch { return "promijeni-me-na-siguran-kljuc-123"; }
+  }, []);
+
+  const agentFetch = useCallback(async (path: string, method: string = "GET", body?: any) => {
+    if (!agentBaseUrl) return null;
+    try {
+      const res = await fetch(`${agentBaseUrl}${path}`, {
+        method,
+        headers: { "Content-Type": "application/json", "X-API-Key": agentApiKey, "ngrok-skip-browser-warning": "true" },
+        ...(body ? { body: JSON.stringify(body) } : {}),
+      });
+      return await res.json();
+    } catch { return null; }
+  }, [agentBaseUrl, agentApiKey]);
+
+  const startNetworkCapture = useCallback(async () => {
+    const res = await agentFetch("/network/start", "POST");
+    if (res?.success) {
+      setNetworkCapturing(true);
+      setNetworkLogs([]);
+    }
+  }, [agentFetch]);
+
+  const stopNetworkCapture = useCallback(async () => {
+    await agentFetch("/network/stop", "POST");
+    setNetworkCapturing(false);
+  }, [agentFetch]);
+
+  const clearNetworkLogs = useCallback(async () => {
+    await agentFetch("/network/clear", "POST");
+    setNetworkLogs([]);
+  }, [agentFetch]);
+
+  const copyNetworkForStellen = useCallback(() => {
+    const interesting = networkLogs.filter(l => l.status && l.method === "POST");
+    const formatted = interesting.map(l => ({
+      method: l.method, url: l.url, status: l.status,
+      request: l.request_body?.substring(0, 3000),
+      response: l.response_body?.substring(0, 3000),
+    }));
+    const text = `Evo network logovi sa SDGE portala. Napiši edge function koja replicira ove korake programski. Koristi login pattern iz sync-sdge.\n\n\`\`\`json\n${JSON.stringify(formatted, null, 2)}\n\`\`\``;
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }, [networkLogs]);
+
+  // Poll network logs when capturing
+  useEffect(() => {
+    if (networkCapturing && rightTab === "network") {
+      const poll = async () => {
+        const res = await agentFetch("/network/logs");
+        if (res?.logs) setNetworkLogs(res.logs);
+      };
+      poll();
+      pollRef.current = setInterval(poll, 2000);
+      return () => { if (pollRef.current) clearInterval(pollRef.current); };
+    } else {
+      if (pollRef.current) clearInterval(pollRef.current);
+    }
+  }, [networkCapturing, rightTab, agentFetch]);
+
+  useEffect(() => {
+    networkEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [networkLogs]);
 
   useEffect(() => {
     consoleEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -367,12 +454,12 @@ export default function DevPanel({
           </div>
 
           <div className="flex border-b border-white/[0.06] shrink-0">
-            {(["steps", "console", "actions"] as const).map((tab) => (
+            {(["steps", "console", "actions", "network"] as const).map((tab) => (
               <button key={tab} onClick={() => setRightTab(tab)}
                 className={cn("flex-1 py-2 text-[10px] border-b-[1.5px] transition-all",
                   rightTab === tab ? "text-indigo-300 border-indigo-500" : "text-white/20 border-transparent hover:text-white/40"
                 )}>
-                {tab === "steps" ? `Koraci (${steps.length})` : tab === "console" ? `Log (${consoleLogs.length})` : `Akcije (${savedActions.length})`}
+                {tab === "steps" ? `Koraci (${steps.length})` : tab === "console" ? `Log (${consoleLogs.length})` : tab === "actions" ? `Akcije (${savedActions.length})` : `Net (${networkLogs.length})`}
               </button>
             ))}
           </div>
@@ -465,6 +552,97 @@ export default function DevPanel({
                     </button>
                   </div>
                 ))}
+              </div>
+            )}
+
+            {rightTab === "network" && (
+              <div className="p-2.5 space-y-2">
+                {/* Controls */}
+                <div className="flex items-center gap-1.5">
+                  {!networkCapturing ? (
+                    <button onClick={startNetworkCapture}
+                      className="flex items-center gap-1 px-2 py-1 rounded-lg text-[9px] font-medium bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 hover:bg-emerald-500/20 transition-all">
+                      <Wifi className="h-2.5 w-2.5" /> Snimi promet
+                    </button>
+                  ) : (
+                    <button onClick={stopNetworkCapture}
+                      className="flex items-center gap-1 px-2 py-1 rounded-lg text-[9px] font-medium bg-red-500/10 text-red-300 border border-red-500/20 hover:bg-red-500/20 transition-all">
+                      <WifiOff className="h-2.5 w-2.5" /> Zaustavi
+                    </button>
+                  )}
+                  <button onClick={clearNetworkLogs}
+                    className="flex items-center gap-1 px-1.5 py-1 rounded-lg text-[9px] text-white/30 border border-white/[0.08] hover:bg-white/[0.05] transition-all">
+                    <Trash2 className="h-2.5 w-2.5" /> Očisti
+                  </button>
+                  {networkLogs.length > 0 && (
+                    <button onClick={copyNetworkForStellen}
+                      className="flex items-center gap-1 px-2 py-1 rounded-lg text-[9px] font-medium bg-blue-500/10 text-blue-300 border border-blue-500/20 hover:bg-blue-500/20 transition-all ml-auto">
+                      {copied ? <Check className="h-2.5 w-2.5" /> : <Copy className="h-2.5 w-2.5" />}
+                      {copied ? "Kopirano!" : "Za Stellana"}
+                    </button>
+                  )}
+                </div>
+
+                {networkCapturing && (
+                  <div className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg bg-emerald-500/[0.05] border border-emerald-500/15">
+                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    <span className="text-[9px] text-emerald-300">Snimam mrežni promet... Navigiraj po stranici.</span>
+                  </div>
+                )}
+
+                {/* Network log entries */}
+                {networkLogs.length === 0 ? (
+                  <div className="rounded-xl border border-dashed border-white/[0.1] p-6 text-center">
+                    <Wifi className="h-5 w-5 text-white/10 mx-auto mb-2" />
+                    <div className="text-[10px] text-white/25">Klikni "Snimi promet", navigiraj SDGE,</div>
+                    <div className="text-[10px] text-white/25">i ovdje će se pojaviti svi requesti.</div>
+                    <div className="text-[9px] text-white/15 mt-2">Zatim klikni "Za Stellana" i zalijepi u chat.</div>
+                  </div>
+                ) : (
+                  <div className="space-y-1">
+                    {networkLogs.map((log) => {
+                      const isExpanded = expandedLog === log.id;
+                      const methodColor = log.method === "POST" ? "text-amber-300" : log.method === "GET" ? "text-emerald-300" : "text-white/40";
+                      const statusColor = !log.status ? "text-white/20" : log.status < 300 ? "text-emerald-300" : log.status < 400 ? "text-blue-300" : "text-red-300";
+                      const shortUrl = log.url.replace(/https?:\/\/[^/]+/, "").substring(0, 50);
+
+                      return (
+                        <div key={log.id} className="rounded-lg border border-white/[0.06] bg-white/[0.02] overflow-hidden">
+                          <button
+                            onClick={() => setExpandedLog(isExpanded ? null : log.id)}
+                            className="w-full flex items-center gap-1.5 px-2 py-1.5 text-left hover:bg-white/[0.03] transition-all"
+                          >
+                            {isExpanded ? <ChevronDown className="h-2.5 w-2.5 text-white/20 shrink-0" /> : <ChevronRight className="h-2.5 w-2.5 text-white/20 shrink-0" />}
+                            <span className={cn("text-[9px] font-mono font-bold w-7 shrink-0", methodColor)}>{log.method}</span>
+                            <span className="text-[9px] font-mono text-white/40 truncate flex-1">{shortUrl}</span>
+                            <span className={cn("text-[9px] font-mono font-medium shrink-0", statusColor)}>{log.status || "..."}</span>
+                          </button>
+                          {isExpanded && (
+                            <div className="border-t border-white/[0.04] px-2 py-2 space-y-2 bg-black/20">
+                              <div>
+                                <div className="text-[8px] text-white/20 uppercase tracking-wider mb-1">URL</div>
+                                <div className="text-[9px] font-mono text-white/50 break-all">{log.url}</div>
+                              </div>
+                              {log.request_body && (
+                                <div>
+                                  <div className="text-[8px] text-amber-300/40 uppercase tracking-wider mb-1">Request Body</div>
+                                  <pre className="text-[8px] font-mono text-white/35 whitespace-pre-wrap break-all max-h-32 overflow-auto bg-black/30 rounded p-1.5">{log.request_body}</pre>
+                                </div>
+                              )}
+                              {log.response_body && (
+                                <div>
+                                  <div className="text-[8px] text-emerald-300/40 uppercase tracking-wider mb-1">Response ({log.response_type})</div>
+                                  <pre className="text-[8px] font-mono text-white/35 whitespace-pre-wrap break-all max-h-32 overflow-auto bg-black/30 rounded p-1.5">{log.response_body}</pre>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                    <div ref={networkEndRef} />
+                  </div>
+                )}
               </div>
             )}
           </div>
