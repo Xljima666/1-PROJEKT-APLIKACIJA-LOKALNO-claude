@@ -441,7 +441,7 @@ const devPanelPreview = {
               .trim();
             if (pageText) fullText += `\n--- Stranica ${p} ---\n${pageText}`;
           }
-          if (fullText.length > 30000) fullText = fullText.slice(0, 30000) + "\n...[skraćeno]";
+          if (fullText.length > 200000) fullText = fullText.slice(0, 200000) + "\n...[skraćeno]";
 
           setPendingFiles(prev => [...prev, {
             name: file.name,
