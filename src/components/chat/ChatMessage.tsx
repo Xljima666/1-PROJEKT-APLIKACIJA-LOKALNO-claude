@@ -172,73 +172,94 @@ function parseUserContent(content: string) {
   const attachments: Array<any> = [];
   const textParts: string[] = [];
 
-  // PRIMARY: Check for <!--FILES:[json]--> metadata prefix
-  const metaMatch = content.match(/^<!--FILES:(.*?)-->\n?/);
-  if (metaMatch) {
-    try {
-      const files = JSON.parse(metaMatch[1]);
-      for (const f of files) {
-        if (f.type === "pdf") {
-          attachments.push({ type: "pdf", filename: f.name, size: f.size, pages: f.pages ? `${f.pages} str.` : undefined });
-        } else if (f.type === "code") {
-          attachments.push({ type: "code-file", filename: f.name, size: f.size, language: f.lang || "text" });
-        } else {
-          attachments.push({ type: "file", filename: f.name, size: f.size });
-        }
-      }
-    } catch { /* invalid json, skip */ }
+  // Check for ««FILE:...»» delimiters
+  const fileRegex = /\u00ab\u00abFILE:([^»]+)\u00bb\u00bb\n([\s\S]*?)\n\u00ab\u00ab\/FILE\u00bb\u00bb/g;
+  let hasFiles = false;
+  let lastEnd = 0;
+  let match;
 
-    // Everything after the metadata + file content blocks = find user text
-    // The user text is the LAST part after all file blocks
-    const afterMeta = content.slice(metaMatch[0].length);
-    
-    // Split by double newline to find parts
-    const sections = afterMeta.split(/\n\n/);
-    
-    // User text is anything that doesn't start with 📎, 📄, !, or ```
-    const userTextParts: string[] = [];
-    let inFileBlock = false;
-    for (const sec of sections) {
-      const trimmed = sec.trim();
-      if (!trimmed) continue;
-      if (trimmed.startsWith("📎") || trimmed.startsWith("📄")) {
-        inFileBlock = true;
-        continue;
-      }
-      if (inFileBlock && (trimmed.startsWith("```") || trimmed.startsWith("---") || trimmed.startsWith("🔗"))) {
-        continue; // Skip code blocks and PDF content that belong to files
-      }
-      if (inFileBlock && !trimmed.startsWith("📎") && !trimmed.startsWith("📄") && !trimmed.startsWith("```") && !trimmed.startsWith("---")) {
-        // Could be PDF text content or user text — skip if it looks like extracted content
-        if (trimmed.length > 200 && !trimmed.includes("?")) continue; // Long block = likely file content
-      }
-      // Anything short or question-like at the end = user text
-      inFileBlock = false;
-      userTextParts.push(trimmed);
+  while ((match = fileRegex.exec(content)) !== null) {
+    hasFiles = true;
+    // Text before this file block
+    const before = content.slice(lastEnd, match.index).trim();
+    if (before) textParts.push(before);
+    lastEnd = match.index + match[0].length;
+
+    const meta = match[1]; // e.g. "tsx:ChatDialog.tsx:60.5 KB" or "pdf:file.pdf:45 KB:3:url" or "bin:file.zip:5 KB"
+    const fileContent = match[2];
+    const parts = meta.split(":");
+    const lang = parts[0] || "";
+    const filename = parts[1] || "file";
+    const size = parts[2] || "";
+
+    if (lang === "pdf") {
+      const pages = parts[3] || "";
+      attachments.push({ type: "pdf", filename, size, pages: pages !== "0" ? `${pages} str.` : undefined });
+    } else if (lang === "bin") {
+      attachments.push({ type: "file", filename, size });
+    } else {
+      attachments.push({ type: "code-file", filename, size, language: lang, code: fileContent });
     }
-    
-    // Take only the last few parts as user text (the question)
-    if (userTextParts.length > 0) {
-      textParts.push(userTextParts[userTextParts.length - 1]);
+  }
+
+  if (hasFiles) {
+    // Text after the last file block
+    const after = content.slice(lastEnd).trim();
+    if (after) textParts.push(after);
+  }
+
+  if (!hasFiles) {
+    // Legacy format fallback: 📎 and 📄 patterns
+    let remaining = content;
+
+    // Images
+    const imageRegex = /!\[([^\]]*)\]\((data:image\/[^)]+)\)/g;
+    let imgMatch;
+    while ((imgMatch = imageRegex.exec(content)) !== null) {
+      attachments.push({ type: "image", name: imgMatch[1] || "Slika", src: imgMatch[2] });
     }
-    
-    return { attachments, textParts };
+    if (attachments.length > 0) {
+      remaining = remaining.replace(imageRegex, "").trim();
+    }
+
+    // Legacy code file with backticks (best effort)
+    const legacyCodeRegex = /📎\s*Učitana datoteka:\s*\*\*([^*]+)\*\*\s*\(([^)]+)\)/;
+    const legacyMatch = legacyCodeRegex.exec(remaining);
+    if (legacyMatch) {
+      const before = remaining.slice(0, legacyMatch.index).trim();
+      const after = remaining.slice(legacyMatch.index + legacyMatch[0].length).trim();
+      // Check if there's a code block after
+      const codeBlockMatch = after.match(/^\s*```(\w+)\n([\s\S]*?)```\s*([\s\S]*)$/);
+      if (codeBlockMatch) {
+        attachments.push({ type: "code-file", filename: legacyMatch[1], size: legacyMatch[2], language: codeBlockMatch[1], code: codeBlockMatch[2].trimEnd() });
+        const trailing = codeBlockMatch[3]?.trim();
+        if (before) textParts.push(before);
+        if (trailing) textParts.push(trailing);
+      } else {
+        attachments.push({ type: "file", filename: legacyMatch[1], size: legacyMatch[2] });
+        if (before) textParts.push(before);
+        if (after) textParts.push(after);
+      }
+      return { attachments, textParts };
+    }
+
+    // Legacy PDF
+    const pdfRegex = /📄\s*PDF:\s*\*\*([^*]+)\*\*\s*([^\n]*)/;
+    const pdfMatch = pdfRegex.exec(remaining);
+    if (pdfMatch) {
+      const before = remaining.slice(0, pdfMatch.index).trim();
+      const meta = pdfMatch[2].trim();
+      const sizeMatch = meta.match(/\(([^)]*KB[^)]*)\)/);
+      const pagesMatch = meta.match(/\((\d+\s*str\.?[^)]*)\)/);
+      attachments.push({ type: "pdf", filename: pdfMatch[1], size: sizeMatch?.[1], pages: pagesMatch?.[1] });
+      if (before) textParts.push(before);
+      return { attachments, textParts };
+    }
+
+    if (remaining && attachments.length === 0) textParts.push(remaining);
+    else if (remaining && attachments.length > 0) textParts.push(remaining);
   }
 
-  // FALLBACK: images
-  const imageRegex = /!\[([^\]]*)\]\((data:image\/[^)]+)\)/g;
-  let imgMatch;
-  while ((imgMatch = imageRegex.exec(content)) !== null) {
-    attachments.push({ type: "image", name: imgMatch[1] || "Slika", src: imgMatch[2] });
-  }
-  if (attachments.length > 0) {
-    const remaining = content.replace(imageRegex, "").trim();
-    if (remaining) textParts.push(remaining);
-    return { attachments, textParts };
-  }
-
-  // No attachments found
-  textParts.push(content);
   return { attachments, textParts };
 }
 
@@ -340,9 +361,7 @@ function UserContent({ content }: { content: string }) {
         <FileCard key={`fc-${i}`} filename={a.filename} size={a.size} extra={a.pages} />
       ))}
       {attachments.filter((a: any) => a.type === "code-file").map((a: any, i: number) => (
-        a.code
-          ? <CodeFileCard key={`cc-${i}`} filename={a.filename} size={a.size} language={a.language} code={a.code} />
-          : <FileCard key={`cc-${i}`} filename={a.filename} size={a.size} />
+        <CodeFileCard key={`cc-${i}`} filename={a.filename} size={a.size} language={a.language} code={a.code} />
       ))}
       {textParts.map((text, i) => (
         <div key={`tp-${i}`}><ReactMarkdown remarkPlugins={[remarkGfm]} components={{
