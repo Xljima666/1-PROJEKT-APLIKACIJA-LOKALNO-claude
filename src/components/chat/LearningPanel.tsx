@@ -136,6 +136,7 @@ export default function LearningPanel({ onClose, agentServerUrl }: LearningPanel
       if (res?.success) {
         log(`✓ Akcija "${currentFlowData.name}" spremljena (${res.steps || 0} koraka)`);
         if (res.script) setPreviewData(res.script);
+        setSelectedFlowName(currentFlowData.name);  // Auto-select
       } else {
         log(`Greška pri spremanju: ${res?.error || "nepoznato"}`);
       }
@@ -146,8 +147,29 @@ export default function LearningPanel({ onClose, agentServerUrl }: LearningPanel
   const saveAs = async () => {
     const name = prompt("Spremi flow kao:");
     if (!name) return;
-    const res = await callAgent("record/save", { name: name.trim().replace(/\s+/g, "_") });
-    if (res?.success) { log(`Flow spremljen: ${name}`); if (res.script) setPreviewData(res.script); await refreshFlows(); }
+    const safeName = name.trim().replace(/\s+/g, "_");
+    const res = await callAgent("record/save", { name: safeName });
+    if (res?.success) { log(`Flow spremljen: ${name}`); if (res.script) setPreviewData(res.script); setSelectedFlowName(safeName); await refreshFlows(); }
+    else log(`Greška: ${res?.error || "nepoznato"}`);
+  };
+
+  // Load script content when selecting a flow
+  const selectFlow = async (name: string) => {
+    setSelectedFlowName(name);
+    log(`Odabran: ${name}`);
+    const res = await callAgent("record/read", { name });
+    if (res?.success && res.content) {
+      setPreview(res.content);
+    } else {
+      setPreview(`# Flow: ${name}\n# Nije moguće učitati kod.\n# ${res?.error || ""}`);
+    }
+  };
+
+  // Save edited code back to file
+  const saveFlowCode = async () => {
+    if (!selectedFlowName || !preview.trim()) { log("Nema što spremiti."); return; }
+    const res = await callAgent("record/write", { name: selectedFlowName, content: preview });
+    if (res?.success) log(`✓ Kod spremljen: ${selectedFlowName}.py`);
     else log(`Greška: ${res?.error || "nepoznato"}`);
   };
 
@@ -380,7 +402,7 @@ export default function LearningPanel({ onClose, agentServerUrl }: LearningPanel
             {flows.length === 0 ? (
               <div className="p-3 text-[11px] text-white/20 text-center">Nema flowova</div>
             ) : flows.map((flow, i) => (
-              <div key={i} onClick={() => { setSelectedFlowName(flow.name); setPreviewData(flow); log(`Odabran: ${flow.name}`); }}
+              <div key={i} onClick={() => selectFlow(flow.name)}
                 className={cn("px-3 py-2 text-[12px] cursor-pointer border-b border-white/[0.04] transition-colors",
                   selectedFlowName === flow.name ? "bg-emerald-500/10 text-emerald-400" : "text-white/55 hover:bg-white/[0.04]"
                 )}>
@@ -394,7 +416,14 @@ export default function LearningPanel({ onClose, agentServerUrl }: LearningPanel
         {/* Preview + Log */}
         <div className="flex-1 flex flex-col min-w-0 gap-2.5">
           <div className="flex-1 flex flex-col min-h-0">
-            <div className="text-[11px] text-white/40 font-medium mb-1.5">Flow / State Preview</div>
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-[11px] text-white/40 font-medium">Flow / State Preview</span>
+              {selectedFlowName && preview.trim() && (
+                <button onClick={saveFlowCode} className={cn(btnStyle, "!py-0.5 !px-2 !text-[10px]")}>
+                  Spremi kod
+                </button>
+              )}
+            </div>
             <textarea value={preview} onChange={e => setPreview(e.target.value)}
               className={cn("flex-1 min-h-0 resize-none font-mono text-[12px] text-white/60 leading-relaxed p-3", sectionBorder, "bg-white/[0.02] focus:outline-none focus:border-emerald-500/30")}
               placeholder="Odaberi flow ili klikni Page State..." spellCheck={false} />
