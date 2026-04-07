@@ -1,7 +1,8 @@
 import DevPanel from "../dev/DevPanel";
 import type { ConsoleLog } from "../dev/DevPanel";
+import LearningPanel from "./LearningPanel";
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
-import { X, Send, Sparkles, Plus, MessageSquare, Trash2, Code2, PanelLeftClose, PanelLeftOpen, PanelRightClose, Mic, Square, ClipboardList, Upload, Camera, Image, File, FileText, Paperclip, HardDrive, ArrowDown, Search, Download } from "lucide-react";
+import { X, Send, Sparkles, Plus, MessageSquare, Trash2, Code2, PanelLeftClose, PanelLeftOpen, PanelRightClose, Mic, Square, ClipboardList, Upload, Camera, Image, File, FileText, Paperclip, HardDrive, ArrowDown, Search, Download, Zap } from "lucide-react";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -1513,16 +1514,16 @@ const devPanelPreview = {
               )}
               <button
                 onClick={() => setDevMode(!devMode)}
-                title="Dev Mode — live preview"
+                title="Učenje — Browser Use automation"
                 className={cn(
                   "h-7 px-2.5 rounded-lg flex items-center gap-1.5 text-[10px] transition-colors",
                   devMode
-                    ? "bg-violet-500/20 text-violet-400 ring-1 ring-violet-500/30"
-                    : "bg-white/[0.06] text-white/40 hover:text-violet-400 hover:bg-violet-500/10"
+                    ? "bg-emerald-500/20 text-emerald-400 ring-1 ring-emerald-500/30"
+                    : "bg-white/[0.06] text-white/40 hover:text-emerald-400 hover:bg-emerald-500/10"
                 )}
               >
-                <Code2 className="w-3 h-3" />
-                Dev
+                <Zap className="w-3 h-3" />
+                Učenje
               </button>
               {hasMessages && (
                 <button
@@ -2033,42 +2034,12 @@ const devPanelPreview = {
           </>
         )}
 
-        {/* STELLAN DEV STUDIO — powered by DevPanel */}
+        {/* STELLAN UČENJE — Browser Use automation panel */}
         {devMode && !isMobile && (
           <div className="flex-1 border-l border-white/[0.06] min-w-0 overflow-hidden">
-            <DevPanel
-              title="Dev Studio"
-              steps={devPanelSteps}
-              preview={devPanelPreview}
-              consoleLogs={consoleLogs}
-              isAgentRunning={isAgentActionRunning}
-              agentOnline={agentOnline}
-              modelBadge={MODEL_BADGES[selectedModel]}
-              isRecording={isRecording}
-              recordingName={recordingName}
-              isDeploying={isDeploying}
-              deployStatus={deployStatus}
-              savedActions={savedActions}
-              onRunAction={handleDevPanelAction}
-              onStopAgent={() => abortControllerRef.current?.abort()}
-              onClearSteps={() => { setDevSteps([]); setRecordedSteps([]); }}
-              onDeleteStep={(stepId) => setDevSteps(prev => prev.filter(s => s.id !== stepId))}
-              onSelectStep={(step) => {
-                if (step.target) {
-                  setPreviewUrl(step.target);
-                }
-              }}
-              onDescribePreview={handlePreviewDescribe}
-              onWaitForLoad={handlePreviewWait}
-              onRefreshScreenshot={handleStudioScreenshot}
-              onDeploy={handleDeploy}
-              onStartAgent={handleStartAgent}
-              onStartRecording={handleStartRecording}
-              onSaveRecording={handleSaveAction}
-              onCancelRecording={handleCancelRecording}
-              onRunSavedAction={handleRunSavedAction}
-              onRefreshActions={handleRefreshActions}
-              onCheckHealth={checkAgentHealth}
+            <LearningPanel
+              onClose={() => setDevMode(false)}
+              agentServerUrl={import.meta.env.VITE_AGENT_SERVER_URL || ""}
             />
           </div>
         )}
