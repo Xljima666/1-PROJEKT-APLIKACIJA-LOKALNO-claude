@@ -128,6 +128,40 @@ export default function LearningPanel({ onClose, agentServerUrl }: LearningPanel
     }
   };
 
+  const suggestFlowName = () => {
+    const fnMatch = code.match(/async\s+def\s+([a-zA-Z0-9_]+)/);
+    if (fnMatch?.[1]) return fnMatch[1].replace(/^run_/, "");
+
+    try {
+      const host = new URL(url).hostname.replace(/[^a-zA-Z0-9]+/g, "_");
+      return `flow_${host}`;
+    } catch {
+      return "nauceni_flow";
+    }
+  };
+
+  const learnFlow = async () => {
+    if (!code.trim()) {
+      log("Nema koda za naučiti.");
+      return;
+    }
+
+    const suggested = suggestFlowName();
+    const name = prompt("Naziv naučenog flowa:", suggested);
+    if (!name) return;
+
+    log(`Učim flow: ${name}...`);
+    const res = await callAgent("record/write", { name, content: code });
+    if (res?.success) {
+      setSelectedFlow(name);
+      await refreshFlows();
+      log(`🧠 Flow naučen i spremljen kao ${name}.py`);
+      log("Sada ga možeš odabrati lijevo i pokretati kao spremljenu skriptu.");
+    } else {
+      log(`Greška: ${res?.error || "ne mogu naučiti flow"}`);
+    }
+  };
+
   const improveCode = async () => {
     if (!code.trim()) {
       log("Nema koda za prepraviti.");
@@ -237,6 +271,7 @@ export default function LearningPanel({ onClose, agentServerUrl }: LearningPanel
           {runningPreview ? "Pokrećem..." : "▶ Pokreni probno"}
         </button>
         <button onClick={saveCode} disabled={!code.trim()} className={cn(btn, "!text-white/85")}>💾 Spremi flow</button>
+        <button onClick={learnFlow} disabled={!agentOnline || !code.trim()} className={cn(btn, "!text-white/85 !border-violet-500/30 !bg-violet-500/10 hover:!bg-violet-500/20")}>🧠 Nauči flow</button>
         {selectedFlow && <span className="text-[11px] text-white/35">Odabrano: {selectedFlow}.py</span>}
       </div>
 
@@ -272,8 +307,8 @@ export default function LearningPanel({ onClose, agentServerUrl }: LearningPanel
               value={code}
               onChange={e => setCode(e.target.value)}
               className="flex-1 min-h-0 resize-none bg-[#080c14] p-4 font-mono text-[12px] text-emerald-300/80 leading-relaxed focus:outline-none"
-              placeholder={"Pokreni Codegen → klikaj po browseru → Učitaj kod
-Zatim klikni: Stellan prepravi kod → Pokreni probno → Spremi flow"}
+              placeholder={`Pokreni Codegen → klikaj po browseru → Učitaj kod
+Zatim klikni: Stellan prepravi kod → Pokreni probno → Nauči flow`}
               spellCheck={false}
             />
           </div>
