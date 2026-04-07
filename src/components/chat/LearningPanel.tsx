@@ -1,5 +1,5 @@
 // LearningPanel.tsx — Učenje tab
-// Pokreće Playwright Codegen na PC-u i prikazuje generirani kod
+// Pokreće Playwright Codegen, prepravlja sirovi kod i probno ga izvršava
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import { cn } from "@/lib/utils";
@@ -11,35 +11,48 @@ export default function LearningPanel({ onClose, agentServerUrl }: LearningPanel
   const AGENT_URL = agentServerUrl || import.meta.env.VITE_AGENT_SERVER_URL || "";
   const AGENT_KEY = import.meta.env.VITE_AGENT_API_KEY || "";
 
-  const [url, setUrl] = useState("https://sdge.dgu.hr");
+  const [url, setUrl] = useState("https://oss.uredjenazemlja.hr/");
   const [code, setCode] = useState("");
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [agentOnline, setAgentOnline] = useState<boolean | null>(null);
   const [codegenRunning, setCodegenRunning] = useState(false);
   const [flows, setFlows] = useState<string[]>([]);
   const [selectedFlow, setSelectedFlow] = useState<string | null>(null);
+  const [improvingCode, setImprovingCode] = useState(false);
+  const [runningPreview, setRunningPreview] = useState(false);
   const logRef = useRef<HTMLDivElement>(null);
 
   const log = useCallback((msg: string) => {
     const time = new Date().toLocaleTimeString("hr-HR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-    setLogs(prev => [...prev.slice(-200), { time, msg }]);
+    setLogs(prev => [...prev.slice(-300), { time, msg }]);
   }, []);
 
-  useEffect(() => { if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight; }, [logs]);
+  useEffect(() => {
+    if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
+  }, [logs]);
 
   const callAgent = useCallback(async (endpoint: string, body: object = {}, method: "POST" | "GET" = "POST") => {
-    if (!AGENT_URL) { log("AGENT_SERVER_URL nije postavljen!"); return null; }
+    if (!AGENT_URL) {
+      log("AGENT_SERVER_URL nije postavljen!");
+      return null;
+    }
     try {
       const res = await fetch(`${AGENT_URL}/${endpoint}`, {
         method,
-        headers: { "Content-Type": "application/json", "X-API-Key": AGENT_KEY, "ngrok-skip-browser-warning": "true" },
+        headers: {
+          "Content-Type": "application/json",
+          "X-API-Key": AGENT_KEY,
+          "ngrok-skip-browser-warning": "true",
+        },
         body: method === "GET" ? undefined : JSON.stringify(body),
       });
       return await res.json();
-    } catch (e: any) { log(`Agent greška: ${e.message}`); return null; }
+    } catch (e: any) {
+      log(`Agent greška: ${e.message}`);
+      return null;
+    }
   }, [AGENT_URL, AGENT_KEY, log]);
 
-  // Health check
   useEffect(() => {
     if (!AGENT_URL) return;
     (async () => {
@@ -47,11 +60,12 @@ export default function LearningPanel({ onClose, agentServerUrl }: LearningPanel
         const res = await fetch(`${AGENT_URL}/health`, { headers: { "ngrok-skip-browser-warning": "true" } });
         setAgentOnline(res.ok);
         if (res.ok) log("Agent online ✓");
-      } catch { setAgentOnline(false); }
+      } catch {
+        setAgentOnline(false);
+      }
     })();
   }, [AGENT_URL, log]);
 
-  // Load saved scripts
   const refreshFlows = useCallback(async () => {
     const res = await callAgent("record/list", {}, "GET");
     if (res?.success && Array.isArray(res.actions)) {
@@ -60,9 +74,10 @@ export default function LearningPanel({ onClose, agentServerUrl }: LearningPanel
     }
   }, [callAgent, log]);
 
-  useEffect(() => { if (agentOnline) refreshFlows(); }, [agentOnline, refreshFlows]);
+  useEffect(() => {
+    if (agentOnline) refreshFlows();
+  }, [agentOnline, refreshFlows]);
 
-  // ===== CODEGEN =====
   const startCodegen = async () => {
     log(`Pokrećem Playwright Codegen: ${url}`);
     setCodegenRunning(true);
@@ -82,13 +97,13 @@ export default function LearningPanel({ onClose, agentServerUrl }: LearningPanel
     if (res?.success && res.content) {
       setCode(res.content);
       setCodegenRunning(false);
+      setSelectedFlow(null);
       log("✓ Kod učitan!");
     } else {
       log(`${res?.error || "Nema koda — zatvori Codegen prozor pa probaj opet."}`);
     }
   };
 
-  // Load flow script
   const selectFlow = async (name: string) => {
     setSelectedFlow(name);
     const res = await callAgent("record/read", { name });
@@ -100,42 +115,92 @@ export default function LearningPanel({ onClose, agentServerUrl }: LearningPanel
     }
   };
 
-  // Save edited code
   const saveCode = async () => {
     const name = selectedFlow || prompt("Spremi kao (ime bez .py):");
     if (!name) return;
     const res = await callAgent("record/write", { name, content: code });
-    if (res?.success) { log(`✓ Spremljeno: ${name}.py`); setSelectedFlow(name); await refreshFlows(); }
-    else log(`Greška: ${res?.error}`);
+    if (res?.success) {
+      log(`✓ Spremljeno: ${name}.py`);
+      setSelectedFlow(name);
+      await refreshFlows();
+    } else {
+      log(`Greška: ${res?.error}`);
+    }
   };
 
-  // Run flow
+  const improveCode = async () => {
+    if (!code.trim()) {
+      log("Nema koda za prepraviti.");
+      return;
+    }
+    setImprovingCode(true);
+    log("Stellan prepravlja sirovi Playwright kod...");
+    const res = await callAgent("code/clean_playwright", { content: code });
+    if (res?.success && res.cleaned_content) {
+      setCode(res.cleaned_content);
+      log("✓ Kod prepravljen.");
+      if (Array.isArray(res.notes)) {
+        res.notes.forEach((note: string) => log(`• ${note}`));
+      }
+    } else {
+      log(`Greška: ${res?.error || "ne mogu prepraviti kod"}`);
+    }
+    setImprovingCode(false);
+  };
+
+  const runDraft = async () => {
+    if (!code.trim()) {
+      log("Nema koda za pokrenuti.");
+      return;
+    }
+    setRunningPreview(true);
+    log("Pokrećem probnu verziju trenutnog koda...");
+    const res = await callAgent("code/run_temp", { content: code, timeout: 90 });
+    if (res?.success) {
+      log("✓ Probno izvršavanje završeno.");
+      if (res.stdout) log(res.stdout.slice(0, 1200));
+      if (res.stderr) log(res.stderr.slice(0, 1200));
+    } else {
+      log(`Greška: ${res?.error || res?.stderr || "izvršavanje nije uspjelo"}`);
+      if (res?.stderr) log(res.stderr.slice(0, 1200));
+    }
+    setRunningPreview(false);
+  };
+
   const runFlow = async () => {
-    if (!selectedFlow) { log("Odaberi skriptu."); return; }
-    log(`Pokrećem: ${selectedFlow}...`);
+    if (!selectedFlow) {
+      log("Odaberi skriptu.");
+      return;
+    }
+    log(`Pokrećem spremljenu skriptu: ${selectedFlow}...`);
     const res = await callAgent("record/run", { name: selectedFlow });
-    if (res?.success) { log(`✓ ${selectedFlow} izvršen`); if (res.stdout) log(res.stdout.slice(0, 400)); }
-    else log(`Greška: ${res?.error}`);
+    if (res?.success) {
+      log(`✓ ${selectedFlow} izvršen`);
+      if (res.stdout) log(res.stdout.slice(0, 1200));
+      if (res.stderr) log(res.stderr.slice(0, 1200));
+    } else {
+      log(`Greška: ${res?.error || res?.stderr}`);
+    }
   };
 
-  // Delete flow
   const deleteFlow = async () => {
     if (!selectedFlow) return;
     if (!confirm(`Obrisati "${selectedFlow}"?`)) return;
     await callAgent("record/delete", { name: selectedFlow });
-    setSelectedFlow(null); setCode(""); await refreshFlows();
+    setSelectedFlow(null);
+    setCode("");
+    await refreshFlows();
     log(`Obrisano: ${selectedFlow}`);
   };
 
-  // Styles
   const btn = "px-3 py-1.5 rounded border border-white/[0.12] bg-white/[0.06] hover:bg-white/[0.12] text-[12px] text-white/70 hover:text-white/90 transition-colors disabled:opacity-30 disabled:cursor-not-allowed whitespace-nowrap";
   const btnGreen = "px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[13px] font-medium transition-colors disabled:opacity-40";
+  const btnBlue = "px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-[13px] font-medium transition-colors disabled:opacity-40";
+  const btnViolet = "px-4 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 text-white text-[13px] font-medium transition-colors disabled:opacity-40";
   const input = "bg-white/[0.05] border border-white/[0.10] rounded px-3 py-1.5 text-[13px] text-white/85 placeholder-white/25 focus:outline-none focus:border-emerald-500/50";
 
   return (
     <div className="flex flex-col h-full bg-[#0a0e17] text-white overflow-hidden">
-
-      {/* HEADER */}
       <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/[0.08] bg-[#0d1220]">
         <div className="flex items-center gap-2.5">
           <div className="w-5 h-5 rounded bg-gradient-to-br from-emerald-500 to-emerald-700 flex items-center justify-center">
@@ -152,7 +217,6 @@ export default function LearningPanel({ onClose, agentServerUrl }: LearningPanel
         </button>
       </div>
 
-      {/* CODEGEN LAUNCHER */}
       <div className="px-4 py-3 border-b border-white/[0.06] flex items-center gap-3">
         <input type="text" value={url} onChange={e => setUrl(e.target.value)} className={cn(input, "flex-1")} placeholder="URL za snimanje..." />
         <button onClick={startCodegen} disabled={!agentOnline || codegenRunning} className={btnGreen}>
@@ -165,21 +229,29 @@ export default function LearningPanel({ onClose, agentServerUrl }: LearningPanel
         )}
       </div>
 
-      {/* MAIN: Flows | Code | Log */}
-      <div className="flex-1 flex min-h-0 overflow-hidden">
+      <div className="px-4 py-3 border-b border-white/[0.06] flex flex-wrap items-center gap-2 bg-white/[0.02]">
+        <button onClick={improveCode} disabled={!agentOnline || !code.trim() || improvingCode} className={btnBlue}>
+          {improvingCode ? "Prepravljam..." : "✨ Stellan prepravi kod"}
+        </button>
+        <button onClick={runDraft} disabled={!agentOnline || !code.trim() || runningPreview} className={btnViolet}>
+          {runningPreview ? "Pokrećem..." : "▶ Pokreni probno"}
+        </button>
+        <button onClick={saveCode} disabled={!code.trim()} className={cn(btn, "!text-white/85")}>💾 Spremi flow</button>
+        {selectedFlow && <span className="text-[11px] text-white/35">Odabrano: {selectedFlow}.py</span>}
+      </div>
 
-        {/* LEFT: Saved Scripts */}
-        <div className="w-48 shrink-0 border-r border-white/[0.06] flex flex-col">
+      <div className="flex-1 flex min-h-0 overflow-hidden">
+        <div className="w-52 shrink-0 border-r border-white/[0.06] flex flex-col">
           <div className="px-3 py-2 border-b border-white/[0.06] flex items-center justify-between">
             <span className="text-[10px] text-white/40 font-medium uppercase tracking-wider">Skripte</span>
             <button onClick={refreshFlows} className="text-[10px] text-white/30 hover:text-white/60">↻</button>
           </div>
           <div className="flex-1 overflow-y-auto">
             {flows.map((name, i) => (
-              <div key={i} onClick={() => selectFlow(name)}
-                className={cn("px-3 py-2 text-[12px] cursor-pointer border-b border-white/[0.03] transition-colors",
-                  selectedFlow === name ? "bg-emerald-500/10 text-emerald-400" : "text-white/50 hover:bg-white/[0.04]"
-                )}>
+              <div key={i} onClick={() => selectFlow(name)} className={cn(
+                "px-3 py-2 text-[12px] cursor-pointer border-b border-white/[0.03] transition-colors",
+                selectedFlow === name ? "bg-emerald-500/10 text-emerald-400" : "text-white/50 hover:bg-white/[0.04]"
+              )}>
                 {name}
               </div>
             ))}
@@ -190,30 +262,23 @@ export default function LearningPanel({ onClose, agentServerUrl }: LearningPanel
           </div>
         </div>
 
-        {/* CENTER: Code Editor + Log */}
         <div className="flex-1 flex flex-col min-w-0">
-
-          {/* Code */}
           <div className="flex-1 flex flex-col min-h-0">
             <div className="flex items-center justify-between px-3 py-1.5 border-b border-white/[0.06] bg-white/[0.02]">
-              <span className="text-[11px] text-white/40 font-medium">
-                {selectedFlow ? `${selectedFlow}.py` : "Generirani kod"}
-              </span>
-              {code.trim() && (
-                <button onClick={saveCode} className={cn(btn, "!py-0.5 !text-[10px]")}>Spremi</button>
-              )}
+              <span className="text-[11px] text-white/40 font-medium">{selectedFlow ? `${selectedFlow}.py` : "Generirani / sirovi kod"}</span>
+              <span className="text-[10px] text-white/25">Codegen → Prepravi → Pokreni probno → Spremi</span>
             </div>
             <textarea
               value={code}
               onChange={e => setCode(e.target.value)}
               className="flex-1 min-h-0 resize-none bg-[#080c14] p-4 font-mono text-[12px] text-emerald-300/80 leading-relaxed focus:outline-none"
-              placeholder={"Pokreni Codegen → klikaj po browseru → Učitaj kod\n\nIli klikni na skriptu lijevo."}
+              placeholder={"Pokreni Codegen → klikaj po browseru → Učitaj kod
+Zatim klikni: Stellan prepravi kod → Pokreni probno → Spremi flow"}
               spellCheck={false}
             />
           </div>
 
-          {/* Log */}
-          <div className="h-32 shrink-0 border-t border-white/[0.06]">
+          <div className="h-40 shrink-0 border-t border-white/[0.06]">
             <div className="px-3 py-1 border-b border-white/[0.04]">
               <span className="text-[10px] text-white/30 font-medium">Log</span>
             </div>
