@@ -3,7 +3,7 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import { cn } from "@/lib/utils";
-
+ 
 interface LogEntry { time: string; msg: string; }
 interface LearningPanelProps { onClose: () => void; agentServerUrl?: string; }
 
