@@ -1,5 +1,5 @@
 import { memo, useState, useCallback } from "react";
-import { Copy, Check, Code2, Sparkles, ThumbsUp, ThumbsDown, FileText, FileCode2, FileArchive, FileImage, FileSpreadsheet, File, ChevronDown, ChevronRight } from "lucide-react";
+import { Copy, Check, Code2, Sparkles, ThumbsUp, ThumbsDown, FileText, FileCode2, FileArchive, FileImage, FileSpreadsheet, File, ChevronDown, ChevronRight, Download } from "lucide-react";
 import { cn } from "@/lib/utils";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -167,10 +167,77 @@ function CodeFileCard({ filename, size, language, code }: { filename: string; si
   );
 }
 
+// ─── Download card for generated files ───────────────────────
+function DownloadCard({ filename, url, size }: { filename: string; url: string; size?: string }) {
+  const ft = getFileType(filename);
+  const Icon = ft.icon;
+  return (
+    <a
+      href={url}
+      download={filename}
+      target="_blank"
+      rel="noopener noreferrer"
+      style={{
+        display: "inline-flex", flexDirection: "column", gap: "8px", textDecoration: "none",
+        background: "rgba(29,233,139,0.06)", border: "1px solid rgba(29,233,139,0.2)",
+        borderRadius: "14px", padding: "14px 16px", minWidth: "180px", maxWidth: "280px",
+        cursor: "pointer", transition: "all 0.15s",
+      }}
+      onMouseEnter={e => { e.currentTarget.style.background = "rgba(29,233,139,0.12)"; e.currentTarget.style.borderColor = "rgba(29,233,139,0.35)"; }}
+      onMouseLeave={e => { e.currentTarget.style.background = "rgba(29,233,139,0.06)"; e.currentTarget.style.borderColor = "rgba(29,233,139,0.2)"; }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+        <div style={{
+          width: "36px", height: "36px", borderRadius: "10px",
+          background: `${ft.color}15`, border: `1px solid ${ft.color}30`,
+          display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+        }}>
+          <Icon style={{ width: "18px", height: "18px", color: ft.color }} />
+        </div>
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div style={{ fontSize: "13px", fontWeight: 600, color: "rgba(255,255,255,0.9)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const }}>{filename}</div>
+          {size && <div style={{ fontSize: "11px", color: "rgba(255,255,255,0.35)", marginTop: "1px" }}>{size}</div>}
+        </div>
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+        <div style={{
+          display: "inline-flex", alignItems: "center", gap: "5px",
+          fontSize: "11px", fontWeight: 600, letterSpacing: "0.03em",
+          padding: "4px 10px", borderRadius: "8px",
+          background: "rgba(29,233,139,0.15)", color: "#1de98b",
+        }}>
+          <Download style={{ width: "12px", height: "12px" }} />
+          Preuzmi
+        </div>
+        <span style={{
+          fontSize: "10px", fontWeight: 700, letterSpacing: "0.05em",
+          padding: "3px 8px", borderRadius: "6px",
+          background: ft.badgeColor, color: ft.color,
+        }}>{ft.badge}</span>
+      </div>
+    </a>
+  );
+}
+
+// ─── Parse %%FILE_DOWNLOAD%% markers from assistant content ──
+function parseFileDownloads(content: string): { cleanContent: string; downloads: { filename: string; url: string; size?: string }[] } {
+  const downloads: { filename: string; url: string; size?: string }[] = [];
+  const cleanContent = content.replace(/%%FILE_DOWNLOAD:(.*?)%%/g, (_, json) => {
+    try {
+      const parsed = JSON.parse(json);
+      if (parsed.filename && parsed.url) downloads.push(parsed);
+    } catch { /* ignore */ }
+    return "";
+  }).trim();
+  return { cleanContent, downloads };
+}
+
 // ─── Parse user message for file attachments ────────────────
 function parseUserContent(content: string) {
   const attachments: Array<any> = [];
   const textParts: string[] = [];
+  // Ordered list for correct rendering sequence
+  const orderedItems: Array<{ type: "text" | "attachment"; index: number }> = [];
 
   // Check for ««FILE:...»» delimiters
   const fileRegex = /\u00ab\u00abFILE:([^»]+)\u00bb\u00bb\n([\s\S]*?)\n\u00ab\u00ab\/FILE\u00bb\u00bb/g;
@@ -182,7 +249,10 @@ function parseUserContent(content: string) {
     hasFiles = true;
     // Text before this file block
     const before = content.slice(lastEnd, match.index).trim();
-    if (before) textParts.push(before);
+    if (before) {
+      orderedItems.push({ type: "text", index: textParts.length });
+      textParts.push(before);
+    }
     lastEnd = match.index + match[0].length;
 
     const meta = match[1]; // e.g. "tsx:ChatDialog.tsx:60.5 KB" or "pdf:file.pdf:45 KB:3:url" or "bin:file.zip:5 KB"
@@ -200,12 +270,16 @@ function parseUserContent(content: string) {
     } else {
       attachments.push({ type: "code-file", filename, size, language: lang, code: fileContent });
     }
+    orderedItems.push({ type: "attachment", index: attachments.length - 1 });
   }
 
   if (hasFiles) {
     // Text after the last file block
     const after = content.slice(lastEnd).trim();
-    if (after) textParts.push(after);
+    if (after) {
+      orderedItems.push({ type: "text", index: textParts.length });
+      textParts.push(after);
+    }
   }
 
   if (!hasFiles) {
@@ -240,7 +314,7 @@ function parseUserContent(content: string) {
         if (before) textParts.push(before);
         if (after) textParts.push(after);
       }
-      return { attachments, textParts };
+      return { attachments, textParts, orderedItems };
     }
 
     // Legacy PDF
@@ -253,14 +327,14 @@ function parseUserContent(content: string) {
       const pagesMatch = meta.match(/\((\d+\s*str\.?[^)]*)\)/);
       attachments.push({ type: "pdf", filename: pdfMatch[1], size: sizeMatch?.[1], pages: pagesMatch?.[1] });
       if (before) textParts.push(before);
-      return { attachments, textParts };
+      return { attachments, textParts, orderedItems };
     }
 
     if (remaining && attachments.length === 0) textParts.push(remaining);
     else if (remaining && attachments.length > 0) textParts.push(remaining);
   }
 
-  return { attachments, textParts };
+  return { attachments, textParts, orderedItems };
 }
 
 // ─── Copy button ────────────────────────────────────────────
@@ -346,12 +420,36 @@ function makeComponents(codeBlocks: CodeBlock[], hasCode: boolean, onScrollToCod
 
 // ─── User message renderer ──────────────────────────────────
 function UserContent({ content }: { content: string }) {
-  const { attachments, textParts } = parseUserContent(content);
+  const { attachments, textParts, orderedItems } = parseUserContent(content);
+  const imgComponents = {
+    img:({src,alt}:any)=><img src={src} alt={alt||""} className="max-w-full max-h-80 rounded-xl my-2 border border-white/[0.08]"/>,
+  };
+
   if (attachments.length === 0) {
-    return <ReactMarkdown remarkPlugins={[remarkGfm]} components={{
-      img:({src,alt}:any)=><img src={src} alt={alt||""} className="max-w-full max-h-80 rounded-xl my-2 border border-white/[0.08]"/>,
-    }}>{content}</ReactMarkdown>;
+    return <ReactMarkdown remarkPlugins={[remarkGfm]} components={imgComponents}>{content}</ReactMarkdown>;
   }
+
+  // If we have ordered items (new ««FILE»» format), render in original order
+  if (orderedItems.length > 0) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+        {orderedItems.map((item, i) => {
+          if (item.type === "text") {
+            const text = textParts[item.index];
+            return text ? <div key={`oi-${i}`}><ReactMarkdown remarkPlugins={[remarkGfm]} components={imgComponents}>{text}</ReactMarkdown></div> : null;
+          }
+          const a = attachments[item.index];
+          if (!a) return null;
+          if (a.type === "image") return <img key={`oi-${i}`} src={a.src} alt={a.name} style={{ maxHeight: "200px", maxWidth: "300px", borderRadius: "12px", border: "1px solid rgba(255,255,255,0.1)", objectFit: "cover" as const }} />;
+          if (a.type === "file" || a.type === "pdf") return <FileCard key={`oi-${i}`} filename={a.filename} size={a.size} extra={a.pages} />;
+          if (a.type === "code-file") return <CodeFileCard key={`oi-${i}`} filename={a.filename} size={a.size} language={a.language} code={a.code} />;
+          return null;
+        })}
+      </div>
+    );
+  }
+
+  // Legacy fallback: grouped rendering
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
       {attachments.filter((a: any) => a.type === "image").map((a: any, i: number) => (
@@ -364,9 +462,7 @@ function UserContent({ content }: { content: string }) {
         <CodeFileCard key={`cc-${i}`} filename={a.filename} size={a.size} language={a.language} code={a.code} />
       ))}
       {textParts.map((text, i) => (
-        <div key={`tp-${i}`}><ReactMarkdown remarkPlugins={[remarkGfm]} components={{
-          img:({src,alt}:any)=><img src={src} alt={alt||""} className="max-w-full max-h-80 rounded-xl my-2 border border-white/[0.08]"/>,
-        }}>{text}</ReactMarkdown></div>
+        <div key={`tp-${i}`}><ReactMarkdown remarkPlugins={[remarkGfm]} components={imgComponents}>{text}</ReactMarkdown></div>
       ))}
     </div>
   );
@@ -374,7 +470,8 @@ function UserContent({ content }: { content: string }) {
 
 // ─── Assistant content — colored headings, no backgrounds ───
 function AssistantContent({ content, components }: { content: string; components: any }) {
-  const lines = content.split("\n");
+  const { cleanContent, downloads } = parseFileDownloads(content);
+  const lines = cleanContent.split("\n");
   const sections: { heading: string | null; level: number; body: string }[] = [];
   let heading: string | null = null;
   let level = 0;
@@ -394,25 +491,37 @@ function AssistantContent({ content, components }: { content: string; components
   if (buf.length > 0 || heading !== null) sections.push({ heading, level, body: buf.join("\n").trim() });
 
   const hasHeadings = sections.some(s => s.heading !== null);
-  if (!hasHeadings) return <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>{content}</ReactMarkdown>;
-
   let colorIdx = 0;
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-      {sections.map((sec, i) => {
-        if (sec.heading === null) {
-          return sec.body ? <div key={i}><ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>{sec.body}</ReactMarkdown></div> : null;
-        }
-        const color = HEADING_COLORS[colorIdx % HEADING_COLORS.length];
-        colorIdx++;
-        const fontSize = sec.level === 1 ? "17px" : sec.level === 2 ? "15px" : "14px";
-        return (
-          <div key={i} style={{ marginTop: i === 0 ? "0" : "14px" }}>
-            <div style={{ fontFamily: BASE_FONT, fontSize, fontWeight: 600, color, marginBottom: "6px" }}>{sec.heading}</div>
-            {sec.body && <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>{sec.body}</ReactMarkdown>}
-          </div>
-        );
-      })}
+      {hasHeadings ? (
+        <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+          {sections.map((sec, i) => {
+            if (sec.heading === null) {
+              return sec.body ? <div key={i}><ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>{sec.body}</ReactMarkdown></div> : null;
+            }
+            const color = HEADING_COLORS[colorIdx % HEADING_COLORS.length];
+            colorIdx++;
+            const fontSize = sec.level === 1 ? "17px" : sec.level === 2 ? "15px" : "14px";
+            return (
+              <div key={i} style={{ marginTop: i === 0 ? "0" : "14px" }}>
+                <div style={{ fontFamily: BASE_FONT, fontSize, fontWeight: 600, color, marginBottom: "6px" }}>{sec.heading}</div>
+                {sec.body && <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>{sec.body}</ReactMarkdown>}
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>{cleanContent}</ReactMarkdown>
+      )}
+      {downloads.length > 0 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "10px", marginTop: "12px" }}>
+          {downloads.map((dl, i) => (
+            <DownloadCard key={i} filename={dl.filename} url={dl.url} size={dl.size} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
