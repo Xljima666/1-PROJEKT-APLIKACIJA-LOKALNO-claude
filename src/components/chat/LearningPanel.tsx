@@ -76,6 +76,16 @@ function flowGroup(item: FlowSummary): string {
   return item.portal || (item.name.toLowerCase().includes("oss") ? "OSS" : item.name.toLowerCase().includes("sdge") ? "SDGE" : "Ostalo");
 }
 
+const btnBase =
+  "inline-flex items-center justify-center gap-2 rounded-xl px-3.5 py-2 text-[13px] font-medium transition-all disabled:cursor-not-allowed disabled:opacity-40";
+const btnGhost = `${btnBase} border border-white/10 bg-white/[0.04] text-white/80 hover:bg-white/[0.08] hover:text-white`;
+const btnBlue = `${btnBase} bg-sky-500/15 text-sky-200 ring-1 ring-sky-400/20 hover:bg-sky-500/25`;
+const btnViolet = `${btnBase} bg-violet-500/15 text-violet-200 ring-1 ring-violet-400/20 hover:bg-violet-500/25`;
+const btnAmber = `${btnBase} bg-amber-500/15 text-amber-100 ring-1 ring-amber-400/20 hover:bg-amber-500/25`;
+const btnGreen = `${btnBase} bg-emerald-500/15 text-emerald-100 ring-1 ring-emerald-400/20 hover:bg-emerald-500/25`;
+const btnPink = `${btnBase} bg-fuchsia-500/15 text-fuchsia-100 ring-1 ring-fuchsia-400/20 hover:bg-fuchsia-500/25`;
+const btnSlate = `${btnBase} bg-white/[0.04] text-white/70 ring-1 ring-white/10 hover:bg-white/[0.08] hover:text-white`;
+
 export default function LearningPanel({ onClose, agentServerUrl }: LearningPanelProps) {
   const AGENT_URL = agentServerUrl || import.meta.env.VITE_AGENT_SERVER_URL || "";
   const AGENT_KEY = import.meta.env.VITE_AGENT_API_KEY || "";
@@ -546,7 +556,7 @@ export default function LearningPanel({ onClose, agentServerUrl }: LearningPanel
     if (!recording) return;
     const id = setInterval(() => {
       refreshLivePreview();
-    }, 2200);
+    }, 5000);
     return () => clearInterval(id);
   }, [recording, refreshLivePreview]);
 
@@ -569,16 +579,6 @@ export default function LearningPanel({ onClose, agentServerUrl }: LearningPanel
     if (selectedFlow) return "Spremljeni flow";
     return "Sirovi / uređeni kod";
   }, [code, selectedFlow]);
-
-  const btnBase =
-    "inline-flex items-center justify-center gap-2 rounded-xl px-3.5 py-2 text-[13px] font-medium transition-all disabled:cursor-not-allowed disabled:opacity-40";
-  const btnGhost = `${btnBase} border border-white/10 bg-white/[0.04] text-white/80 hover:bg-white/[0.08] hover:text-white`;
-  const btnBlue = `${btnBase} bg-sky-500/15 text-sky-200 ring-1 ring-sky-400/20 hover:bg-sky-500/25`;
-  const btnViolet = `${btnBase} bg-violet-500/15 text-violet-200 ring-1 ring-violet-400/20 hover:bg-violet-500/25`;
-  const btnAmber = `${btnBase} bg-amber-500/15 text-amber-100 ring-1 ring-amber-400/20 hover:bg-amber-500/25`;
-  const btnGreen = `${btnBase} bg-emerald-500/15 text-emerald-100 ring-1 ring-emerald-400/20 hover:bg-emerald-500/25`;
-  const btnPink = `${btnBase} bg-fuchsia-500/15 text-fuchsia-100 ring-1 ring-fuchsia-400/20 hover:bg-fuchsia-500/25`;
-  const btnSlate = `${btnBase} bg-white/[0.04] text-white/70 ring-1 ring-white/10 hover:bg-white/[0.08] hover:text-white`;
 
   const updateParam = (idx: number, patch: Partial<FlowParam>) => {
     setMetadata(prev => {
