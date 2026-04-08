@@ -18,6 +18,15 @@ export interface ProviderConfig {
 }
 
 export const PROVIDERS: Record<Provider, ProviderConfig> = {
+  xai: {
+    label: "Grok",
+    icon: "⚡",
+    color: "sky",
+    models: [
+      { id: "grok-4-1-fast-non-reasoning", label: "Grok 4.1 Fast", badge: "FAST" },
+      { id: "grok-4.20-reasoning", label: "Grok 4.20", badge: "REASON" },
+    ],
+  },
   openai: {
     label: "ChatGPT",
     icon: "🤖",
@@ -45,15 +54,6 @@ export const PROVIDERS: Record<Provider, ProviderConfig> = {
       { id: "gemini-2.5-flash", label: "2.5 Flash", badge: "FAST" },
       { id: "gemini-2.5-pro", label: "2.5 Pro", badge: "SMART" },
       { id: "gemini-2.5-flash-lite", label: "2.5 Flash Lite", badge: "LITE" },
-    ],
-  },
-  xai: {
-    label: "Grok",
-    icon: "⚡",
-    color: "sky",
-    models: [
-      { id: "grok-3-mini-fast", label: "Grok 3 Mini", badge: "FAST" },
-      { id: "grok-3", label: "Grok 3", badge: "SMART" },
     ],
   },
 };
