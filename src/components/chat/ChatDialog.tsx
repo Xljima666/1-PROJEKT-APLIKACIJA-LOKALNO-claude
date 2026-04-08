@@ -150,8 +150,8 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
   const [reasoningMode, setReasoningMode] = useState(false);
   const [devMode, setDevMode] = useState(false);
   const [selectedModel, setSelectedModel] = useState<"flash" | "pro" | "flash3" | "pro3">("flash");
-  const [selectedProvider, setSelectedProvider] = useState<Provider>("openai");
-  const [selectedProviderModel, setSelectedProviderModel] = useState<string>("gpt-5.4-mini");
+  const [selectedProvider, setSelectedProvider] = useState<Provider>("xai");
+  const [selectedProviderModel, setSelectedProviderModel] = useState<string>("grok-4-1-fast-non-reasoning");
   const [previewUrl, setPreviewUrl] = useState("http://localhost:8080");
   const [isDeploying, setIsDeploying] = useState(false);
   const [deployStatus, setDeployStatus] = useState<"idle" | "success" | "error">("idle");
