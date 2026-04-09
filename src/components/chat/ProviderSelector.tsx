@@ -23,8 +23,8 @@ export const PROVIDERS: Record<Provider, ProviderConfig> = {
     icon: "⚡",
     color: "sky",
     models: [
+      { id: "grok-4.20-reasoning", label: "Grok 4.20", badge: "SMART" },
       { id: "grok-4-1-fast-non-reasoning", label: "Grok 4.1 Fast", badge: "FAST" },
-      { id: "grok-4.20-reasoning", label: "Grok 4.20", badge: "REASON" },
     ],
   },
   openai: {
