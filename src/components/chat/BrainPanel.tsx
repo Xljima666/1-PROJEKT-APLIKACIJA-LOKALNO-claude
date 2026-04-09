@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { cn } from "@/lib/utils";
-import { Brain, GitGraph, Layers, Database, Zap, Search, Sparkles, Play, Plus, X } from "lucide-react";
+import { Brain, GitGraph, Layers, Database, Zap, Search, Sparkles, Play, Plus } from "lucide-react";
 import ReactFlow, {
   Node,
   Edge,
@@ -15,12 +15,7 @@ import "reactflow/dist/style.css";
 
 type Tab = "overview" | "graph" | "pipelines" | "vault" | "tools";
 
-interface BrainPanelProps {
-  onClose: () => void;
-  agentServerUrl?: string;
-}
-
-export default function BrainPanel({ onClose, agentServerUrl }: BrainPanelProps) {
+export default function BrainPanel({ onClose, agentServerUrl }: { onClose: () => void; agentServerUrl?: string }) {
   const [activeTab, setActiveTab] = useState<Tab>("overview");
   const [memoryHealth, setMemoryHealth] = useState(94);
   const [pulse, setPulse] = useState(true);
@@ -36,7 +31,6 @@ export default function BrainPanel({ onClose, agentServerUrl }: BrainPanelProps)
 
   const AGENT_URL = agentServerUrl || import.meta.env.VITE_AGENT_SERVER_URL || "";
 
-  // Učitaj postojeće flowove iz LearningPanela
   const loadFlows = async () => {
     if (!AGENT_URL) return;
     try {
@@ -45,12 +39,8 @@ export default function BrainPanel({ onClose, agentServerUrl }: BrainPanelProps)
         headers: { "ngrok-skip-browser-warning": "true" },
       });
       const data = await res.json();
-      if (data?.success && Array.isArray(data.actions)) {
-        setFlows(data.actions);
-      }
-    } catch (e) {
-      console.error("Ne mogu učitati flowove", e);
-    }
+      if (data?.success && Array.isArray(data.actions)) setFlows(data.actions);
+    } catch (e) {}
   };
 
   const onConnect = useCallback((params: Connection) => setEdges((eds) => addEdge(params, eds)), [setEdges]);
@@ -64,10 +54,8 @@ export default function BrainPanel({ onClose, agentServerUrl }: BrainPanelProps)
     setNodes((nds) => nds.concat(newNode));
   };
 
-  // STVARNI RUN BUTTON - pokreće flow
   const runPipeline = async () => {
     if (nodes.length === 0) return alert("Nema flowova na canvasu!");
-
     setRunning(true);
     setRunResult("");
 
@@ -83,15 +71,14 @@ export default function BrainPanel({ onClose, agentServerUrl }: BrainPanelProps)
         },
         body: JSON.stringify({ name: firstFlow.data.label }),
       });
-
       const data = await res.json();
       if (data?.success) {
-        setRunResult(`✅ Flow "${firstFlow.data.label}" uspješno izvršen!\n\n${data.stdout || data.message || ""}`);
+        setRunResult(`✅ "${firstFlow.data.label}" izvršen!\n\n${data.stdout || ""}`);
       } else {
         setRunResult(`❌ Greška: ${data?.error || "Nepoznato"}`);
       }
     } catch (e) {
-      setRunResult(`❌ Greška pri pokretanju: ${e}`);
+      setRunResult(`❌ Greška: ${e}`);
     } finally {
       setRunning(false);
     }
@@ -119,7 +106,6 @@ export default function BrainPanel({ onClose, agentServerUrl }: BrainPanelProps)
 
   return (
     <div className="h-full flex flex-col bg-[#050814] text-white overflow-hidden">
-      {/* HEADER */}
       <div className="px-8 py-5 border-b border-white/10 flex items-center justify-between bg-black/70 backdrop-blur-2xl">
         <div className="flex items-center gap-4">
           <div className="w-10 h-10 rounded-3xl bg-gradient-to-br from-cyan-400 to-purple-600 flex items-center justify-center shadow-2xl shadow-cyan-500/50">
@@ -156,28 +142,22 @@ export default function BrainPanel({ onClose, agentServerUrl }: BrainPanelProps)
       <div className="flex-1 flex overflow-hidden">
         {activeTab === "pipelines" ? (
           <div className="flex w-full h-full">
-            {/* SIDEBAR - tvoji flowovi */}
             <div className="w-72 border-r border-white/10 bg-[#0a1125] p-4 overflow-auto">
               <h3 className="font-semibold mb-4 flex items-center gap-2">
                 <Plus className="w-4 h-4" /> Dostupni Flowovi
               </h3>
-              {flows.length === 0 ? (
-                <p className="text-white/40 text-sm">Učitavam tvoje flowove...</p>
-              ) : (
-                flows.map((flow) => (
-                  <div
-                    key={flow.name}
-                    onClick={() => addFlowToCanvas(flow.name)}
-                    className="bg-black/60 hover:bg-cyan-500/20 border border-white/10 rounded-xl p-4 mb-3 cursor-pointer transition-all"
-                  >
-                    <div className="font-medium">{flow.name}</div>
-                    <div className="text-xs text-white/40">.py • klikni da dodaš na canvas</div>
-                  </div>
-                ))
-              )}
+              {flows.map((flow) => (
+                <div
+                  key={flow.name}
+                  onClick={() => addFlowToCanvas(flow.name)}
+                  className="bg-black/60 hover:bg-cyan-500/20 border border-white/10 rounded-xl p-4 mb-3 cursor-pointer transition-all"
+                >
+                  <div className="font-medium">{flow.name}</div>
+                  <div className="text-xs text-white/40">.py</div>
+                </div>
+              ))}
             </div>
 
-            {/* REACT FLOW CANVAS */}
             <div className="flex-1 relative">
               <ReactFlow
                 nodes={nodes}
@@ -192,23 +172,14 @@ export default function BrainPanel({ onClose, agentServerUrl }: BrainPanelProps)
                 <Background gap={20} size={1} />
               </ReactFlow>
 
-              {/* RUN BUTTON */}
               <button
                 onClick={runPipeline}
                 disabled={running || nodes.length === 0}
-                className="absolute bottom-8 left-1/2 -translate-x-1/2 bg-gradient-to-r from-emerald-400 to-cyan-400 hover:from-emerald-500 hover:to-cyan-500 text-black font-bold px-10 py-4 rounded-3xl flex items-center gap-3 shadow-2xl transition-all disabled:opacity-50"
+                className="absolute bottom-8 left-1/2 -translate-x-1/2 bg-gradient-to-r from-emerald-400 to-cyan-400 text-black font-bold px-10 py-4 rounded-3xl flex items-center gap-3 shadow-2xl hover:scale-105 transition-all disabled:opacity-50"
               >
-                {running ? (
-                  <>Pokrećem flow...</>
-                ) : (
-                  <>
-                    <Play className="w-5 h-5" />
-                    Run Pipeline
-                  </>
-                )}
+                {running ? <>Pokrećem...</> : <><Play className="w-5 h-5" /> Run Pipeline</>}
               </button>
 
-              {/* REZULTAT */}
               {runResult && (
                 <div className="absolute bottom-8 right-8 bg-black/90 backdrop-blur-xl border border-white/20 rounded-3xl p-6 max-w-md text-sm whitespace-pre-wrap max-h-64 overflow-auto">
                   {runResult}
@@ -217,18 +188,15 @@ export default function BrainPanel({ onClose, agentServerUrl }: BrainPanelProps)
             </div>
           </div>
         ) : (
-          /* Ostali tabovi */
           <div className="flex-1 p-8 overflow-auto">
-            {activeTab === "overview" && <div className="text-4xl text-white/30">Overview - centralni mozak</div>}
-            {activeTab === "graph" && <div className="text-4xl text-white/30">Knowledge Graph (klikabilni čvorovi)</div>}
-            {activeTab === "vault" && (
-              <div>
-                <button onClick={() => {}} className="bg-emerald-500 px-8 py-4 rounded-2xl mb-6">
-                  Učitaj stvarne ideje iz memorije
-                </button>
+            {activeTab === "overview" && (
+              <div className="flex items-center justify-center h-full text-4xl text-white/30">
+                Overview - centralni mozak
               </div>
             )}
-            {activeTab === "tools" && <div className="text-4xl text-white/30">Tools tab</div>}
+            {activeTab === "graph" && <div className="text-4xl text-white/30">Knowledge Graph</div>}
+            {activeTab === "vault" && <div className="text-4xl text-white/30">Memory Vault</div>}
+            {activeTab === "tools" && <div className="text-4xl text-white/30">Tools</div>}
           </div>
         )}
       </div>
