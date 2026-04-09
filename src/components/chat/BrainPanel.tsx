@@ -20,8 +20,6 @@ export default function BrainPanel({ onClose, agentServerUrl }: { onClose: () =>
   const [memoryHealth, setMemoryHealth] = useState(94);
   const [pulse, setPulse] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
-  const [ideas, setIdeas] = useState<string>("");
-  const [loadingIdeas, setLoadingIdeas] = useState(false);
   const [flows, setFlows] = useState<any[]>([]);
   const [running, setRunning] = useState(false);
   const [runResult, setRunResult] = useState<string>("");
@@ -113,7 +111,10 @@ export default function BrainPanel({ onClose, agentServerUrl }: { onClose: () =>
           </div>
           <div>
             <h1 className="text-3xl font-bold tracking-tighter">Mozak</h1>
-            <p className="font-mono text-cyan-300 text-sm">NEURAL CORE • LIVE</p>
+            <p className="font-mono text-cyan-300 text-sm flex items-center gap-1">
+              <span className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse"></span>
+              NEURAL CORE • LIVE
+            </p>
           </div>
         </div>
 
@@ -188,13 +189,19 @@ export default function BrainPanel({ onClose, agentServerUrl }: { onClose: () =>
             </div>
           </div>
         ) : (
-          <div className="flex-1 p-8 overflow-auto">
+          <div className="flex-1 flex items-center justify-center p-8">
             {activeTab === "overview" && (
-              <div className="flex items-center justify-center h-full text-4xl text-white/30">
-                Overview - centralni mozak
+              <div className="text-center">
+                <div className="relative mx-auto w-96 h-96 flex items-center justify-center">
+                  <div className="absolute w-96 h-96 bg-cyan-400/10 rounded-full animate-pulse"></div>
+                  <Brain className="w-80 h-80 text-transparent stroke-cyan-300 drop-shadow-[0_0_80px_#67e8f9] transition-all" 
+                         style={{ filter: pulse ? "drop-shadow(0 0 120px #67e8f9)" : "drop-shadow(0 0 60px #67e8f9)" }} />
+                </div>
+                <h2 className="text-4xl font-bold tracking-tighter mt-8 text-white/90">NEURAL CORE</h2>
+                <p className="text-cyan-300 mt-2">Live Vector Memory • {memoryHealth}%</p>
               </div>
             )}
-            {activeTab === "graph" && <div className="text-4xl text-white/30">Knowledge Graph</div>}
+            {activeTab === "graph" && <div className="text-4xl text-white/30">Knowledge Graph (klikabilni čvorovi)</div>}
             {activeTab === "vault" && <div className="text-4xl text-white/30">Memory Vault</div>}
             {activeTab === "tools" && <div className="text-4xl text-white/30">Tools</div>}
           </div>
