@@ -97,7 +97,7 @@ export default function ProviderSelector({
       {showDropdown && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setShowDropdown(false)} />
-          <div className="absolute bottom-10 left-0 z-50 w-72 rounded-xl bg-[hsl(220,15%,10%)] border border-white/[0.1] shadow-2xl overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-150">
+          <div className="absolute bottom-10 right-0 z-50 w-64 max-h-[70vh] overflow-y-auto rounded-xl bg-[hsl(220,15%,10%)] border border-white/[0.1] shadow-2xl overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-150">
             {/* Providers */}
             <div className="p-2 border-b border-white/[0.06]">
               <p className="text-[9px] text-white/30 uppercase tracking-wider px-2 pb-1.5">Provider</p>
