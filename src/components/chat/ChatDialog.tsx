@@ -158,6 +158,8 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
   const [isStartingAgent, setIsStartingAgent] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingName, setRecordingName] = useState("");
+  const [budgetEur, setBudgetEur] = useState<string>(() => localStorage.getItem("stellan_budget") || "");
+  const [spentEur, setSpentEur] = useState<number>(() => parseFloat(localStorage.getItem("stellan_spent") || "0"));
   const [savedActions, setSavedActions] = useState<{name:string,file:string}[]>([]);
   const [recordedSteps, setRecordedSteps] = useState<{n:number,url:string,desc:string,screenshot?:string}[]>([]);
   const [stepDesc, setStepDesc] = useState("");
@@ -353,14 +355,6 @@ const devPanelPreview = {
 
   const codeBlocks = useMemo(() => extractCodeBlocks(messages), [messages]);
 
-  // Auto-open code panel on desktop when new code blocks appear
-  const prevCodeCountRef = useRef(0);
-  useEffect(() => {
-    if (codeBlocks.length > 0 && codeBlocks.length !== prevCodeCountRef.current && !isMobile) {
-      setShowCodePanel(true);
-    }
-    prevCodeCountRef.current = codeBlocks.length;
-  }, [codeBlocks.length, isMobile]);
   const codePanelRef = useRef<HTMLDivElement>(null);
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -675,13 +669,10 @@ const devPanelPreview = {
       }
     }
 
-    const baseText = driveSearchMode
-      ? `Pretraži firmeni Google Drive I Trello za: ${rawText}. Prikaži sve relevantne rezultate s linkovima, označi izvor (Drive ili Trello).`
-      : rawText;
+    const baseText = rawText;
 
     // Build message content: files + images + text
     const parts: string[] = [];
-    const fileMeta: Array<{name:string,size:string,lang?:string,type:string,pages?:number}> = [];
 
     // Pending files → AI gets full content, ««FILE»» delimiters for UI rendering
     for (const f of pendingFiles) {
@@ -689,13 +680,10 @@ const devPanelPreview = {
       if (f.pdfText) {
         const pages = f.pdfPages || 0;
         const urlPart = f.pdfUrl ? `:${f.pdfUrl}` : "";
-        fileMeta.push({ name: f.name, size: sizeStr, type: "pdf", pages: f.pdfPages });
         parts.push(`\u00ab\u00abFILE:pdf:${f.name}:${sizeStr}:${pages}${urlPart}\u00bb\u00bb\n${f.pdfText}\n\u00ab\u00ab/FILE\u00bb\u00bb`);
       } else if (f.content && f.language) {
-        fileMeta.push({ name: f.name, size: sizeStr, lang: f.language, type: "code" });
         parts.push(`\u00ab\u00abFILE:${f.language}:${f.name}:${sizeStr}\u00bb\u00bb\n${f.content}\n\u00ab\u00ab/FILE\u00bb\u00bb`);
       } else {
-        fileMeta.push({ name: f.name, size: sizeStr, type: "binary" });
         parts.push(`\u00ab\u00abFILE:bin:${f.name}:${sizeStr}\u00bb\u00bb\n[binarni sadržaj]\n\u00ab\u00ab/FILE\u00bb\u00bb`);
       }
     }
@@ -707,9 +695,7 @@ const devPanelPreview = {
     // User text
     if (baseText) parts.push(baseText);
 
-    // Prepend reliable metadata marker for ChatMessage UI
-    const metaLine = fileMeta.length > 0 ? `<!--FILES:${JSON.stringify(fileMeta)}-->\n` : "";
-    const text = metaLine + parts.join('\n\n');
+    const text = parts.join('\n\n');
 
     const userMsg: Message = { role: "user", content: text };
     const newMessages = [...messages, userMsg];
@@ -894,6 +880,25 @@ const devPanelPreview = {
     abortControllerRef.current = null;
     isStreamingRef.current = false;
     setThinkingStatus(null);
+
+    // Estimate cost (rough: ~4 chars/token, using xAI pricing)
+    if (assistantSoFar) {
+      const inputChars = newMessages.reduce((sum, m) => sum + (m.content?.length || 0), 0);
+      const outputChars = assistantSoFar.length;
+      const inputTokens = inputChars / 4;
+      const outputTokens = outputChars / 4;
+      // Grok 4.1 Fast: $0.20/1M in, $0.50/1M out; Grok 4.20: $2/1M in, $6/1M out
+      const isReasoning = selectedProviderModel.includes("4.20");
+      const inRate = isReasoning ? 2.0 : 0.20;
+      const outRate = isReasoning ? 6.0 : 0.50;
+      const costUsd = (inputTokens * inRate + outputTokens * outRate) / 1_000_000;
+      const costEur = costUsd * 0.92; // approx USD→EUR
+      setSpentEur(prev => {
+        const next = +(prev + costEur).toFixed(4);
+        localStorage.setItem("stellan_spent", String(next));
+        return next;
+      });
+    }
 
     if (convId && assistantSoFar) {
       await supabase.from("chat_messages").insert({
@@ -1498,20 +1503,6 @@ const devPanelPreview = {
             </div>
             <div className="flex items-center gap-1.5">
 
-              {hasCode && (
-                <button
-                  onClick={() => setShowCodePanel(!showCodePanel)}
-                  className={cn(
-                    "h-7 px-2.5 rounded-lg flex items-center gap-1.5 text-[10px] transition-colors",
-                    showCodePanel
-                      ? "bg-primary/20 text-primary"
-                      : "bg-white/[0.06] text-white/40 hover:text-white/60"
-                  )}
-                >
-                  <Code2 className="w-3 h-3" />
-                  Kodovi
-                </button>
-              )}
               <button
                 onClick={() => setDevMode(!devMode)}
                 title="Učenje — Browser Use automation"
@@ -1775,7 +1766,7 @@ const devPanelPreview = {
                   handleFileDrop(dt.files);
                 }
               }}
-              placeholder={isListening ? "Slušam..." : driveSearchMode ? "Pretraži firmeni Drive..." : "Pitajte Stellana..."}
+              placeholder={isListening ? "Slušam..." : "Pitajte Stellana..."}
               rows={2}
               className="w-full resize-none bg-transparent px-4 py-3 text-sm text-white placeholder:text-white/25 focus:outline-none"
             />
@@ -1842,21 +1833,6 @@ const devPanelPreview = {
                     </>
                   )}
                 </div>
-                <button
-                  onClick={() => {
-                    setDriveSearchMode(!driveSearchMode);
-                    setTimeout(() => inputRef.current?.focus(), 50);
-                  }}
-                  title="Pretraži firmeni Google Drive"
-                  className={cn(
-                    "h-8 w-8 rounded-lg flex items-center justify-center transition-all",
-                    driveSearchMode
-                      ? "bg-emerald-500/20 text-emerald-400"
-                      : "bg-white/[0.06] text-white/40 hover:text-emerald-400 hover:bg-emerald-500/10"
-                  )}
-                >
-                  <HardDrive className="w-3.5 h-3.5" />
-                </button>
               </div>
               <div className="flex items-center gap-1">
                 <button
@@ -1886,18 +1862,6 @@ const devPanelPreview = {
                   )}
                 >
                   {isListening ? <Square className="w-3.5 h-3.5" /> : <Mic className="w-3.5 h-3.5" />}
-                </button>
-                <button
-                  onClick={() => setReasoningMode(!reasoningMode)}
-                  title={reasoningMode ? "Reasoning uključen (sporije, pametnije)" : "Uključi reasoning"}
-                  className={cn(
-                    "h-8 w-8 rounded-lg flex items-center justify-center transition-all text-[10px] font-bold",
-                    reasoningMode
-                      ? "bg-purple-500/20 text-purple-400 ring-1 ring-purple-500/30"
-                      : "bg-white/[0.06] text-white/40 hover:text-purple-400 hover:bg-purple-500/10"
-                  )}
-                >
-                  R
                 </button>
                 <ProviderSelector
                   selectedProvider={selectedProvider}
@@ -1931,108 +1895,36 @@ const devPanelPreview = {
               </div>
             </div>
           </div>
-          <p className="text-[9px] text-white/15 text-center mt-1.5">Stellan može griješiti. Provjerite važne informacije.</p>
-        </div>
-        </div>
-
-        {/* Code panel - RIGHT (30%) */}
-        {/* Desktop: inline panel */}
-        {!isMobile && showCodePanel && hasCode && (
-          <div className="w-[30%] border-l border-white/[0.06] flex flex-col bg-[hsl(220,12%,6%)] shrink-0">
-            <div className="px-4 py-3 border-b border-white/[0.06] flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Code2 className="w-4 h-4 text-primary/70" />
-                <span className="text-xs font-medium text-white/70">Kodovi ({codeBlocks.length})</span>
-              </div>
-              <button
-                onClick={() => setShowCodePanel(false)}
-                className="w-7 h-7 rounded-lg flex items-center justify-center text-white/30 hover:text-white/60 hover:bg-white/[0.06] transition-colors"
-              >
-                <PanelRightClose className="w-3.5 h-3.5" />
-              </button>
-            </div>
-            <div ref={codePanelRef} className="flex-1 overflow-y-auto scrollbar-hide p-3 space-y-3">
-              {codeBlocks.map((block, i) => (
-                <div key={i} id={`code-block-${i}`} className="rounded-xl border border-white/[0.06] bg-white/[0.02] overflow-hidden transition-all duration-500">
-                  <div className="flex items-center justify-between px-3 py-2 border-b border-white/[0.06] bg-white/[0.03]">
-                    <span className="text-[10px] font-mono text-emerald-400/70 uppercase tracking-wider">Kod #{i + 1} · {block.language}</span>
-                    <CopyButton text={block.code} />
-                  </div>
-                  <SyntaxHighlighter
-                    language={block.language || "text"}
-                    style={oneDark}
-                    customStyle={{ margin: 0, padding: "12px", background: "transparent", fontSize: "12px", lineHeight: "1.6" }}
-                    wrapLongLines
-                  >
-                    {block.code}
-                  </SyntaxHighlighter>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Mobile: slide-in overlay panel from right */}
-        {isMobile && hasCode && (
-          <>
-            {/* Toggle button - always visible when code exists and panel is closed */}
-            {!showCodePanel && (
-              <button
-                onClick={() => setShowCodePanel(true)}
-                className="absolute right-2 top-1/2 -translate-y-1/2 z-20 w-9 h-14 rounded-l-xl bg-[hsl(220,12%,10%)] border border-white/[0.08] border-r-0 flex items-center justify-center text-primary/60 hover:text-primary hover:bg-[hsl(220,12%,14%)] transition-colors shadow-lg"
-              >
-                <Code2 className="w-4 h-4" />
-              </button>
+          <div className="flex items-center justify-center gap-3 mt-1.5">
+            <span className="text-[9px] text-white/25">Potrošeno:</span>
+            <span className="text-[9px] font-mono text-emerald-400/60">{spentEur.toFixed(4)} €</span>
+            {budgetEur && (
+              <>
+                <span className="text-[9px] text-white/20">/</span>
+                <span className="text-[9px] font-mono text-white/30">{budgetEur} €</span>
+              </>
             )}
-
-            {/* Overlay backdrop */}
-            {showCodePanel && (
-              <div
-                className="absolute inset-0 z-20 bg-black/50 backdrop-blur-sm"
-                onClick={() => setShowCodePanel(false)}
-              />
-            )}
-
-            {/* Sliding panel */}
-            <div
-              className={cn(
-                "absolute right-0 top-0 bottom-0 z-30 w-[80%] max-w-xs border-l border-white/[0.06] flex flex-col bg-[hsl(220,12%,6%)] shadow-2xl transition-transform duration-300 ease-in-out",
-                showCodePanel ? "translate-x-0" : "translate-x-full"
-              )}
+            <span className="text-[9px] text-white/15">|</span>
+            <span className="text-[9px] text-white/25">Budget:</span>
+            <input
+              type="number"
+              step="0.01"
+              value={budgetEur}
+              onChange={(e) => { setBudgetEur(e.target.value); localStorage.setItem("stellan_budget", e.target.value); }}
+              placeholder="€"
+              className="w-14 text-[9px] font-mono bg-transparent border-b border-white/10 text-white/40 focus:text-white/70 focus:border-primary/40 outline-none text-center placeholder:text-white/15"
+            />
+            <button
+              onClick={() => { setSpentEur(0); localStorage.setItem("stellan_spent", "0"); }}
+              className="text-[8px] text-white/15 hover:text-white/40 transition-colors"
+              title="Resetiraj potrošnju"
             >
-              <div className="px-3 py-2.5 border-b border-white/[0.06] flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Code2 className="w-4 h-4 text-primary/70" />
-                  <span className="text-xs font-medium text-white/70">Kodovi ({codeBlocks.length})</span>
-                </div>
-                <button
-                  onClick={() => setShowCodePanel(false)}
-                  className="w-8 h-8 rounded-lg flex items-center justify-center text-white/30 hover:text-white/60 hover:bg-white/[0.06] transition-colors"
-                >
-                  <PanelRightClose className="w-3.5 h-3.5" />
-                </button>
-              </div>
-              <div ref={codePanelRef} className="flex-1 overflow-y-auto scrollbar-hide p-3 space-y-3">
-                {codeBlocks.map((block, i) => (
-                  <div key={i} id={`code-block-mobile-${i}`} className="rounded-xl border border-white/[0.06] bg-white/[0.02] overflow-hidden transition-all duration-500">
-                    <div className="flex items-center justify-between px-3 py-2 border-b border-white/[0.06] bg-white/[0.03]">
-                      <span className="text-[10px] font-mono text-emerald-400/70 uppercase tracking-wider">Kod #{i + 1} · {block.language}</span>
-                      <CopyButton text={block.code} />
-                    </div>
-                    <SyntaxHighlighter
-                      language={block.language || "text"}
-                      style={oneDark}
-                      customStyle={{ margin: 0, padding: "12px", background: "transparent", fontSize: "12px", lineHeight: "1.6" }}
-                      wrapLongLines
-                    >
-                      {block.code}
-                    </SyntaxHighlighter>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </>
-        )}
+              reset
+            </button>
+          </div>
+        </div>
+        </div>
+
 
         {/* STELLAN UČENJE — Browser Use automation panel */}
         {devMode && !isMobile && (
