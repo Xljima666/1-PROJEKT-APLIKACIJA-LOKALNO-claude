@@ -683,20 +683,20 @@ const devPanelPreview = {
     const parts: string[] = [];
     const fileMeta: Array<{name:string,size:string,lang?:string,type:string,pages?:number}> = [];
 
-    // Pending files → AI gets full content, metadata prefix for UI rendering
+    // Pending files → AI gets full content, ««FILE»» delimiters for UI rendering
     for (const f of pendingFiles) {
       const sizeStr = `${(f.size / 1024).toFixed(1)} KB`;
       if (f.pdfText) {
-        const pageInfo = f.pdfPages ? ` (${f.pdfPages} str.)` : "";
-        const urlLine = f.pdfUrl ? `\n\n🔗 PDF URL: ${f.pdfUrl}` : "";
+        const pages = f.pdfPages || 0;
+        const urlPart = f.pdfUrl ? `:${f.pdfUrl}` : "";
         fileMeta.push({ name: f.name, size: sizeStr, type: "pdf", pages: f.pdfPages });
-        parts.push(`📄 PDF: **${f.name}**${pageInfo} (${sizeStr})${urlLine}\n\n${f.pdfText}`);
+        parts.push(`\u00ab\u00abFILE:pdf:${f.name}:${sizeStr}:${pages}${urlPart}\u00bb\u00bb\n${f.pdfText}\n\u00ab\u00ab/FILE\u00bb\u00bb`);
       } else if (f.content && f.language) {
         fileMeta.push({ name: f.name, size: sizeStr, lang: f.language, type: "code" });
-        parts.push(`📎 Datoteka: **${f.name}** (${sizeStr})\n\n\`\`\`${f.language}\n${f.content}\n\`\`\``);
+        parts.push(`\u00ab\u00abFILE:${f.language}:${f.name}:${sizeStr}\u00bb\u00bb\n${f.content}\n\u00ab\u00ab/FILE\u00bb\u00bb`);
       } else {
         fileMeta.push({ name: f.name, size: sizeStr, type: "binary" });
-        parts.push(`📎 Datoteka: **${f.name}** (${sizeStr}, ${f.type || "nepoznat tip"})`);
+        parts.push(`\u00ab\u00abFILE:bin:${f.name}:${sizeStr}\u00bb\u00bb\n[binarni sadržaj]\n\u00ab\u00ab/FILE\u00bb\u00bb`);
       }
     }
 
