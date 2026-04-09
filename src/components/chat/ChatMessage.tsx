@@ -71,30 +71,24 @@ function FileCard({ filename, size, extra }: { filename: string; size?: string; 
   const Icon = ft.icon;
   return (
     <div style={{
-      display: "inline-flex", flexDirection: "column", gap: "8px",
+      display: "inline-flex", alignItems: "center", gap: "8px",
       background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.1)",
-      borderRadius: "14px", padding: "14px 16px", minWidth: "160px", maxWidth: "240px",
+      borderRadius: "10px", padding: "8px 10px", maxWidth: "200px",
     }}>
-      <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-        <div style={{
-          width: "36px", height: "36px", borderRadius: "10px",
-          background: `${ft.color}15`, border: `1px solid ${ft.color}30`,
-          display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
-        }}>
-          <Icon style={{ width: "18px", height: "18px", color: ft.color }} />
-        </div>
-        <div style={{ minWidth: 0, flex: 1 }}>
-          <div style={{ fontSize: "13px", fontWeight: 600, color: "rgba(255,255,255,0.9)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const }}>{filename}</div>
-          {size && <div style={{ fontSize: "11px", color: "rgba(255,255,255,0.35)", marginTop: "1px" }}>{size}</div>}
+      <div style={{
+        width: "28px", height: "28px", borderRadius: "7px",
+        background: `${ft.color}15`, border: `1px solid ${ft.color}30`,
+        display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+      }}>
+        <Icon style={{ width: "14px", height: "14px", color: ft.color }} />
+      </div>
+      <div style={{ minWidth: 0, flex: 1 }}>
+        <div style={{ fontSize: "11px", fontWeight: 600, color: "rgba(255,255,255,0.9)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const }}>{filename}</div>
+        <div style={{ fontSize: "9px", color: "rgba(255,255,255,0.35)", marginTop: "1px" }}>
+          {[size, extra].filter(Boolean).join(" · ")}
+          {" · "}<span style={{ fontWeight: 700, color: ft.color, fontSize: "8px", letterSpacing: "0.04em" }}>{ft.badge}</span>
         </div>
       </div>
-      <div style={{
-        display: "inline-flex", alignSelf: "flex-start",
-        fontSize: "10px", fontWeight: 700, letterSpacing: "0.05em",
-        padding: "3px 8px", borderRadius: "6px",
-        background: ft.badgeColor, color: ft.color,
-      }}>{ft.badge}</div>
-      {extra && <div style={{ fontSize: "11px", color: "rgba(255,255,255,0.35)" }}>{extra}</div>}
     </div>
   );
 }
@@ -109,34 +103,29 @@ function CodeFileCard({ filename, size, language, code }: { filename: string; si
   if (!expanded) {
     return (
       <div onClick={() => setExpanded(true)} style={{
-        display: "inline-flex", flexDirection: "column", gap: "8px", cursor: "pointer",
+        display: "inline-flex", alignItems: "center", gap: "8px", cursor: "pointer",
         background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.1)",
-        borderRadius: "14px", padding: "14px 16px", minWidth: "160px", maxWidth: "260px",
+        borderRadius: "10px", padding: "8px 10px", maxWidth: "220px",
         transition: "border-color 0.15s",
       }}
         onMouseEnter={e => (e.currentTarget.style.borderColor = "rgba(255,255,255,0.2)")}
         onMouseLeave={e => (e.currentTarget.style.borderColor = "rgba(255,255,255,0.1)")}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-          <div style={{
-            width: "36px", height: "36px", borderRadius: "10px",
-            background: `${ft.color}15`, border: `1px solid ${ft.color}30`,
-            display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
-          }}>
-            <Icon style={{ width: "18px", height: "18px", color: ft.color }} />
-          </div>
-          <div style={{ minWidth: 0, flex: 1 }}>
-            <div style={{ fontSize: "13px", fontWeight: 600, color: "rgba(255,255,255,0.9)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const }}>{filename}</div>
-            <div style={{ fontSize: "10px", color: "rgba(255,255,255,0.3)", marginTop: "2px" }}>{size ? `${size} · ` : ""}{lineCount} linija</div>
-          </div>
-          <ChevronRight style={{ width: "14px", height: "14px", color: "rgba(255,255,255,0.2)", flexShrink: 0 }} />
+        <div style={{
+          width: "28px", height: "28px", borderRadius: "7px",
+          background: `${ft.color}15`, border: `1px solid ${ft.color}30`,
+          display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+        }}>
+          <Icon style={{ width: "14px", height: "14px", color: ft.color }} />
         </div>
-        <span style={{
-          display: "inline-block", alignSelf: "flex-start",
-          fontSize: "10px", fontWeight: 700, letterSpacing: "0.05em",
-          padding: "3px 8px", borderRadius: "6px",
-          background: ft.badgeColor, color: ft.color,
-        }}>{ft.badge}</span>
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div style={{ fontSize: "11px", fontWeight: 600, color: "rgba(255,255,255,0.9)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const }}>{filename}</div>
+          <div style={{ fontSize: "9px", color: "rgba(255,255,255,0.3)", marginTop: "1px" }}>
+            {size ? `${size} · ` : ""}{lineCount} linija
+            {" · "}<span style={{ fontWeight: 700, color: ft.color, fontSize: "8px", letterSpacing: "0.04em" }}>{ft.badge}</span>
+          </div>
+        </div>
+        <ChevronRight style={{ width: "12px", height: "12px", color: "rgba(255,255,255,0.2)", flexShrink: 0 }} />
       </div>
     );
   }
@@ -420,30 +409,53 @@ function makeComponents(codeBlocks: CodeBlock[], hasCode: boolean, onScrollToCod
 
 // ─── User message renderer ──────────────────────────────────
 function UserContent({ content }: { content: string }) {
-  const { attachments, textParts, orderedItems } = parseUserContent(content);
+  // Strip legacy <!--FILES:...--> metadata if present
+  const cleanContent = content.replace(/<!--FILES:.*?-->\n?/g, "");
+  const { attachments, textParts, orderedItems } = parseUserContent(cleanContent);
   const imgComponents = {
     img:({src,alt}:any)=><img src={src} alt={alt||""} className="max-w-full max-h-80 rounded-xl my-2 border border-white/[0.08]"/>,
   };
 
   if (attachments.length === 0) {
-    return <ReactMarkdown remarkPlugins={[remarkGfm]} components={imgComponents}>{content}</ReactMarkdown>;
+    return <ReactMarkdown remarkPlugins={[remarkGfm]} components={imgComponents}>{cleanContent}</ReactMarkdown>;
   }
 
-  // If we have ordered items (new ««FILE»» format), render in original order
+  // If we have ordered items (new ««FILE»» format), render with files grouped horizontally
   if (orderedItems.length > 0) {
+    // Group consecutive attachments together for horizontal layout
+    const groups: Array<{ type: "text"; index: number } | { type: "files"; indices: number[] }> = [];
+    for (const item of orderedItems) {
+      if (item.type === "text") {
+        groups.push({ type: "text", index: item.index });
+      } else {
+        const last = groups[groups.length - 1];
+        if (last && last.type === "files") {
+          last.indices.push(item.index);
+        } else {
+          groups.push({ type: "files", indices: [item.index] });
+        }
+      }
+    }
+
     return (
-      <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-        {orderedItems.map((item, i) => {
-          if (item.type === "text") {
-            const text = textParts[item.index];
-            return text ? <div key={`oi-${i}`}><ReactMarkdown remarkPlugins={[remarkGfm]} components={imgComponents}>{text}</ReactMarkdown></div> : null;
+      <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+        {groups.map((group, gi) => {
+          if (group.type === "text") {
+            const text = textParts[group.index];
+            return text ? <div key={`g-${gi}`}><ReactMarkdown remarkPlugins={[remarkGfm]} components={imgComponents}>{text}</ReactMarkdown></div> : null;
           }
-          const a = attachments[item.index];
-          if (!a) return null;
-          if (a.type === "image") return <img key={`oi-${i}`} src={a.src} alt={a.name} style={{ maxHeight: "200px", maxWidth: "300px", borderRadius: "12px", border: "1px solid rgba(255,255,255,0.1)", objectFit: "cover" as const }} />;
-          if (a.type === "file" || a.type === "pdf") return <FileCard key={`oi-${i}`} filename={a.filename} size={a.size} extra={a.pages} />;
-          if (a.type === "code-file") return <CodeFileCard key={`oi-${i}`} filename={a.filename} size={a.size} language={a.language} code={a.code} />;
-          return null;
+          return (
+            <div key={`g-${gi}`} style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+              {group.indices.map((ai, fi) => {
+                const a = attachments[ai];
+                if (!a) return null;
+                if (a.type === "image") return <img key={`f-${fi}`} src={a.src} alt={a.name} style={{ maxHeight: "120px", maxWidth: "200px", borderRadius: "10px", border: "1px solid rgba(255,255,255,0.1)", objectFit: "cover" as const }} />;
+                if (a.type === "file" || a.type === "pdf") return <FileCard key={`f-${fi}`} filename={a.filename} size={a.size} extra={a.pages} />;
+                if (a.type === "code-file") return <CodeFileCard key={`f-${fi}`} filename={a.filename} size={a.size} language={a.language} code={a.code} />;
+                return null;
+              })}
+            </div>
+          );
         })}
       </div>
     );
@@ -451,16 +463,18 @@ function UserContent({ content }: { content: string }) {
 
   // Legacy fallback: grouped rendering
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-      {attachments.filter((a: any) => a.type === "image").map((a: any, i: number) => (
-        <img key={`img-${i}`} src={a.src} alt={a.name} style={{ maxHeight: "200px", maxWidth: "300px", borderRadius: "12px", border: "1px solid rgba(255,255,255,0.1)", objectFit: "cover" as const }} />
-      ))}
-      {attachments.filter((a: any) => a.type === "file" || a.type === "pdf").map((a: any, i: number) => (
-        <FileCard key={`fc-${i}`} filename={a.filename} size={a.size} extra={a.pages} />
-      ))}
-      {attachments.filter((a: any) => a.type === "code-file").map((a: any, i: number) => (
-        <CodeFileCard key={`cc-${i}`} filename={a.filename} size={a.size} language={a.language} code={a.code} />
-      ))}
+    <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+        {attachments.filter((a: any) => a.type === "image").map((a: any, i: number) => (
+          <img key={`img-${i}`} src={a.src} alt={a.name} style={{ maxHeight: "120px", maxWidth: "200px", borderRadius: "10px", border: "1px solid rgba(255,255,255,0.1)", objectFit: "cover" as const }} />
+        ))}
+        {attachments.filter((a: any) => a.type === "file" || a.type === "pdf").map((a: any, i: number) => (
+          <FileCard key={`fc-${i}`} filename={a.filename} size={a.size} extra={a.pages} />
+        ))}
+        {attachments.filter((a: any) => a.type === "code-file").map((a: any, i: number) => (
+          <CodeFileCard key={`cc-${i}`} filename={a.filename} size={a.size} language={a.language} code={a.code} />
+        ))}
+      </div>
       {textParts.map((text, i) => (
         <div key={`tp-${i}`}><ReactMarkdown remarkPlugins={[remarkGfm]} components={imgComponents}>{text}</ReactMarkdown></div>
       ))}
