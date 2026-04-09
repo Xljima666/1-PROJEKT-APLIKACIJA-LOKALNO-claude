@@ -3,7 +3,7 @@ import { cn } from "@/lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
 import { Search, ChevronRight, Plus } from "lucide-react";
 import { NODE_CATALOG, CATEGORY_META, type NodeTemplate, type CategoryType } from "./types";
-
+ 
 interface Props {
   onAddNode: (template: NodeTemplate, x: number, y: number) => void;
 }
