@@ -1,3 +1,4 @@
+Updated BrainPanel with React Flow and real Run button
 import { useState, useEffect, useCallback } from "react";
 import { cn } from "@/lib/utils";
 import { Brain, GitGraph, Layers, Database, Zap, Search, Sparkles, Play, Plus, X } from "lucide-react";
