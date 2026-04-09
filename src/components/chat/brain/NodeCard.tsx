@@ -5,7 +5,7 @@ import {
   type BrainNode, type NodeRunStatus, CATEGORY_META, PORT_COLORS,
   NODE_W, PORT_SPACING, PORT_Y_START, getNodeHeight
 } from "./types";
-
+ 
 interface Props {
   node: BrainNode;
   isSelected: boolean;
