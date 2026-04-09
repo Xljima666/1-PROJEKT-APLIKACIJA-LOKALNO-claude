@@ -6,7 +6,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import type { BrainNode, Connection, NodeRunStatus } from "./types";
-
+ 
 interface Props {
   nodes: BrainNode[];
   connections: Connection[];
