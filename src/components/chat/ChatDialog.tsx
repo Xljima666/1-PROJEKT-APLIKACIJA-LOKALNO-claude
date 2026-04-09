@@ -1,8 +1,9 @@
 import DevPanel from "../dev/DevPanel";
 import type { ConsoleLog } from "../dev/DevPanel";
 import LearningPanel from "./LearningPanel";
+import BrainPanel from "./BrainPanel";
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
-import { X, Send, Sparkles, Plus, MessageSquare, Trash2, Code2, PanelLeftClose, PanelLeftOpen, PanelRightClose, Mic, Square, ClipboardList, Upload, Camera, Image, File, FileText, Paperclip, HardDrive, ArrowDown, Search, Download, Zap } from "lucide-react";
+import { X, Send, Sparkles, Plus, MessageSquare, Trash2, Code2, PanelLeftClose, PanelLeftOpen, PanelRightClose, Mic, Square, ClipboardList, Upload, Camera, Image, File, FileText, Paperclip, HardDrive, ArrowDown, Search, Download, Zap, Brain } from "lucide-react";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -149,6 +150,7 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
   const [driveSearchMode, setDriveSearchMode] = useState(false);
   const [reasoningMode, setReasoningMode] = useState(false);
   const [devMode, setDevMode] = useState(false);
+  const [brainMode, setBrainMode] = useState(false);
   const [selectedModel, setSelectedModel] = useState<"flash" | "pro" | "flash3" | "pro3">("flash");
   const [selectedProvider, setSelectedProvider] = useState<Provider>("xai");
   const [selectedProviderModel, setSelectedProviderModel] = useState<string>("grok-4-1-fast");
@@ -1516,6 +1518,19 @@ const devPanelPreview = {
                 <Zap className="w-3 h-3" />
                 Učenje
               </button>
+              <button
+                onClick={() => { setBrainMode(!brainMode); if(!brainMode) setDevMode(false); }}
+                title="Mozak — Vizualni pregled Stellanovih toolova, znanja i workflowa"
+                className={cn(
+                  "h-7 px-2.5 rounded-lg flex items-center gap-1.5 text-[10px] transition-colors",
+                  brainMode
+                    ? "bg-purple-500/20 text-purple-400 ring-1 ring-purple-500/30"
+                    : "bg-white/[0.06] text-white/40 hover:text-purple-400 hover:bg-purple-500/10"
+                )}
+              >
+                <Brain className="w-3 h-3" />
+                Mozak
+              </button>
               {hasMessages && (
                 <button
                   onClick={handleExport}
@@ -1933,6 +1948,13 @@ const devPanelPreview = {
               onClose={() => setDevMode(false)}
               agentServerUrl={import.meta.env.VITE_AGENT_SERVER_URL || ""}
             />
+          </div>
+        )}
+
+        {/* STELLAN MOZAK — Visual brain panel */}
+        {brainMode && !isMobile && (
+          <div className="flex-1 border-l border-white/[0.06] min-w-0 overflow-hidden">
+            <BrainPanel onClose={() => setBrainMode(false)} />
           </div>
         )}
       </div>
