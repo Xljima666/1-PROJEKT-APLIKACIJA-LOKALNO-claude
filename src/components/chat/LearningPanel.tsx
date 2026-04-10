@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { CATEGORY_META, LEARNING_NODE_TYPES } from "./learningNodeTypes";
 import { useLearningPanelTech } from "./useLearningPanelTech";
-
+ 
 const AnimatedConnection = ({ d, color, index, isActive }: { d: string; color: string; index: number; isActive?: boolean }) => (
   <g>
     <path d={d} fill="none" stroke={color} strokeWidth={isActive ? 6 : 4} strokeOpacity={isActive ? 0.15 : 0.06} />
