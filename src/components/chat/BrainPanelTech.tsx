@@ -48,7 +48,6 @@ export interface BrainPanelTechState {
   pan: { x: number; y: number };
   vpSize: { w: number; h: number };
   isPanning: boolean;
-
   nodes: BrainNode[];
   connections: Connection[];
   selectedNode: string | null;
@@ -61,16 +60,13 @@ export interface BrainPanelTechState {
     mouseX: number;
     mouseY: number;
   } | null;
-
   runStatuses: Record<string, NodeRunStatus>;
   isRunning: boolean;
   activeNodes: string[];
   lastRunOutputs: Record<string, FlowExecutionContext>;
-
   flowName: string;
   showFlowMenu: boolean;
   savedFlows: SavedFlow[];
-
   connectionPaths: (Connection & { d: string; color: string })[];
   drawingPath: string | null;
 }
@@ -80,25 +76,21 @@ export interface BrainPanelTechActions {
   setShowFlowMenu: (value: boolean) => void;
   setSelectedNode: (id: string | null) => void;
   setSelectedConnection: (id: string | null) => void;
-
+  updateNodeConfig: (nodeId: string, key: string, value: unknown) => void;
   handleCanvasMouseDown: (e: React.MouseEvent) => void;
   handleNodeMouseDown: (nodeId: string, e: React.MouseEvent) => void;
   handleNodeClick: (nodeId: string, e?: React.MouseEvent) => void;
   handlePortMouseDown: (nodeId: string, portId: string, side: "left" | "right", e: React.MouseEvent) => void;
   handlePortMouseUp: (nodeId: string, portId: string, side: "left" | "right") => void;
-
   handleAddNode: (tmpl: NodeTemplate, x?: number, y?: number) => void;
   handleDelete: () => void;
-
   zoomIn: () => void;
   zoomOut: () => void;
   fitToScreen: () => void;
   handleMinimapNav: (wx: number, wy: number) => void;
-
   runFlow: () => Promise<void>;
   stopFlow: () => void;
   resetRun: () => void;
-
   saveFlow: () => void;
   loadFlow: (flowId: string) => void;
 }
@@ -174,6 +166,7 @@ async function callAgentPlaywright(body: Record<string, unknown>) {
     "Content-Type": "application/json",
     "ngrok-skip-browser-warning": "true",
   };
+
   if (AGENT_KEY) headers["X-API-Key"] = AGENT_KEY;
 
   const response = await fetch(`${AGENT_URL}/playwright`, {
@@ -203,6 +196,7 @@ async function executeNodeWithAgent(
       input.value ??
       input.text ??
       node.label;
+
     return {
       ...input,
       value,
@@ -212,16 +206,13 @@ async function executeNodeWithAgent(
   }
 
   if (label === "browser open") {
-    const url = String(
-      getNodeConfigValue(node, "url") ??
-      input.url ??
-      input.value ??
-      "https://example.com"
-    );
+    const url = String(getNodeConfigValue(node, "url") ?? input.url ?? input.value ?? "https://example.com");
+    const timeout = Number(getNodeConfigValue(node, "timeout") ?? 45000);
+
     const data = await callAgentPlaywright({
       action: "navigate",
       url,
-      timeout: 45000,
+      timeout,
     });
 
     return {
@@ -244,11 +235,12 @@ async function executeNodeWithAgent(
       input.value ??
       "text=Klikni"
     );
+    const timeout = Number(getNodeConfigValue(node, "timeout") ?? 20000);
 
     const data = await callAgentPlaywright({
       action: "click",
       selector,
-      timeout: 20000,
+      timeout,
     });
 
     return {
@@ -267,23 +259,15 @@ async function executeNodeWithAgent(
   }
 
   if (label === "fill input") {
-    const selector = String(
-      getNodeConfigValue(node, "selector", "target") ??
-      input.selector ??
-      "input"
-    );
-    const value = String(
-      getNodeConfigValue(node, "value", "text") ??
-      input.value ??
-      input.text ??
-      ""
-    );
+    const selector = String(getNodeConfigValue(node, "selector", "target") ?? input.selector ?? "input");
+    const value = String(getNodeConfigValue(node, "value", "text") ?? input.value ?? input.text ?? "");
+    const timeout = Number(getNodeConfigValue(node, "timeout") ?? 20000);
 
     const data = await callAgentPlaywright({
       action: "fill",
       selector,
       value,
-      timeout: 20000,
+      timeout,
     });
 
     const page = (input.page as FlowExecutionContext["page"]) ?? { fields: {} };
@@ -307,16 +291,19 @@ async function executeNodeWithAgent(
   }
 
   if (label === "screenshot") {
+    const timeout = Number(getNodeConfigValue(node, "timeout") ?? 15000);
+    const full_page = Boolean(getNodeConfigValue(node, "full_page") ?? true);
+
     const data = await callAgentPlaywright({
       action: "screenshot",
-      full_page: true,
-      timeout: 15000,
+      full_page,
+      timeout,
     });
 
     const image = data?.screenshot_base64
-      ? (String(data.screenshot_base64).startsWith("data:image")
-          ? String(data.screenshot_base64)
-          : `data:image/png;base64,${String(data.screenshot_base64)}`)
+      ? String(data.screenshot_base64).startsWith("data:image")
+        ? String(data.screenshot_base64)
+        : `data:image/png;base64,${String(data.screenshot_base64)}`
       : "screenshot";
 
     return {
@@ -334,9 +321,11 @@ async function executeNodeWithAgent(
   }
 
   if (label === "extract text") {
+    const timeout = Number(getNodeConfigValue(node, "timeout") ?? 15000);
+
     const data = await callAgentPlaywright({
       action: "extract",
-      timeout: 15000,
+      timeout,
     });
 
     const text = data?.content || "";
@@ -363,13 +352,13 @@ async function executeNodeWithAgent(
       input.image ??
       input.page ??
       null;
+
     return {
       ...input,
       output: finalOutput,
     };
   }
 
-  // Fallback for nodes not yet connected in this phase.
   return {
     ...input,
     output: input.output ?? input.value ?? input.text ?? node.label,
@@ -409,10 +398,7 @@ export function useBrainPanelTech(activeNodesInput: string[] = []): UseBrainPane
   const [flowName, setFlowName] = useState("Untitled Flow");
   const [savedFlows, setSavedFlows] = useState<SavedFlow[]>([]);
 
-  const selectedNodeData = useMemo(
-    () => nodes.find((n) => n.id === selectedNode),
-    [nodes, selectedNode]
-  );
+  const selectedNodeData = useMemo(() => nodes.find((n) => n.id === selectedNode), [nodes, selectedNode]);
 
   useEffect(() => {
     setSavedFlows(loadFlows());
@@ -421,11 +407,13 @@ export function useBrainPanelTech(activeNodesInput: string[] = []): UseBrainPane
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
+
     const obs = new ResizeObserver((entries) => {
       for (const e of entries) {
         setVpSize({ w: e.contentRect.width, h: e.contentRect.height });
       }
     });
+
     obs.observe(el);
     return () => obs.disconnect();
   }, []);
@@ -460,13 +448,13 @@ export function useBrainPanelTech(activeNodesInput: string[] = []): UseBrainPane
     const target = e.target as HTMLElement;
     if (
       e.button === 1 ||
-      (e.button === 0 &&
-        (e.target === containerRef.current || target.dataset?.canvas))
+      (e.button === 0 && (e.target === containerRef.current || target.dataset?.canvas))
     ) {
       e.preventDefault();
       setIsPanning(true);
       panStart.current = { x: e.clientX, y: e.clientY, px: pan.x, py: pan.y };
     }
+
     setSelectedNode(null);
     setSelectedConnection(null);
   }, [pan.x, pan.y]);
@@ -480,10 +468,12 @@ export function useBrainPanelTech(activeNodesInput: string[] = []): UseBrainPane
         y: panStart.current.py + e.clientY - panStart.current.y,
       });
     };
+
     const up = () => setIsPanning(false);
 
     window.addEventListener("mousemove", move);
     window.addEventListener("mouseup", up);
+
     return () => {
       window.removeEventListener("mousemove", move);
       window.removeEventListener("mouseup", up);
@@ -517,11 +507,7 @@ export function useBrainPanelTech(activeNodesInput: string[] = []): UseBrainPane
       setNodes((prev) =>
         prev.map((n) =>
           n.id === draggingNode
-            ? {
-                ...n,
-                x: Math.max(0, wx - dragOffset.current.x),
-                y: Math.max(0, wy - dragOffset.current.y),
-              }
+            ? { ...n, x: Math.max(0, wx - dragOffset.current.x), y: Math.max(0, wy - dragOffset.current.y) }
             : n
         )
       );
@@ -531,6 +517,7 @@ export function useBrainPanelTech(activeNodesInput: string[] = []): UseBrainPane
 
     window.addEventListener("mousemove", move);
     window.addEventListener("mouseup", up);
+
     return () => {
       window.removeEventListener("mousemove", move);
       window.removeEventListener("mouseup", up);
@@ -621,6 +608,7 @@ export function useBrainPanelTech(activeNodesInput: string[] = []): UseBrainPane
 
     window.addEventListener("mousemove", move);
     window.addEventListener("mouseup", up);
+
     return () => {
       window.removeEventListener("mousemove", move);
       window.removeEventListener("mouseup", up);
@@ -686,9 +674,7 @@ export function useBrainPanelTech(activeNodesInput: string[] = []): UseBrainPane
     const minX = Math.min(...xs) - 50;
     const minY = Math.min(...ys) - 50;
     const maxX = Math.max(...xs) + NODE_W + 50;
-    const maxY = Math.max(
-      ...ys.map((y, i) => y + getNodeHeight(nodes[i]))
-    ) + 50;
+    const maxY = Math.max(...ys.map((y, i) => y + getNodeHeight(nodes[i]))) + 50;
 
     const fw = rect.width / (maxX - minX);
     const fh = rect.height / (maxY - minY);
@@ -728,13 +714,20 @@ export function useBrainPanelTech(activeNodesInput: string[] = []): UseBrainPane
     setSelectedConnection(null);
   }, []);
 
+  const updateNodeConfig = useCallback((nodeId: string, key: string, value: unknown) => {
+    setNodes((prev) =>
+      prev.map((node) =>
+        node.id === nodeId
+          ? { ...node, config: { ...(node.config || {}), [key]: value } }
+          : node
+      )
+    );
+  }, []);
+
   const handleDelete = useCallback(() => {
     const activeElement = document.activeElement as HTMLElement | null;
     const tag = activeElement?.tagName?.toLowerCase();
-    const isTyping =
-      tag === "input" ||
-      tag === "textarea" ||
-      activeElement?.isContentEditable;
+    const isTyping = tag === "input" || tag === "textarea" || activeElement?.isContentEditable;
 
     if (isTyping) return;
 
@@ -745,9 +738,7 @@ export function useBrainPanelTech(activeNodesInput: string[] = []): UseBrainPane
     }
 
     if (selectedNode) {
-      setConnections((prev) =>
-        prev.filter((c) => c.fromNode !== selectedNode && c.toNode !== selectedNode)
-      );
+      setConnections((prev) => prev.filter((c) => c.fromNode !== selectedNode && c.toNode !== selectedNode));
       setNodes((prev) => prev.filter((n) => n.id !== selectedNode));
       setSelectedNode(null);
     }
@@ -769,9 +760,11 @@ export function useBrainPanelTech(activeNodesInput: string[] = []): UseBrainPane
 
     const statuses: Record<string, NodeRunStatus> = {};
     const outputs: Record<string, FlowExecutionContext> = {};
+
     nodes.forEach((n) => {
       statuses[n.id] = { nodeId: n.id, status: "idle" };
     });
+
     setRunStatuses({ ...statuses });
     setLastRunOutputs({});
 
@@ -779,20 +772,11 @@ export function useBrainPanelTech(activeNodesInput: string[] = []): UseBrainPane
     const outgoingMap = new Map<string, string[]>();
 
     nodes.forEach((n) => {
-      depsMap.set(
-        n.id,
-        connections.filter((c) => c.toNode === n.id).map((c) => c.fromNode)
-      );
-      outgoingMap.set(
-        n.id,
-        connections.filter((c) => c.fromNode === n.id).map((c) => c.toNode)
-      );
+      depsMap.set(n.id, connections.filter((c) => c.toNode === n.id).map((c) => c.fromNode));
+      outgoingMap.set(n.id, connections.filter((c) => c.fromNode === n.id).map((c) => c.toNode));
     });
 
-    const ready = nodes
-      .filter((n) => (depsMap.get(n.id) || []).length === 0)
-      .map((n) => n.id);
-
+    const ready = nodes.filter((n) => (depsMap.get(n.id) || []).length === 0).map((n) => n.id);
     const completed = new Set<string>();
     const failed = new Set<string>();
 
@@ -808,6 +792,7 @@ export function useBrainPanelTech(activeNodesInput: string[] = []): UseBrainPane
         status: "running",
         startedAt: Date.now(),
       };
+
       setRunStatuses({ ...statuses });
       setActiveNodes([nodeId]);
 
@@ -828,6 +813,7 @@ export function useBrainPanelTech(activeNodesInput: string[] = []): UseBrainPane
               ? JSON.stringify(result.output)
               : "OK",
         };
+
         completed.add(nodeId);
       } catch (error) {
         statuses[nodeId] = {
@@ -837,6 +823,7 @@ export function useBrainPanelTech(activeNodesInput: string[] = []): UseBrainPane
           duration: Date.now() - (statuses[nodeId].startedAt || 0),
           error: error instanceof Error ? error.message : "Execution failed",
         };
+
         failed.add(nodeId);
       }
 
@@ -897,11 +884,8 @@ export function useBrainPanelTech(activeNodesInput: string[] = []): UseBrainPane
       savedAt: new Date().toISOString(),
     };
 
-    if (existing >= 0) {
-      flows[existing] = flow;
-    } else {
-      flows.push(flow);
-    }
+    if (existing >= 0) flows[existing] = flow;
+    else flows.push(flow);
 
     saveFlows(flows);
     setSavedFlows(flows);
@@ -960,6 +944,7 @@ export function useBrainPanelTech(activeNodesInput: string[] = []): UseBrainPane
       setShowFlowMenu,
       setSelectedNode,
       setSelectedConnection,
+      updateNodeConfig,
       handleCanvasMouseDown,
       handleNodeMouseDown,
       handleNodeClick,
