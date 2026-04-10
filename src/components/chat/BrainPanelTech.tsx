@@ -14,6 +14,8 @@ import {
 } from "./brain/types";
 
 const FLOW_STORAGE = "stellan_flows";
+const AGENT_URL = import.meta.env.VITE_AGENT_SERVER_URL || "";
+const AGENT_KEY = import.meta.env.VITE_AGENT_API_KEY || "";
 
 export interface SavedFlow {
   id: string;
@@ -35,6 +37,8 @@ export interface FlowExecutionContext {
   image?: string;
   value?: unknown;
   output?: unknown;
+  selector?: string;
+  url?: string;
   [key: string]: unknown;
 }
 
@@ -161,7 +165,33 @@ function mergeIncomingPayloads(
   return merged;
 }
 
-async function executeNodePhase1(
+async function callAgentPlaywright(body: Record<string, unknown>) {
+  if (!AGENT_URL) {
+    throw new Error("VITE_AGENT_SERVER_URL nije postavljen.");
+  }
+
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "ngrok-skip-browser-warning": "true",
+  };
+  if (AGENT_KEY) headers["X-API-Key"] = AGENT_KEY;
+
+  const response = await fetch(`${AGENT_URL}/playwright`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(body),
+  });
+
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok || !data?.success) {
+    throw new Error(data?.error || `Playwright request failed (${response.status})`);
+  }
+
+  return data as any;
+}
+
+async function executeNodeWithAgent(
   node: BrainNode,
   input: FlowExecutionContext,
 ): Promise<FlowExecutionContext> {
@@ -182,74 +212,145 @@ async function executeNodePhase1(
   }
 
   if (label === "browser open") {
-    const url =
-      String(getNodeConfigValue(node, "url") ?? input.url ?? input.value ?? "https://example.com");
+    const url = String(
+      getNodeConfigValue(node, "url") ??
+      input.url ??
+      input.value ??
+      "https://example.com"
+    );
+    const data = await callAgentPlaywright({
+      action: "navigate",
+      url,
+      timeout: 45000,
+    });
+
     return {
       ...input,
+      url,
       page: {
-        url,
-        title: "Opened page",
+        url: data?.url || url,
+        title: data?.title || "Opened page",
         lastAction: "browser_open",
         fields: {},
       },
-      output: url,
+      output: data?.url || url,
     };
   }
 
   if (label === "click") {
     const selector = String(
       getNodeConfigValue(node, "selector", "target") ??
-        input.selector ??
-        input.value ??
-        "button"
+      input.selector ??
+      input.value ??
+      "text=Klikni"
     );
+
+    const data = await callAgentPlaywright({
+      action: "click",
+      selector,
+      timeout: 20000,
+    });
+
     return {
       ...input,
+      selector,
       page: {
         ...(input.page as FlowExecutionContext["page"]),
+        url: data?.url || (input.page as any)?.url,
+        title: data?.title || (input.page as any)?.title,
         selector,
         lastAction: `click:${selector}`,
+        fields: (input.page as any)?.fields || {},
       },
-      output: selector,
+      output: data?.message || selector,
     };
   }
 
   if (label === "fill input") {
-    const selector = String(getNodeConfigValue(node, "selector", "target") ?? input.selector ?? "input");
-    const value = String(getNodeConfigValue(node, "value", "text") ?? input.value ?? input.text ?? "");
+    const selector = String(
+      getNodeConfigValue(node, "selector", "target") ??
+      input.selector ??
+      "input"
+    );
+    const value = String(
+      getNodeConfigValue(node, "value", "text") ??
+      input.value ??
+      input.text ??
+      ""
+    );
+
+    const data = await callAgentPlaywright({
+      action: "fill",
+      selector,
+      value,
+      timeout: 20000,
+    });
+
     const page = (input.page as FlowExecutionContext["page"]) ?? { fields: {} };
 
     return {
       ...input,
+      selector,
+      value,
       page: {
         ...page,
+        url: data?.url || page.url,
+        title: data?.title || page.title,
         lastAction: `fill:${selector}`,
         fields: {
           ...(page.fields ?? {}),
           [selector]: value,
         },
       },
-      value,
       output: value,
     };
   }
 
   if (label === "screenshot") {
-    const page = (input.page as FlowExecutionContext["page"]) ?? {};
-    const image = `Screenshot(${page.url ?? "page"})`;
+    const data = await callAgentPlaywright({
+      action: "screenshot",
+      full_page: true,
+      timeout: 15000,
+    });
+
+    const image = data?.screenshot_base64
+      ? (String(data.screenshot_base64).startsWith("data:image")
+          ? String(data.screenshot_base64)
+          : `data:image/png;base64,${String(data.screenshot_base64)}`)
+      : "screenshot";
+
     return {
       ...input,
       image,
+      page: {
+        ...(input.page as FlowExecutionContext["page"]),
+        url: data?.url || (input.page as any)?.url,
+        title: data?.title || (input.page as any)?.title,
+        lastAction: "screenshot",
+        fields: (input.page as any)?.fields || {},
+      },
       output: image,
     };
   }
 
   if (label === "extract text") {
-    const selector = String(getNodeConfigValue(node, "selector", "target") ?? input.selector ?? "body");
-    const text = `Extracted text from ${selector}`;
+    const data = await callAgentPlaywright({
+      action: "extract",
+      timeout: 15000,
+    });
+
+    const text = data?.content || "";
+
     return {
       ...input,
       text,
+      page: {
+        ...(input.page as FlowExecutionContext["page"]),
+        url: data?.url || (input.page as any)?.url,
+        title: data?.title || (input.page as any)?.title,
+        lastAction: "extract_text",
+        fields: (input.page as any)?.fields || {},
+      },
       output: text,
     };
   }
@@ -268,7 +369,7 @@ async function executeNodePhase1(
     };
   }
 
-  // Fallback for other nodes in phase 1:
+  // Fallback for nodes not yet connected in this phase.
   return {
     ...input,
     output: input.output ?? input.value ?? input.text ?? node.label,
@@ -711,8 +812,8 @@ export function useBrainPanelTech(activeNodesInput: string[] = []): UseBrainPane
       setActiveNodes([nodeId]);
 
       try {
-        await sleep(250);
-        const result = await executeNodePhase1(node, input);
+        await sleep(120);
+        const result = await executeNodeWithAgent(node, input);
         outputs[nodeId] = result;
 
         statuses[nodeId] = {
