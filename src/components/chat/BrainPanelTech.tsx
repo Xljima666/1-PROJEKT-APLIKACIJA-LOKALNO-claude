@@ -23,15 +23,28 @@ export interface SavedFlow {
   savedAt: string;
 }
 
+export interface FlowExecutionContext {
+  page?: {
+    url?: string;
+    title?: string;
+    selector?: string;
+    lastAction?: string;
+    fields?: Record<string, string>;
+  };
+  text?: string;
+  image?: string;
+  value?: unknown;
+  output?: unknown;
+  [key: string]: unknown;
+}
+
 export interface BrainPanelTechState {
-  // canvas refs / viewport
   containerRef: React.RefObject<HTMLDivElement>;
   zoom: number;
   pan: { x: number; y: number };
   vpSize: { w: number; h: number };
   isPanning: boolean;
 
-  // graph state
   nodes: BrainNode[];
   connections: Connection[];
   selectedNode: string | null;
@@ -45,17 +58,15 @@ export interface BrainPanelTechState {
     mouseY: number;
   } | null;
 
-  // run state
   runStatuses: Record<string, NodeRunStatus>;
   isRunning: boolean;
   activeNodes: string[];
+  lastRunOutputs: Record<string, FlowExecutionContext>;
 
-  // flow state
   flowName: string;
   showFlowMenu: boolean;
   savedFlows: SavedFlow[];
 
-  // derived
   connectionPaths: (Connection & { d: string; color: string })[];
   drawingPath: string | null;
 }
@@ -107,6 +118,163 @@ function saveFlows(flows: SavedFlow[]) {
   localStorage.setItem(FLOW_STORAGE, JSON.stringify(flows));
 }
 
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function getNodeConfigValue(node: BrainNode, ...keys: string[]) {
+  for (const key of keys) {
+    const value = node.config?.[key];
+    if (value !== undefined && value !== null && value !== "") return value;
+  }
+  return undefined;
+}
+
+function mergeIncomingPayloads(
+  nodeId: string,
+  connections: Connection[],
+  outputs: Record<string, FlowExecutionContext>,
+) {
+  const incoming = connections.filter((c) => c.toNode === nodeId);
+  const merged: FlowExecutionContext = {};
+
+  for (const conn of incoming) {
+    const payload = outputs[conn.fromNode];
+    if (!payload) continue;
+
+    Object.assign(merged, payload);
+
+    const sourceValue =
+      payload.output ??
+      payload.value ??
+      payload.text ??
+      payload.image ??
+      payload.page;
+
+    const sourcePortKey = conn.fromPort.toLowerCase().replace(/\s+/g, "_");
+    const targetPortKey = conn.toPort.toLowerCase().replace(/\s+/g, "_");
+
+    merged[sourcePortKey] = sourceValue;
+    merged[targetPortKey] = sourceValue;
+  }
+
+  return merged;
+}
+
+async function executeNodePhase1(
+  node: BrainNode,
+  input: FlowExecutionContext,
+): Promise<FlowExecutionContext> {
+  const label = node.label.toLowerCase();
+
+  if (label === "input") {
+    const value =
+      getNodeConfigValue(node, "value", "text", "input", "prompt") ??
+      input.value ??
+      input.text ??
+      node.label;
+    return {
+      ...input,
+      value,
+      output: value,
+      text: typeof value === "string" ? value : JSON.stringify(value),
+    };
+  }
+
+  if (label === "browser open") {
+    const url =
+      String(getNodeConfigValue(node, "url") ?? input.url ?? input.value ?? "https://example.com");
+    return {
+      ...input,
+      page: {
+        url,
+        title: "Opened page",
+        lastAction: "browser_open",
+        fields: {},
+      },
+      output: url,
+    };
+  }
+
+  if (label === "click") {
+    const selector = String(
+      getNodeConfigValue(node, "selector", "target") ??
+        input.selector ??
+        input.value ??
+        "button"
+    );
+    return {
+      ...input,
+      page: {
+        ...(input.page as FlowExecutionContext["page"]),
+        selector,
+        lastAction: `click:${selector}`,
+      },
+      output: selector,
+    };
+  }
+
+  if (label === "fill input") {
+    const selector = String(getNodeConfigValue(node, "selector", "target") ?? input.selector ?? "input");
+    const value = String(getNodeConfigValue(node, "value", "text") ?? input.value ?? input.text ?? "");
+    const page = (input.page as FlowExecutionContext["page"]) ?? { fields: {} };
+
+    return {
+      ...input,
+      page: {
+        ...page,
+        lastAction: `fill:${selector}`,
+        fields: {
+          ...(page.fields ?? {}),
+          [selector]: value,
+        },
+      },
+      value,
+      output: value,
+    };
+  }
+
+  if (label === "screenshot") {
+    const page = (input.page as FlowExecutionContext["page"]) ?? {};
+    const image = `Screenshot(${page.url ?? "page"})`;
+    return {
+      ...input,
+      image,
+      output: image,
+    };
+  }
+
+  if (label === "extract text") {
+    const selector = String(getNodeConfigValue(node, "selector", "target") ?? input.selector ?? "body");
+    const text = `Extracted text from ${selector}`;
+    return {
+      ...input,
+      text,
+      output: text,
+    };
+  }
+
+  if (label === "output") {
+    const finalOutput =
+      input.output ??
+      input.value ??
+      input.text ??
+      input.image ??
+      input.page ??
+      null;
+    return {
+      ...input,
+      output: finalOutput,
+    };
+  }
+
+  // Fallback for other nodes in phase 1:
+  return {
+    ...input,
+    output: input.output ?? input.value ?? input.text ?? node.label,
+  };
+}
+
 export function useBrainPanelTech(activeNodesInput: string[] = []): UseBrainPanelTechResult {
   const [nodes, setNodes] = useState<BrainNode[]>([]);
   const [connections, setConnections] = useState<Connection[]>([]);
@@ -123,6 +291,7 @@ export function useBrainPanelTech(activeNodesInput: string[] = []): UseBrainPane
 
   const containerRef = useRef<HTMLDivElement>(null);
   const dragOffset = useRef({ x: 0, y: 0 });
+  const stopRequestedRef = useRef(false);
 
   const [zoom, setZoom] = useState(0.85);
   const [pan, setPan] = useState({ x: 50, y: 50 });
@@ -132,6 +301,8 @@ export function useBrainPanelTech(activeNodesInput: string[] = []): UseBrainPane
 
   const [runStatuses, setRunStatuses] = useState<Record<string, NodeRunStatus>>({});
   const [isRunning, setIsRunning] = useState(false);
+  const [activeNodes, setActiveNodes] = useState<string[]>(activeNodesInput);
+  const [lastRunOutputs, setLastRunOutputs] = useState<Record<string, FlowExecutionContext>>({});
 
   const [showFlowMenu, setShowFlowMenu] = useState(false);
   const [flowName, setFlowName] = useState("Untitled Flow");
@@ -491,70 +662,126 @@ export function useBrainPanelTech(activeNodesInput: string[] = []): UseBrainPane
   }, [handleDelete]);
 
   const runFlow = useCallback(async () => {
+    stopRequestedRef.current = false;
     setIsRunning(true);
+    setActiveNodes([]);
 
     const statuses: Record<string, NodeRunStatus> = {};
+    const outputs: Record<string, FlowExecutionContext> = {};
     nodes.forEach((n) => {
       statuses[n.id] = { nodeId: n.id, status: "idle" };
     });
     setRunStatuses({ ...statuses });
+    setLastRunOutputs({});
 
-    const visited = new Set<string>();
-    const queue = nodes
-      .filter((n) => !connections.some((c) => c.toNode === n.id))
+    const depsMap = new Map<string, string[]>();
+    const outgoingMap = new Map<string, string[]>();
+
+    nodes.forEach((n) => {
+      depsMap.set(
+        n.id,
+        connections.filter((c) => c.toNode === n.id).map((c) => c.fromNode)
+      );
+      outgoingMap.set(
+        n.id,
+        connections.filter((c) => c.fromNode === n.id).map((c) => c.toNode)
+      );
+    });
+
+    const ready = nodes
+      .filter((n) => (depsMap.get(n.id) || []).length === 0)
       .map((n) => n.id);
 
-    if (queue.length === 0 && nodes.length > 0) queue.push(nodes[0].id);
+    const completed = new Set<string>();
+    const failed = new Set<string>();
 
-    const process = async (id: string) => {
-      if (visited.has(id) || !isRunning) return;
-      visited.add(id);
+    while (ready.length > 0 && !stopRequestedRef.current) {
+      const nodeId = ready.shift()!;
+      const node = nodes.find((n) => n.id === nodeId);
+      if (!node || completed.has(nodeId) || failed.has(nodeId)) continue;
 
-      statuses[id] = {
-        nodeId: id,
+      const input = mergeIncomingPayloads(nodeId, connections, outputs);
+
+      statuses[nodeId] = {
+        nodeId,
         status: "running",
         startedAt: Date.now(),
       };
       setRunStatuses({ ...statuses });
+      setActiveNodes([nodeId]);
 
-      await new Promise((r) => setTimeout(r, 400 + Math.random() * 800));
+      try {
+        await sleep(250);
+        const result = await executeNodePhase1(node, input);
+        outputs[nodeId] = result;
 
-      const success = Math.random() > 0.1;
-      statuses[id] = {
-        nodeId: id,
-        status: success ? "success" : "error",
-        startedAt: statuses[id].startedAt,
-        duration: Date.now() - (statuses[id].startedAt || 0),
-        output: success ? "OK" : undefined,
-        error: success ? undefined : "Simulated error",
-      };
-      setRunStatuses({ ...statuses });
-
-      if (success) {
-        const next = connections
-          .filter((c) => c.fromNode === id)
-          .map((c) => c.toNode);
-
-        for (const nid of next) {
-          await process(nid);
-        }
+        statuses[nodeId] = {
+          nodeId,
+          status: "success",
+          startedAt: statuses[nodeId].startedAt,
+          duration: Date.now() - (statuses[nodeId].startedAt || 0),
+          output:
+            typeof result.output === "string"
+              ? result.output
+              : result.output !== undefined
+              ? JSON.stringify(result.output)
+              : "OK",
+        };
+        completed.add(nodeId);
+      } catch (error) {
+        statuses[nodeId] = {
+          nodeId,
+          status: "error",
+          startedAt: statuses[nodeId].startedAt,
+          duration: Date.now() - (statuses[nodeId].startedAt || 0),
+          error: error instanceof Error ? error.message : "Execution failed",
+        };
+        failed.add(nodeId);
       }
-    };
 
-    for (const id of queue) {
-      await process(id);
+      setRunStatuses({ ...statuses });
+      setLastRunOutputs({ ...outputs });
+      setActiveNodes([]);
+
+      const nextIds = outgoingMap.get(nodeId) || [];
+      for (const nextId of nextIds) {
+        if (completed.has(nextId) || failed.has(nextId) || ready.includes(nextId)) continue;
+
+        const deps = depsMap.get(nextId) || [];
+        const allDepsResolved = deps.every((depId) => completed.has(depId));
+        const anyDepFailed = deps.some((depId) => failed.has(depId));
+
+        if (anyDepFailed) {
+          statuses[nextId] = {
+            nodeId: nextId,
+            status: "skipped",
+            error: "Skipped because dependency failed",
+          };
+          failed.add(nextId);
+          setRunStatuses({ ...statuses });
+          continue;
+        }
+
+        if (allDepsResolved) ready.push(nextId);
+      }
     }
 
+    setActiveNodes([]);
     setIsRunning(false);
-  }, [connections, isRunning, nodes]);
+  }, [connections, nodes]);
 
   const stopFlow = useCallback(() => {
+    stopRequestedRef.current = true;
     setIsRunning(false);
+    setActiveNodes([]);
   }, []);
 
   const resetRun = useCallback(() => {
+    stopRequestedRef.current = false;
     setIsRunning(false);
     setRunStatuses({});
+    setActiveNodes([]);
+    setLastRunOutputs({});
   }, []);
 
   const saveFlow = useCallback(() => {
@@ -588,6 +815,7 @@ export function useBrainPanelTech(activeNodesInput: string[] = []): UseBrainPane
     setNodes(flow.nodes || []);
     setConnections(flow.connections || []);
     setRunStatuses({});
+    setLastRunOutputs({});
     setSelectedNode(null);
     setSelectedConnection(null);
     setShowFlowMenu(false);
@@ -618,7 +846,8 @@ export function useBrainPanelTech(activeNodesInput: string[] = []): UseBrainPane
       drawingConn,
       runStatuses,
       isRunning,
-      activeNodes: activeNodesInput,
+      activeNodes,
+      lastRunOutputs,
       flowName,
       showFlowMenu,
       savedFlows,
