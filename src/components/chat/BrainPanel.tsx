@@ -4,19 +4,44 @@ import { cn } from "@/lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   type BrainNode, type Connection, type NodeTemplate, type NodeRunStatus,
-  CATEGORY_META, PORT_COLORS, MINIMAP_COLORS,
-  NODE_W, PORT_SPACING, PORT_Y_START, CANVAS_W, CANVAS_H, MIN_ZOOM, MAX_ZOOM,
+  CATEGORY_META, PORT_COLORS, MINIMAP_COLORS, NODE_CATALOG,
+  NODE_W, CANVAS_W, CANVAS_H, MIN_ZOOM, MAX_ZOOM,
   getNodeHeight, getPortPos, generateId, generateConnectionId
 } from "./brain/types";
 import NodeCard from "./brain/NodeCard";
 import NodePalette from "./brain/NodePalette";
 import RunPanel from "./brain/RunPanel";
- 
+
 // ─── Storage ────────────────────────────────────────────
 const FLOW_STORAGE = "stellan_flows";
 interface SavedFlow { id: string; name: string; nodes: any[]; connections: any[]; savedAt: string; }
 function loadFlows(): SavedFlow[] { try { return JSON.parse(localStorage.getItem(FLOW_STORAGE) || "[]"); } catch { return []; } }
 function saveFlows(flows: SavedFlow[]) { localStorage.setItem(FLOW_STORAGE, JSON.stringify(flows)); }
+function findTemplate(label: string, category?: string) {
+  for (const templates of Object.values(NODE_CATALOG)) {
+    const found = templates.find((t) => t.label === label && (!category || t.category === category));
+    if (found) return found;
+  }
+  return null;
+}
+
+function serializeNode(node: BrainNode) {
+  return {
+    ...node,
+    icon: undefined,
+    iconLabel: node.label,
+  };
+}
+
+function deserializeNode(raw: any): BrainNode {
+  const template = findTemplate(raw.label, raw.category);
+  return {
+    ...raw,
+    icon: template?.icon || Brain,
+    ports: Array.isArray(raw.ports) && raw.ports.length ? raw.ports : (template?.ports?.map((p) => ({ ...p })) || []),
+    config: raw.config || template?.defaultConfig || {},
+  };
+}
 
 // ─── Animated connection ────────────────────────────────
 const AnimatedConnection = ({ d, color, index, isActive }: { d: string; color: string; index: number; isActive?: boolean }) => (
@@ -284,6 +309,10 @@ const BrainPanel = ({ onClose, activeNodes = [] }: Props) => {
   // Keyboard shortcuts
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName?.toLowerCase();
+      const isTyping = tag === "input" || tag === "textarea" || target?.isContentEditable;
+      if (isTyping) return;
       if (e.key === "Delete" || e.key === "Backspace") handleDelete();
     };
     window.addEventListener("keydown", h);
@@ -331,9 +360,15 @@ const BrainPanel = ({ onClose, activeNodes = [] }: Props) => {
   // Save/Load
   const handleSave = () => {
     const flows = loadFlows();
-    const serialized = nodes.map(n => ({ ...n, icon: n.label }));
+    const serialized = nodes.map(serializeNode);
     const existing = flows.findIndex(f => f.name === flowName);
-    const flow: SavedFlow = { id: existing >= 0 ? flows[existing].id : generateId(), name: flowName, nodes: serialized, connections, savedAt: new Date().toISOString() };
+    const flow: SavedFlow = {
+      id: existing >= 0 ? flows[existing].id : generateId(),
+      name: flowName.trim() || "Untitled Flow",
+      nodes: serialized,
+      connections,
+      savedAt: new Date().toISOString()
+    };
     if (existing >= 0) flows[existing] = flow; else flows.push(flow);
     saveFlows(flows);
   };
@@ -392,9 +427,13 @@ const BrainPanel = ({ onClose, activeNodes = [] }: Props) => {
                   ) : loadFlows().map(flow => (
                     <button key={flow.id} onClick={() => {
                       setFlowName(flow.name);
-                      // We'd need icon deserialization - for now just set the data
-                      setConnections(flow.connections);
+                      setNodes((flow.nodes || []).map(deserializeNode));
+                      setConnections(flow.connections || []);
+                      setRunStatuses({});
+                      setSelectedNode(null);
+                      setSelectedConnection(null);
                       setShowFlowMenu(false);
+                      setTimeout(() => fitToScreen(), 30);
                     }}
                       className="w-full text-left px-4 py-2.5 hover:bg-white/[0.05] transition-colors border-b border-white/[0.04] last:border-0">
                       <p className="text-xs text-white/70">{flow.name}</p>
