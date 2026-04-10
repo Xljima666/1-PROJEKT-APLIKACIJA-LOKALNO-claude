@@ -1,7 +1,7 @@
 import {
   Brain,
   Camera,
-  ClickPointer,
+  MousePointerClick,
   Globe,
   Keyboard,
   Sparkles,
@@ -55,7 +55,7 @@ export const LEARNING_NODE_TYPES: Record<LearningNodeKind, LearningNodeTemplate>
     category: "action",
     color: "#60a5fa",
     glow: "linear-gradient(135deg, rgba(96,165,250,0.28), rgba(59,130,246,0.12))",
-    icon: ClickPointer,
+    icon: MousePointerClick,
     defaults: { selector: "", timeout: 20000 },
   },
   fill: {
