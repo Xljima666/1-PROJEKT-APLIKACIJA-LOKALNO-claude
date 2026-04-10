@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { LEARNING_NODE_TYPES, LearningNodeKind } from "./learningNodeTypes";
-
+ 
 export interface LearningNodeData {
   id: string;
   kind: LearningNodeKind;
