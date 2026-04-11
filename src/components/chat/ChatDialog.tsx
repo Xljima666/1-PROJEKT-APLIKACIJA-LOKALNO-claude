@@ -986,6 +986,7 @@ const devPanelPreview = {
       /^(git status|status)$/i.test(text) ||
       /^(git commit|commit)\b/i.test(text) ||
       /^(git push|push)\b/i.test(text) ||
+      /^(git pull(?:\s+--rebase)?|sync git|git sync)\b/i.test(text) ||
       /^(deploy)\b/i.test(text) ||
       /^(primijeni patch|primjeni patch|apply patch)\b/i.test(text) ||
       /^(spremi file|zapisi file|zapiši file|write file)\s+/i.test(text) ||
@@ -1224,6 +1225,36 @@ const devPanelPreview = {
       return true;
     }
 
+    match = raw.match(/^(?:git pull(?:\s+--rebase)?|sync git|git sync)(?:\s+([a-zA-Z0-9._\/-]+))?$/i);
+    if (match) {
+      const projectRoot = getProjectRoot();
+      if (!projectRoot) {
+        pushAssistantMessage("⚠️ Prvo postavi projekt root prije git pull --rebase.");
+        addLog("warn", "Git pull --rebase bez project roota");
+        return true;
+      }
+      const branch = cleanQuoted(match[1] || "");
+      const result = await callAgentDirect("git_pull_rebase", {
+        repo_path: projectRoot,
+        branch: branch || undefined,
+      });
+      const output = formatCommandResult(result, "Nema git pull --rebase outputa.");
+      if (result?.success) {
+        pushAssistantMessage(`✅ Git pull --rebase je prošao.${branch ? `
+
+**Branch:** \`${branch}\`` : ""}
+
+${makeCodeFence("git-pull-rebase.txt", output)}`);
+        addLog("ok", `Git pull --rebase${branch ? `: ${branch}` : ""}`);
+      } else {
+        pushAssistantMessage(`❌ Git pull --rebase nije uspio.
+
+${makeCodeFence("git-pull-rebase.txt", output)}`);
+        addLog("warn", `Git pull --rebase failed${result?.error ? `: ${result.error}` : ""}`);
+      }
+      return true;
+    }
+
     match = raw.match(/^(?:git push|push)(?:\s+([a-zA-Z0-9._\/-]+))?$/i);
     if (match) {
       const projectRoot = getProjectRoot();
@@ -1242,7 +1273,10 @@ const devPanelPreview = {
         pushAssistantMessage(`✅ Git push je prošao.${branch ? `\n\n**Branch:** \`${branch}\`` : ""}\n\n${makeCodeFence("git-push.txt", output)}`);
         addLog("ok", `Git push${branch ? `: ${branch}` : ""}`);
       } else {
-        pushAssistantMessage(`❌ Git push nije uspio.\n\n${makeCodeFence("git-push.txt", output)}`);
+        const hint = /fetch first|non-fast-forward|failed to push some refs/i.test(output)
+          ? "\n\nSavjet: prvo pokreni `git pull --rebase`, pa onda opet `git push`."
+          : "";
+        pushAssistantMessage(`❌ Git push nije uspio.${hint}\n\n${makeCodeFence("git-push.txt", output)}`);
         addLog("warn", `Git push failed${result?.error ? `: ${result.error}` : ""}`);
       }
       return true;
@@ -1276,7 +1310,11 @@ const devPanelPreview = {
 
       const pushResult = await callAgentDirect("git_push", { repo_path: projectRoot });
       if (!pushResult?.success) {
-        pushAssistantMessage(`❌ Build i commit su prošli, ali git push nije uspio.\n\n${makeCodeFence("git-push.txt", formatCommandResult(pushResult, "Nema git push outputa."))}`);
+        const pushOutput = formatCommandResult(pushResult, "Nema git push outputa.");
+        const pushHint = /fetch first|non-fast-forward|failed to push some refs/i.test(pushOutput)
+          ? "\n\nSavjet: pokreni `git pull --rebase`, riješi eventualne konflikte, pa onda opet `git push`."
+          : "";
+        pushAssistantMessage(`❌ Build i commit su prošli, ali git push nije uspio.${pushHint}\n\n${makeCodeFence("git-push.txt", pushOutput)}`);
         addLog("warn", "Deploy stopped at git push");
         return true;
       }
