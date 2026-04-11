@@ -1,83 +1,63 @@
-export type DevOpsLogLevel = "info" | "success" | "warning" | "error";
-export type DevOpsSource = "agent" | "git" | "vercel" | "github" | "system";
+export type DevOpsLevel = "info" | "success" | "warning" | "error";
 
 export interface DevOpsLogEntry {
   id: string;
-  source: DevOpsSource;
-  level: DevOpsLogLevel;
+  source: string;
+  level: DevOpsLevel;
   title: string;
   detail?: string;
   at?: string;
   href?: string;
 }
 
-export interface AgentSnapshot {
+export interface DevOpsCommitInfo {
+  sha?: string;
+  shortSha?: string;
+  message?: string;
+  at?: string;
+}
+
+export interface DevOpsGitSnapshot {
   configured: boolean;
-  online: boolean;
-  baseUrl?: string | null;
-  workspace?: string | null;
-  python?: string | null;
-  timestamp?: string | null;
-  error?: string | null;
+  repo?: string;
+  branch?: string;
+  dirty?: boolean;
+  changedFiles?: string[];
+  latestCommit?: DevOpsCommitInfo;
 }
 
-export interface GitCommitSnapshot {
-  sha: string;
-  shortSha: string;
-  message: string;
-  author?: string | null;
-  date?: string | null;
-  url?: string | null;
+export interface DevOpsBuildSnapshot {
+  status?: "idle" | "pending" | "building" | "ready" | "error" | "unknown";
+  label?: string;
+  target?: string;
+  branch?: string;
+  createdAt?: string;
+  commitMessage?: string;
+  url?: string;
+  inspectorUrl?: string;
 }
 
-export interface GitSnapshot {
-  configured: boolean;
-  source: "agent" | "github" | "none";
-  repo?: string | null;
-  repoUrl?: string | null;
-  branch?: string | null;
-  statusText?: string | null;
-  dirty: boolean;
-  changedFiles: string[];
-  latestCommit?: GitCommitSnapshot | null;
-  error?: string | null;
-}
-
-export interface DeploymentSnapshot {
+export interface DevOpsDeploymentItem {
   id: string;
   status: string;
-  url?: string | null;
-  inspectorUrl?: string | null;
-  target?: string | null;
-  branch?: string | null;
-  commitSha?: string | null;
-  commitMessage?: string | null;
-  createdAt?: string | null;
+  target?: string;
+  branch?: string;
+  commitMessage?: string;
+  createdAt?: string;
+  url?: string;
 }
 
-export interface BuildSnapshot {
+export interface DevOpsAgentSnapshot {
   configured: boolean;
-  status: string;
-  label: string;
-  url?: string | null;
-  inspectorUrl?: string | null;
-  target?: string | null;
-  branch?: string | null;
-  commitSha?: string | null;
-  commitMessage?: string | null;
-  createdAt?: string | null;
-  error?: string | null;
+  online: boolean;
+  workspace?: string;
 }
 
 export interface DevOpsSnapshot {
-  ok: boolean;
-  timestamp: string;
-  projectRoot?: string | null;
-  agent: AgentSnapshot;
-  git: GitSnapshot;
-  build: BuildSnapshot;
-  deployments: DeploymentSnapshot[];
-  logs: DevOpsLogEntry[];
-  errors: string[];
-  missingConfig: string[];
+  agent: DevOpsAgentSnapshot;
+  git: DevOpsGitSnapshot;
+  build?: DevOpsBuildSnapshot;
+  deployments?: DevOpsDeploymentItem[];
+  logs?: DevOpsLogEntry[];
+  errors?: string[];
 }
