@@ -1,6 +1,5 @@
 import DevPanel from "../dev/DevPanel";
 import type { ConsoleLog } from "../dev/DevPanel";
-import LearningPanel from "./LearningPanel";
 import BrainPanel from "./BrainPanel";
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { X, Send, Sparkles, Plus, MessageSquare, Trash2, Code2, PanelLeftClose, PanelLeftOpen, PanelRightClose, Mic, Square, ClipboardList, Upload, Camera, Image, File, FileText, Paperclip, HardDrive, ArrowDown, Search, Download, Zap, Brain } from "lucide-react";
@@ -129,7 +128,7 @@ const AgentStatusBadge = () => {
   );
 };
 
-const ChatDialogInner = ({ open, onClose }: ChatDialogProps) => {
+const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
   const { user } = useAuth();
   const isMobile = useIsMobile();
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -595,6 +594,7 @@ const devPanelPreview = {
     scrollToBottom();
   }, [messages, thinkingStatus, scrollToBottom]);
 
+
   useEffect(() => { if (thinkingStatus) addLog("info", thinkingStatus); }, [thinkingStatus]);
 
   useEffect(() => {
@@ -914,12 +914,14 @@ const devPanelPreview = {
     setIsLoading(false);
   };
 
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       send();
     }
   };
+
 
   // Dev Studio helpers ────────────────────────────────────
   const addLog = (t: string, msg: string) => {
@@ -1937,12 +1939,39 @@ const devPanelPreview = {
         </div>
         </div>
 
+
         {/* STELLAN UČENJE — Browser Use automation panel */}
         {devMode && !isMobile && (
           <div className="flex-1 border-l border-white/[0.06] min-w-0 overflow-hidden">
-            <LearningPanel
-              onClose={() => setDevMode(false)}
-              agentServerUrl={import.meta.env.VITE_AGENT_SERVER_URL || ""}
+            <DevPanel
+              title="Stellan DEV"
+              steps={devPanelSteps}
+              preview={devPanelPreview}
+              consoleLogs={consoleLogs as any}
+              isAgentRunning={isAgentActionRunning}
+              agentOnline={agentOnline}
+              modelBadge={selectedProviderModel}
+              isRecording={isRecording}
+              recordingName={recordingName}
+              isDeploying={isDeploying}
+              deployStatus={deployStatus}
+              savedActions={savedActions}
+              onRunAction={handleDevPanelAction}
+              onStopAgent={() => abortControllerRef.current?.abort()}
+              onClearSteps={() => setDevSteps([])}
+              onDeleteStep={(stepId) => setDevSteps(prev => prev.filter(s => s.id !== stepId))}
+              onSelectStep={(step) => addLog("info", `Odabran korak: ${step.label}`)}
+              onDescribePreview={handlePreviewDescribe}
+              onWaitForLoad={handlePreviewWait}
+              onRefreshScreenshot={handleStudioScreenshot}
+              onDeploy={handleDeploy}
+              onStartAgent={handleStartAgent}
+              onStartRecording={handleStartRecording}
+              onSaveRecording={handleSaveAction}
+              onCancelRecording={handleCancelRecording}
+              onRunSavedAction={handleRunSavedAction}
+              onRefreshActions={handleRefreshActions}
+              onCheckHealth={checkAgentHealth}
             />
           </div>
         )}
@@ -1957,7 +1986,5 @@ const devPanelPreview = {
     </div>
   );
 };
-
-const ChatDialog = (props: ChatDialogProps) => <ChatDialogInner {...props} />;
 
 export default ChatDialog;
