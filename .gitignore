@@ -1,5 +1,20 @@
-# Logs
-logs
+# dependencies
+node_modules/
+
+# builds
+/dist/
+/dist-ssr/
+/coverage/
+*.tsbuildinfo
+
+# env
+.env
+.env.*
+!.env.example
+*.local
+
+# logs
+logs/
 *.log
 npm-debug.log*
 yarn-debug.log*
@@ -7,20 +22,36 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-node_modules
-dist
-dist-ssr
-*.local
-
-# Editor directories and files
+# local platform / deployment
+.vercel/
 .vscode/*
 !.vscode/extensions.json
-.idea
+.idea/
 .DS_Store
+Thumbs.db
+
+# supabase local state
+supabase/.temp/
+supabase/.branches/
+
+# python / agent runtime
+**/__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+_agent_logs/
+_agent_backups/
+
+# local project runtime outputs
+/1 PROJEKTI/
+/script_*.py
+/screenshot*.png
+/oss_search*.png
+/dokument_*.pdf
+
+# misc
 *.suo
 *.ntvs*
 *.njsproj
 *.sln
 *.sw?
-
-.vercel
