@@ -2,7 +2,6 @@ import DevPanel from "../dev/DevPanel";
 import type { ConsoleLog } from "../dev/DevPanel";
 import LearningPanel from "./LearningPanel";
 import BrainPanel from "./BrainPanel";
-import { BrainPanelTechProvider, useBrainPanelTechContext } from "./BrainPanelTechContext";
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { X, Send, Sparkles, Plus, MessageSquare, Trash2, Code2, PanelLeftClose, PanelLeftOpen, PanelRightClose, Mic, Square, ClipboardList, Upload, Camera, Image, File, FileText, Paperclip, HardDrive, ArrowDown, Search, Download, Zap, Brain } from "lucide-react";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -133,7 +132,6 @@ const AgentStatusBadge = () => {
 const ChatDialogInner = ({ open, onClose }: ChatDialogProps) => {
   const { user } = useAuth();
   const isMobile = useIsMobile();
-  const brainTech = useBrainPanelTechContext();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -153,7 +151,6 @@ const ChatDialogInner = ({ open, onClose }: ChatDialogProps) => {
   const [reasoningMode, setReasoningMode] = useState(false);
   const [devMode, setDevMode] = useState(false);
   const [brainMode, setBrainMode] = useState(false);
-  const [smartAutoMode, setSmartAutoMode] = useState(false);
   const [selectedModel, setSelectedModel] = useState<"flash" | "pro" | "flash3" | "pro3">("flash");
   const [selectedProvider, setSelectedProvider] = useState<Provider>("xai");
   const [selectedProviderModel, setSelectedProviderModel] = useState<string>("grok-4-1-fast");
@@ -598,7 +595,6 @@ const devPanelPreview = {
     scrollToBottom();
   }, [messages, thinkingStatus, scrollToBottom]);
 
-
   useEffect(() => { if (thinkingStatus) addLog("info", thinkingStatus); }, [thinkingStatus]);
 
   useEffect(() => {
@@ -651,103 +647,10 @@ const devPanelPreview = {
     loadConversations();
   };
 
-
-  const ensureConversation = useCallback(async (seed: string) => {
-    if (!user) return null;
-    if (activeConversationId) return activeConversationId;
-
-    const title = seed.slice(0, 60) + (seed.length > 60 ? "..." : "");
-    const { data } = await supabase
-      .from("chat_conversations")
-      .insert({ user_id: user.id, title })
-      .select()
-      .single();
-
-    if (data?.id) {
-      setActiveConversationId(data.id);
-      return data.id as string;
-    }
-
-    return null;
-  }, [activeConversationId, user]);
-
-  const persistConversationMessage = useCallback(async (
-    convId: string | null,
-    role: "user" | "assistant",
-    content: string
-  ) => {
-    if (!convId || !content) return;
-    await supabase.from("chat_messages").insert({
-      conversation_id: convId,
-      role,
-      content,
-    });
-    if (role === "assistant") {
-      await supabase.from("chat_conversations").update({ updated_at: new Date().toISOString() }).eq("id", convId);
-      loadConversations();
-    }
-  }, [loadConversations]);
-
-  const runSmartAutoFromChat = useCallback(async (rawText: string) => {
-    if (!rawText.trim()) return;
-    const convId = await ensureConversation(rawText);
-
-    const userMsg: Message = { role: "user", content: rawText };
-    setMessages(prev => [...prev, userMsg]);
-    await persistConversationMessage(convId, "user", rawText);
-
-    setInput("");
-    setIsLoading(true);
-    forceScrollToBottom();
-
-    try {
-      addLog("info", `🤖 Smart Auto: ${rawText.slice(0, 100)}`);
-      await brainTech.actions.runSmartAuto(rawText);
-      await refreshPreviewScreenshot({ fullPage: true, silent: true });
-      const summary = await describeCurrentPreview({
-        heading: "### Smart Auto preview",
-        fallback: "Flow je izvršen, ali nema dovoljno teksta za sažetak.",
-        silent: true,
-      });
-
-      const assistantContent = [
-        "🤖 **Smart Auto završen**",
-        summary || "Flow je izvršen.",
-        previewUrl ? `**Preview URL:** ${previewUrl}` : "",
-      ].filter(Boolean).join("\n\n");
-
-      pushAssistantMessage(assistantContent);
-      await persistConversationMessage(convId, "assistant", assistantContent);
-    } catch (error: any) {
-      const message = `❌ Smart Auto greška: ${error?.message || "nepoznata greška"}`;
-      pushAssistantMessage(message);
-      await persistConversationMessage(convId, "assistant", message);
-      addLog("warn", message);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [
-    addLog,
-    brainTech,
-    describeCurrentPreview,
-    ensureConversation,
-    forceScrollToBottom,
-    persistConversationMessage,
-    previewUrl,
-    pushAssistantMessage,
-    refreshPreviewScreenshot,
-  ]);
-
-
   const send = async () => {
     const rawText = input.trim();
     if (!rawText && pendingImages.length === 0 && pendingFiles.length === 0) return;
     if (isLoading || !user) return;
-
-    if (smartAutoMode && pendingImages.length === 0 && pendingFiles.length === 0 && rawText) {
-      await runSmartAutoFromChat(rawText);
-      return;
-    }
 
     // ── DEV MODE INTERCEPT ──
     if (devMode && pendingImages.length === 0 && pendingFiles.length === 0 && rawText) {
@@ -1011,14 +914,12 @@ const devPanelPreview = {
     setIsLoading(false);
   };
 
-
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       send();
     }
   };
-
 
   // Dev Studio helpers ────────────────────────────────────
   const addLog = (t: string, msg: string) => {
@@ -1627,20 +1528,6 @@ const devPanelPreview = {
                 <Brain className="w-3 h-3" />
                 Mozak
               </button>
-
-              <button
-                onClick={() => setSmartAutoMode(!smartAutoMode)}
-                title="Smart Auto — chat prompt pokreće browser flow + preview"
-                className={cn(
-                  "h-7 px-2.5 rounded-lg flex items-center gap-1.5 text-[10px] transition-colors",
-                  smartAutoMode
-                    ? "bg-fuchsia-500/20 text-fuchsia-300 ring-1 ring-fuchsia-500/30"
-                    : "bg-white/[0.06] text-white/40 hover:text-fuchsia-300 hover:bg-fuchsia-500/10"
-                )}
-              >
-                <Sparkles className="w-3 h-3" />
-                Smart Auto
-              </button>
               {hasMessages && (
                 <button
                   onClick={handleExport}
@@ -1822,12 +1709,6 @@ const devPanelPreview = {
                 >
                   Spremi
                 </button>
-            </div>
-          )}
-{smartAutoMode && (
-            <div className="mb-2 px-3 py-2 rounded-lg bg-fuchsia-500/10 border border-fuchsia-500/20 flex items-center gap-2">
-              <Sparkles className="w-3.5 h-3.5 text-fuchsia-300" />
-              <span className="text-xs text-fuchsia-200/90">Smart Auto aktivan — poruka iz chata pokreće browser flow i live preview.</span>
             </div>
           )}
           <div className="bg-white/[0.04] border border-white/[0.08] rounded-xl focus-within:border-primary/40 transition-colors flex flex-col">
@@ -2056,7 +1937,6 @@ const devPanelPreview = {
         </div>
         </div>
 
-
         {/* STELLAN UČENJE — Browser Use automation panel */}
         {devMode && !isMobile && (
           <div className="flex-1 border-l border-white/[0.06] min-w-0 overflow-hidden">
@@ -2078,10 +1958,6 @@ const devPanelPreview = {
   );
 };
 
-const ChatDialog = (props: ChatDialogProps) => (
-  <BrainPanelTechProvider>
-    <ChatDialogInner {...props} />
-  </BrainPanelTechProvider>
-);
+const ChatDialog = (props: ChatDialogProps) => <ChatDialogInner {...props} />;
 
 export default ChatDialog;
