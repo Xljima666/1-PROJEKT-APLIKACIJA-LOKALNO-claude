@@ -39,7 +39,7 @@ const Minimap = ({ nodes, connectionPaths, zoom, panX, panY, vpW, vpH, onNav }: 
   const vw = (vpW / zoom) * scale, vh = (vpH / zoom) * scale;
   return (
     <div className="absolute bottom-4 right-4 z-30 rounded-xl overflow-hidden border border-white/[0.08]"
-      style={{ background: "rgba(10,8,20,0.85)", backdropFilter: "blur(12px)" }}>
+      style={{ background: "rgba(8,18,16,0.86)", backdropFilter: "blur(12px)" }}>
       <svg width={mmW} height={mmH} className="cursor-pointer"
         onClick={e => { const r = e.currentTarget.getBoundingClientRect(); onNav((e.clientX - r.left) / scale, (e.clientY - r.top) / scale); }}>
         {connectionPaths.map((cp, i) => <path key={i} d={cp.d} fill="none" stroke={cp.color} strokeWidth={0.5} strokeOpacity={0.3} transform={`scale(${scale})`} />)}
@@ -53,7 +53,7 @@ const Minimap = ({ nodes, connectionPaths, zoom, panX, panY, vpW, vpH, onNav }: 
 // ─── Zoom controls ──────────────────────────────────────
 const ZoomControls = ({ zoom, onIn, onOut, onFit }: { zoom: number; onIn: () => void; onOut: () => void; onFit: () => void }) => (
   <div className="absolute bottom-20 left-4 z-30 flex flex-col gap-1 rounded-xl overflow-hidden border border-white/[0.08]"
-    style={{ background: "rgba(10,8,20,0.85)", backdropFilter: "blur(12px)" }}>
+    style={{ background: "rgba(8,18,16,0.86)", backdropFilter: "blur(12px)" }}>
     <button onClick={onIn} className="w-9 h-9 flex items-center justify-center text-white/50 hover:text-white hover:bg-white/[0.06] transition-colors"><Plus className="w-4 h-4" /></button>
     <div className="text-[9px] text-white/30 text-center py-0.5 border-y border-white/[0.06]">{Math.round(zoom * 100)}%</div>
     <button onClick={onOut} className="w-9 h-9 flex items-center justify-center text-white/50 hover:text-white hover:bg-white/[0.06] transition-colors"><Minus className="w-4 h-4" /></button>
@@ -73,13 +73,13 @@ const BrainPanel = ({ onClose, activeNodes = [] }: Props) => {
     <motion.div
       initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.3 }}
       className="fixed inset-0 z-50 flex flex-col"
-      style={{ background: "radial-gradient(ellipse 120% 80% at 50% 40%, rgba(30,20,50,1) 0%, rgba(12,10,22,1) 50%, rgba(8,6,16,1) 100%)" }}
+      style={{ background: "radial-gradient(ellipse 120% 80% at 50% 40%, rgba(12,38,30,1) 0%, rgba(8,20,18,1) 52%, rgba(5,12,12,1) 100%)" }}
     >
       {/* Ambient glows */}
       <div className="absolute inset-0 pointer-events-none overflow-hidden">
-        <div className="absolute top-[15%] left-[20%] w-[500px] h-[500px] rounded-full opacity-[0.05]" style={{ background: "radial-gradient(circle, rgba(167,139,250,1), transparent 70%)" }} />
-        <div className="absolute top-[50%] right-[15%] w-[400px] h-[400px] rounded-full opacity-[0.04]" style={{ background: "radial-gradient(circle, rgba(56,189,248,1), transparent 70%)" }} />
-        <div className="absolute bottom-[10%] left-[40%] w-[350px] h-[350px] rounded-full opacity-[0.04]" style={{ background: "radial-gradient(circle, rgba(244,114,182,1), transparent 70%)" }} />
+        <div className="absolute top-[15%] left-[20%] w-[500px] h-[500px] rounded-full opacity-[0.05]" style={{ background: "radial-gradient(circle, rgba(16,185,129,1), transparent 70%)" }} />
+        <div className="absolute top-[50%] right-[15%] w-[400px] h-[400px] rounded-full opacity-[0.04]" style={{ background: "radial-gradient(circle, rgba(34,197,94,0.95), transparent 70%)" }} />
+        <div className="absolute bottom-[10%] left-[40%] w-[350px] h-[350px] rounded-full opacity-[0.04]" style={{ background: "radial-gradient(circle, rgba(45,212,191,0.95), transparent 70%)" }} />
       </div>
 
       {/* Header */}
@@ -91,8 +91,8 @@ const BrainPanel = ({ onClose, activeNodes = [] }: Props) => {
           </motion.button>
           <div className="h-5 w-px bg-white/[0.08]" />
           <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: "linear-gradient(135deg, rgba(167,139,250,0.3), rgba(139,92,246,0.15))" }}>
-              <Brain className="w-4 h-4 text-purple-400" style={{ filter: "drop-shadow(0 0 6px rgba(167,139,250,0.5))" }} />
+            <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: "linear-gradient(135deg, rgba(16,185,129,0.32), rgba(20,184,166,0.16))" }}>
+              <Brain className="w-4 h-4 text-emerald-300" style={{ filter: "drop-shadow(0 0 6px rgba(16,185,129,0.45))" }} />
             </div>
             <input value={state.flowName} onChange={e => actions.setFlowName(e.target.value)}
               className="bg-transparent text-sm font-semibold text-white/90 outline-none border-b border-transparent hover:border-white/10 focus:border-white/20 transition-colors w-40" />
@@ -104,7 +104,7 @@ const BrainPanel = ({ onClose, activeNodes = [] }: Props) => {
         <div className="flex items-center gap-2">
           <button
             onClick={() => actions.importBridgeFromLearning()}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-violet-500/10 hover:bg-violet-500/20 border border-violet-500/20 text-violet-300 transition-all text-xs"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 text-emerald-200 transition-all text-xs"
           >
             <Brain className="w-3 h-3" /> Uvezi iz Učenja
           </button>
@@ -121,7 +121,7 @@ const BrainPanel = ({ onClose, activeNodes = [] }: Props) => {
               <>
                 <div className="fixed inset-0 z-40" onClick={() => actions.setShowFlowMenu(false)} />
                 <div className="absolute right-0 top-full mt-1 z-50 w-56 rounded-xl border border-white/[0.08] overflow-hidden"
-                  style={{ background: "rgba(12,10,22,0.95)", backdropFilter: "blur(20px)" }}>
+                  style={{ background: "rgba(8,20,18,0.96)", backdropFilter: "blur(20px)" }}>
                   {state.savedFlows.length === 0 ? (
                     <p className="text-xs text-white/30 px-4 py-3">Nema spremljenih flowova</p>
                   ) : state.savedFlows.map(flow => (
@@ -149,7 +149,7 @@ const BrainPanel = ({ onClose, activeNodes = [] }: Props) => {
 
       <div className="relative z-10 border-b border-white/[0.06] px-5 py-3 flex items-center gap-3">
         <div className="rounded-xl border border-white/[0.08] bg-white/[0.04] px-3 py-2 flex-1 flex items-center gap-2">
-          <Wand2 className="w-4 h-4 text-violet-300" />
+          <Wand2 className="w-4 h-4 text-emerald-300" />
           <input
             value={smartPrompt}
             onChange={(e) => setSmartPrompt(e.target.value)}
@@ -159,7 +159,7 @@ const BrainPanel = ({ onClose, activeNodes = [] }: Props) => {
         </div>
         <button
           onClick={() => smartPrompt.trim() && actions.runSmartAuto(smartPrompt)}
-          className="px-3 py-2 rounded-xl bg-violet-500/15 text-violet-200 border border-violet-400/20 text-sm"
+          className="px-3 py-2 rounded-xl bg-emerald-500/15 text-emerald-100 border border-emerald-400/20 text-sm"
         >
           <Wand2 className="w-4 h-4 inline mr-1" /> Smart Auto
         </button>
@@ -189,7 +189,7 @@ const BrainPanel = ({ onClose, activeNodes = [] }: Props) => {
             {/* Connections */}
             <svg className="absolute inset-0 pointer-events-none" width={CANVAS_W} height={CANVAS_H} style={{ zIndex: 1 }}>
               {state.connectionPaths.map((cp, i) => (
-                <g key={cp.id} onClick={e => { e.stopPropagation(); actions.setSelectedConnection(cp.id); actions.setSelectedNode(null); }} style={{ pointerEvents: "stroke", cursor: "pointer" }}>
+                <g data-connection="true" key={cp.id} onClick={e => { e.stopPropagation(); actions.setSelectedConnection(cp.id); actions.setSelectedNode(null); }} style={{ pointerEvents: "stroke", cursor: "pointer" }}>
                   <path d={cp.d} fill="none" stroke="transparent" strokeWidth={12} />
                   <AnimatedConnection d={cp.d} color={state.selectedConnection === cp.id ? "#fff" : cp.color} index={i} isActive={state.activeNodes.includes(cp.fromNode) || state.activeNodes.includes(cp.toNode)} />
                 </g>
@@ -220,7 +220,7 @@ const BrainPanel = ({ onClose, activeNodes = [] }: Props) => {
                     <div className="w-16 h-16 mx-auto rounded-2xl bg-white/[0.03] border border-white/[0.06] flex items-center justify-center">
                       <Brain className="w-8 h-8 text-white/10" />
                     </div>
-                    <p className="text-sm text-white/30">Dodaj čvorove iz palete lijevo</p>
+                    <p className="text-sm text-emerald-100/35">Dodaj čvorove iz palete lijevo</p>
                     <p className="text-xs text-white/15">Spoji ih povlačenjem portova</p>
                   </div>
                 </div>
@@ -238,7 +238,7 @@ const BrainPanel = ({ onClose, activeNodes = [] }: Props) => {
             <motion.div initial={{ x: 60, opacity: 0 }} animate={{ x: 0, opacity: 1 }} exit={{ x: 60, opacity: 0 }}
               transition={{ type: "spring", stiffness: 300, damping: 30 }}
               className="w-60 border-l border-white/[0.06] p-4 space-y-4 overflow-y-auto shrink-0"
-              style={{ background: "rgba(15,12,25,0.85)", backdropFilter: "blur(20px)" }}>
+              style={{ background: "rgba(8,18,16,0.88)", backdropFilter: "blur(20px)" }}>
               <div className="flex items-center gap-2.5">
                 <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: CATEGORY_META[selected.category].glow }}>
                   <selected.icon className={cn("w-4 h-4", CATEGORY_META[selected.category].text)} />
