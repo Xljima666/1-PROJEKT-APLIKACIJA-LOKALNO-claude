@@ -1069,11 +1069,20 @@ async function executeDriveTool(
       return JSON.stringify({ success: true, files: (await res.json()).files || [] });
     }
     case "read_brain_file": {
-      const found = await findFileInBrain(accessToken, brainFolderId, args.file_name);
+      const found = await findFileInBrain(accessToken, brainFolderId, args.file_name, args.subfolder_name);
       if (!found) return JSON.stringify({ success: false, error: `Datoteka '${args.file_name}' nije pronađena` });
-      const text = await downloadFileContent(accessToken, { id: found.fileId, name: args.file_name });
+      const text = await downloadFileContent(accessToken, {
+        id: found.fileId,
+        name: args.file_name,
+        mimeType: found.file?.mimeType,
+      });
       if (!text) return JSON.stringify({ success: false, error: `Nije moguće pročitati '${args.file_name}'` });
-      return JSON.stringify({ success: true, file_name: args.file_name, content: text, chars: text.length });
+      return JSON.stringify({
+        success: true,
+        file_name: args.file_name,
+        content: text,
+        chars: text.length,
+      });
     }
     case "rename_drive_item": {
       const sourceFolderId = args.source_folder_name
@@ -2662,6 +2671,7 @@ async function runResponsesApiWithTools(
   const responseTools = convertCustomToolsToResponsesTools(tools);
   
   let pendingInput: any[] = convertMessagesToResponsesInput(messages);
+  let previousResponseId: string | null = null;
 
   const streamDelta = async (text: string) => {
     if (!text) return;
@@ -2716,7 +2726,7 @@ async function runResponsesApiWithTools(
     }
 
     const response = await res.json();
-    
+    previousResponseId = response?.id || previousResponseId;
 
     const functionCalls = extractFunctionCallsFromResponse(response);
     const responseText = extractTextFromResponse(response);
