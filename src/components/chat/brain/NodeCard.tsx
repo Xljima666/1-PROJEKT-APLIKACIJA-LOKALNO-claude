@@ -40,13 +40,13 @@ const NodeCard = ({ node, isSelected, isDragging, runStatus, onMouseDown, onClic
       className={cn(
         "absolute select-none rounded-xl backdrop-blur-md transition-all duration-200",
         statusClass,
-        isSelected && !statusClass && "ring-1 ring-white/20",
+        isSelected && !statusClass && "ring-1 ring-emerald-300/30",
         isDragging && "cursor-grabbing scale-[1.05] z-50"
       )}
       style={{
         left: node.x, top: node.y, width: NODE_W, height: h,
         zIndex: isDragging ? 50 : isSelected ? 40 : 2,
-        background: `linear-gradient(145deg, ${cat.cardBg}, rgba(16,14,26,0.92))`,
+        background: `linear-gradient(145deg, ${cat.cardBg}, rgba(7,22,18,0.94))`,
         border: `1px solid ${cat.borderColor}`,
         boxShadow: isSelected
           ? `0 0 25px ${cat.glow}, 0 0 50px ${cat.glow}, 0 4px 20px rgba(0,0,0,0.4)`
@@ -62,7 +62,7 @@ const NodeCard = ({ node, isSelected, isDragging, runStatus, onMouseDown, onClic
         </div>
         <div className="flex items-center gap-1.5 shrink-0">
           <span className={cn("text-[8px] font-bold px-1.5 py-0.5 rounded-md", cat.bg, cat.text)}>{cat.label}</span>
-          <Settings className="w-3 h-3 text-white/15 hover:text-white/30 transition-colors" />
+          <Settings className="w-3 h-3 text-emerald-200/20 hover:text-emerald-100/50 transition-colors" />
         </div>
       </div>
 
@@ -78,7 +78,7 @@ const NodeCard = ({ node, isSelected, isDragging, runStatus, onMouseDown, onClic
       {leftPorts.map((port, i) => (
         <div key={port.id} className="absolute flex items-center gap-1.5" style={{ left: -6, top: PORT_Y_START + i * PORT_SPACING - 6 }}>
           <div
-            className="w-[12px] h-[12px] rounded-full border-2 border-[rgba(14,12,24,0.95)] transition-all hover:scale-150 cursor-crosshair"
+            className="w-[12px] h-[12px] rounded-full border-2 border-[rgba(5,18,15,0.95)] transition-all hover:scale-150 cursor-crosshair"
             style={{ backgroundColor: PORT_COLORS[port.color] || "#888", boxShadow: `0 0 8px ${PORT_COLORS[port.color] || "#888"}80` }}
             onMouseDown={e => { e.stopPropagation(); onPortMouseDown?.(node.id, port.id, "left", e); }}
             onMouseUp={e => { e.stopPropagation(); onPortMouseUp?.(node.id, port.id, "left", e); }}
@@ -89,7 +89,7 @@ const NodeCard = ({ node, isSelected, isDragging, runStatus, onMouseDown, onClic
       {rightPorts.map((port, i) => (
         <div key={port.id} className="absolute flex items-center gap-1.5 flex-row-reverse" style={{ right: -6, top: PORT_Y_START + i * PORT_SPACING - 6 }}>
           <div
-            className="w-[12px] h-[12px] rounded-full border-2 border-[rgba(14,12,24,0.95)] transition-all hover:scale-150 cursor-crosshair"
+            className="w-[12px] h-[12px] rounded-full border-2 border-[rgba(5,18,15,0.95)] transition-all hover:scale-150 cursor-crosshair"
             style={{ backgroundColor: PORT_COLORS[port.color] || "#888", boxShadow: `0 0 8px ${PORT_COLORS[port.color] || "#888"}80` }}
             onMouseDown={e => { e.stopPropagation(); onPortMouseDown?.(node.id, port.id, "right", e); }}
             onMouseUp={e => { e.stopPropagation(); onPortMouseUp?.(node.id, port.id, "right", e); }}
