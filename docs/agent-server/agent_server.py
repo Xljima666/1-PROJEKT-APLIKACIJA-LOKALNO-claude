@@ -19,6 +19,8 @@ import uuid
 import json
 import base64
 import re
+import shutil
+import shutil
 from pathlib import Path
 from datetime import datetime
 from typing import Optional, Any
@@ -117,6 +119,12 @@ class SearchInFilesRequest(BaseModel):
     extensions: Optional[list[str]] = [".py", ".ts", ".tsx", ".js", ".jsx", ".json", ".md"]
     recursive: Optional[bool] = True
 
+class FindFilesRequest(BaseModel):
+    root: str
+    pattern: str
+    recursive: Optional[bool] = True
+    max_results: Optional[int] = 50
+
 class GitPushRequest(BaseModel):
     repo_path: Optional[str] = "."
     message: Optional[str] = None
@@ -129,6 +137,10 @@ class GitCommitRequest(BaseModel):
 
 class GitStatusRequest(BaseModel):
     repo_path: Optional[str] = "."
+
+class GitPullRebaseRequest(BaseModel):
+    repo_path: Optional[str] = "."
+    branch: Optional[str] = None
 
 class RunBuildRequest(BaseModel):
     cwd: Optional[str] = "."
@@ -356,201 +368,101 @@ def search_in_files_impl(root: Path, query: str, extensions: list[str], recursiv
                     return matches
     return matches
 
+def find_files_impl(root: Path, pattern: str, recursive: bool = True, max_results: int = 50) -> list[dict[str, Any]]:
+    results: list[dict[str, Any]] = []
+    needle = pattern.lower().replace("\\", "/").split("/")[-1]
+    iterator = root.rglob("*") if recursive else root.glob("*")
+    for file in iterator:
+        if any(part.lower() in {"node_modules", ".git", "dist", "build"} for part in file.parts):
+            continue
+        if not file.is_file():
+            continue
+        if needle in file.name.lower():
+            try:
+                size = file.stat().st_size
+            except Exception:
+                size = 0
+            results.append({"path": str(file), "size": size})
+            if len(results) >= max_results:
+                break
+    return results
+
+def resolve_command_for_windows(command: list[str]) -> list[str]:
+    """Na Windowsu osiguraj da npm/npx/git komande rade i kad PATH ne vraća plain naziv."""
+    if not command:
+        return command
+
+    first = str(command[0]).lower()
+    if os.name != "nt":
+        return command
+
+    if first == "npm":
+        npm_cmd = shutil.which("npm.cmd") or shutil.which("npm")
+        if npm_cmd:
+            return [npm_cmd, *command[1:]]
+        return ["cmd", "/c", "npm", *command[1:]]
+
+    if first == "npx":
+        npx_cmd = shutil.which("npx.cmd") or shutil.which("npx")
+        if npx_cmd:
+            return [npx_cmd, *command[1:]]
+        return ["cmd", "/c", "npx", *command[1:]]
+
+    if first == "git":
+        git_cmd = shutil.which("git.exe") or shutil.which("git.cmd") or shutil.which("git")
+        if git_cmd:
+            return [git_cmd, *command[1:]]
+        return ["cmd", "/c", "git", *command[1:]]
+
+    return command
+
+def run_simple_command(command: list[str], cwd: Path, timeout: int = 180) -> dict[str, Any]:
+    resolved_command = resolve_command_for_windows(command)
+    try:
+        result = subprocess.run(
+            resolved_command,
+            cwd=str(cwd),
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            shell=False,
+        )
+        return {
+            "success": result.returncode == 0,
+            "exit_code": result.returncode,
+            "stdout": truncate_output(result.stdout),
+            "stderr": truncate_output(result.stderr),
+            "command": resolved_command,
+        }
+    except FileNotFoundError as e:
+        err = f"{e}. Command tried: {' '.join(resolved_command)}"
+        return {
+            "success": False,
+            "exit_code": -1,
+            "stdout": "",
+            "stderr": err,
+            "error": err,
+            "command": resolved_command,
+        }
+
 def run_command_with_logs(command: list[str], cwd: Path, log_name: str, timeout: int = 180) -> dict[str, Any]:
     cwd = cwd.resolve()
     log_dir = get_log_dir(cwd)
     stdout_log = log_dir / f"{log_name}.stdout.log"
     stderr_log = log_dir / f"{log_name}.stderr.log"
 
-    result = subprocess.run(
-        command,
-        cwd=str(cwd),
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-        shell=False,
-    )
-    stdout_log.write_text(result.stdout or "", encoding="utf-8")
-    stderr_log.write_text(result.stderr or "", encoding="utf-8")
-    return {
-        "success": result.returncode == 0,
-        "exit_code": result.returncode,
-        "stdout": truncate_output(result.stdout),
-        "stderr": truncate_output(result.stderr),
-        "stdout_log": str(stdout_log),
-        "stderr_log": str(stderr_log),
-    }
+    result = run_simple_command(command, cwd, timeout=timeout)
+    stdout_log.write_text(result.get("stdout") or "", encoding="utf-8")
+    stderr_log.write_text(result.get("stderr") or "", encoding="utf-8")
+    result["stdout_log"] = str(stdout_log)
+    result["stderr_log"] = str(stderr_log)
+    return result
 
 def read_log_tail(log_path: Path, max_chars: int = 20000) -> str:
     if not log_path.exists():
         return ""
     content = log_path.read_text(encoding="utf-8", errors="replace")
     return content[-max_chars:]
-
-
-def _git_run(repo_path: Path, args: list[str], timeout: int = 30) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        ["git", "-c", "core.quotepath=false"] + args,
-        capture_output=True,
-        text=True,
-        cwd=str(repo_path),
-        timeout=timeout,
-    )
-
-
-def _map_git_code(code: str) -> str:
-    return {
-        "M": "modified",
-        "A": "added",
-        "D": "deleted",
-        "R": "renamed",
-        "C": "copied",
-        "U": "conflict",
-        "?": "untracked",
-        "!": "ignored",
-    }.get(code, "unknown")
-
-
-def _parse_git_status_porcelain(raw: str) -> dict[str, Any]:
-    lines = [line for line in (raw or "").splitlines() if line.strip()]
-    branch = ""
-    upstream = ""
-    ahead = 0
-    behind = 0
-    files: list[dict[str, Any]] = []
-
-    for line in lines:
-        if line.startswith("## "):
-            header = line[3:]
-            branch_part = header
-            if "..." in header:
-                branch, rest = header.split("...", 1)
-                branch = branch.strip()
-                upstream = rest.strip()
-            else:
-                branch = header.strip()
-            m = re.search(r"\[ahead (\d+)\]", header)
-            if m:
-                ahead = int(m.group(1))
-            m = re.search(r"\[behind (\d+)\]", header)
-            if m:
-                behind = int(m.group(1))
-            m = re.search(r"\[ahead (\d+), behind (\d+)\]", header)
-            if m:
-                ahead = int(m.group(1))
-                behind = int(m.group(2))
-            continue
-
-        if len(line) < 3:
-            continue
-
-        x = line[0]
-        y = line[1]
-        path_text = line[3:]
-        old_path = None
-        new_path = path_text
-        if " -> " in path_text:
-            old_path, new_path = path_text.split(" -> ", 1)
-
-        staged = _map_git_code(x) if x != " " else None
-        unstaged = _map_git_code(y) if y != " " else None
-
-        if x == "?" and y == "?":
-            category = "untracked"
-        elif x == "U" or y == "U":
-            category = "conflict"
-        elif x != " " and y != " ":
-            category = "staged+unstaged"
-        elif x != " ":
-            category = "staged"
-        elif y != " ":
-            category = "unstaged"
-        else:
-            category = "unknown"
-
-        files.append({
-            "index_status": x,
-            "worktree_status": y,
-            "staged": staged,
-            "unstaged": unstaged,
-            "category": category,
-            "path": new_path.strip(),
-            "old_path": old_path.strip() if old_path else None,
-            "raw": line,
-        })
-
-    counts = {
-        "staged": sum(1 for f in files if f["category"] in ("staged", "staged+unstaged")),
-        "unstaged": sum(1 for f in files if f["category"] in ("unstaged", "staged+unstaged")),
-        "untracked": sum(1 for f in files if f["category"] == "untracked"),
-        "conflicts": sum(1 for f in files if f["category"] == "conflict"),
-        "total": len(files),
-    }
-
-    return {
-        "branch": branch,
-        "upstream": upstream,
-        "ahead": ahead,
-        "behind": behind,
-        "files": files,
-        "counts": counts,
-        "clean": len(files) == 0,
-    }
-
-
-def _build_git_status_text(repo_path: Path, parsed: dict[str, Any]) -> str:
-    lines: list[str] = []
-    branch = parsed.get("branch") or "(unknown)"
-    upstream = parsed.get("upstream") or ""
-    ahead = int(parsed.get("ahead") or 0)
-    behind = int(parsed.get("behind") or 0)
-    counts = parsed.get("counts") or {}
-    files = parsed.get("files") or []
-
-    lines.append(f"Repo: {repo_path}")
-    if upstream:
-        sync_bits = []
-        if ahead:
-            sync_bits.append(f"ahead {ahead}")
-        if behind:
-            sync_bits.append(f"behind {behind}")
-        sync_text = f" ({', '.join(sync_bits)})" if sync_bits else ""
-        lines.append(f"Branch: {branch} -> {upstream}{sync_text}")
-    else:
-        lines.append(f"Branch: {branch}")
-
-    if parsed.get("clean"):
-        lines.append("Status: working tree clean")
-        return "\n".join(lines)
-
-    lines.append(
-        "Changes: "
-        f"total {counts.get('total', 0)}, "
-        f"staged {counts.get('staged', 0)}, "
-        f"unstaged {counts.get('unstaged', 0)}, "
-        f"untracked {counts.get('untracked', 0)}, "
-        f"conflicts {counts.get('conflicts', 0)}"
-    )
-    lines.append("")
-
-    for item in files:
-        parts = []
-        if item.get("category") == "untracked":
-            parts.append("UNTRACKED")
-        elif item.get("category") == "conflict":
-            parts.append("CONFLICT")
-        else:
-            if item.get("staged"):
-                parts.append(f"INDEX:{item['staged'].upper()}")
-            if item.get("unstaged"):
-                parts.append(f"WT:{item['unstaged'].upper()}")
-        label = " | ".join(parts) if parts else item.get("category", "UNKNOWN").upper()
-        if item.get("old_path"):
-            lines.append(f"- [{label}] {item['old_path']} -> {item['path']}")
-        else:
-            lines.append(f"- [{label}] {item['path']}")
-
-    return "\n".join(lines)
 
 
 # ============ BLACKLIST KOMANDI ============
@@ -742,83 +654,72 @@ async def list_files(req: ListFilesRequest, _: str = Depends(verify_api_key)):
         "total": len(files),
     }
 
-@app.post("/git_status")
-async def git_status(req: GitStatusRequest, _: str = Depends(verify_api_key)):
-    """Vrati uredan i parsiran git status za repo."""
-    repo_path = safe_read_path(req.repo_path or ".")
-    if repo_path.is_file():
-        repo_path = repo_path.parent
-
-    inside = _git_run(repo_path, ["rev-parse", "--is-inside-work-tree"], timeout=15)
-    if inside.returncode != 0 or inside.stdout.strip().lower() != "true":
-        return {
-            "success": False,
-            "repo": str(repo_path),
-            "error": "Zadani path nije git repository",
-            "stdout": truncate_output(inside.stdout),
-            "stderr": truncate_output(inside.stderr),
-        }
-
-    result = _git_run(repo_path, ["status", "--porcelain=v1", "--branch", "--untracked-files=all"], timeout=30)
-    if result.returncode != 0:
-        return {
-            "success": False,
-            "repo": str(repo_path),
-            "error": "Git status nije uspio",
-            "stdout": truncate_output(result.stdout),
-            "stderr": truncate_output(result.stderr),
-        }
-
-    parsed = _parse_git_status_porcelain(result.stdout)
-    display_text = _build_git_status_text(repo_path, parsed)
-
-    return {
-        "success": True,
-        "repo": str(repo_path),
-        "branch": parsed["branch"],
-        "upstream": parsed["upstream"],
-        "ahead": parsed["ahead"],
-        "behind": parsed["behind"],
-        "clean": parsed["clean"],
-        "counts": parsed["counts"],
-        "files": parsed["files"],
-        "display_text": display_text,
-        "status_text": display_text,
-        "message": display_text,
-        "output": display_text,
-        "stdout": display_text,
-        "raw": truncate_output(result.stdout),
-    }
-
-
 @app.post("/git_push")
 async def git_push(req: GitPushRequest, _: str = Depends(verify_api_key)):
-    """Git add, commit i push u workspace-u / project root-u."""
-    repo_path = str(safe_path(req.repo_path or "."))
-    message = req.message or f"Auto-commit {datetime.now().strftime('%Y-%m-%d %H:%M')}"
-    branch = req.branch
+    """Git push. Ako je poslan message ili files, prvo radi add/commit pa tek onda push."""
+    repo_path = safe_path(req.repo_path or ".")
+    if repo_path.is_file():
+        repo_path = repo_path.parent
+    repo_path = repo_path.resolve()
 
+    branch = req.branch
     results = []
 
     if req.files:
         for f in req.files:
-            r = subprocess.run(["git", "add", f], capture_output=True, text=True, cwd=repo_path)
-            results.append({"cmd": f"git add {f}", "ok": r.returncode == 0, "output": r.stderr or r.stdout})
-    else:
-        r = subprocess.run(["git", "add", "-A"], capture_output=True, text=True, cwd=repo_path)
-        results.append({"cmd": "git add -A", "ok": r.returncode == 0, "output": r.stderr or r.stdout})
+            add_result = run_simple_command(["git", "add", f], repo_path, timeout=120)
+            results.append({
+                "cmd": f"git add {f}",
+                "ok": add_result["success"],
+                "output": add_result.get("stderr") or add_result.get("stdout") or "",
+            })
+            if not add_result["success"]:
+                return {"success": False, "stage": "git_add", "steps": results, "error": add_result.get("error")}
 
-    r = subprocess.run(["git", "commit", "-m", message], capture_output=True, text=True, cwd=repo_path)
-    results.append({"cmd": f"git commit -m '{message}'", "ok": r.returncode == 0, "output": r.stderr or r.stdout})
+    elif req.message:
+        add_result = run_simple_command(["git", "add", "-A"], repo_path, timeout=120)
+        results.append({
+            "cmd": "git add -A",
+            "ok": add_result["success"],
+            "output": add_result.get("stderr") or add_result.get("stdout") or "",
+        })
+        if not add_result["success"]:
+            return {"success": False, "stage": "git_add", "steps": results, "error": add_result.get("error")}
 
-    push_cmd = ["git", "push"]
-    if branch:
-        push_cmd = ["git", "push", "origin", branch]
-    r = subprocess.run(push_cmd, capture_output=True, text=True, cwd=repo_path, timeout=60)
-    results.append({"cmd": " ".join(push_cmd), "ok": r.returncode == 0, "output": r.stderr or r.stdout})
+    if req.message:
+        commit_result = run_simple_command(["git", "commit", "-m", req.message], repo_path, timeout=120)
+        results.append({
+            "cmd": f"git commit -m '{req.message}'",
+            "ok": commit_result["success"],
+            "output": commit_result.get("stderr") or commit_result.get("stdout") or "",
+        })
+        if not commit_result["success"]:
+            return {
+                "success": False,
+                "stage": "git_commit",
+                "steps": results,
+                "stdout": commit_result.get("stdout", ""),
+                "stderr": commit_result.get("stderr", ""),
+                "error": commit_result.get("error"),
+            }
 
-    all_ok = all(r["ok"] for r in results)
-    return {"success": all_ok, "steps": results}
+    push_cmd = ["git", "push", "origin", branch] if branch else ["git", "push"]
+    push_result = run_simple_command(push_cmd, repo_path, timeout=180)
+    results.append({
+        "cmd": " ".join(push_cmd),
+        "ok": push_result["success"],
+        "output": push_result.get("stderr") or push_result.get("stdout") or "",
+    })
+
+    return {
+        "success": push_result["success"],
+        "stage": "git_push",
+        "steps": results,
+        "stdout": push_result.get("stdout", ""),
+        "stderr": push_result.get("stderr", ""),
+        "error": push_result.get("error"),
+        "command": push_result.get("command"),
+    }
 
 @app.post("/pip_install")
 async def pip_install(req: PipInstallRequest, _: str = Depends(verify_api_key)):
@@ -898,6 +799,17 @@ async def search_in_files(req: SearchInFilesRequest, _: str = Depends(verify_api
     matches = search_in_files_impl(root, req.query, req.extensions or [], bool(req.recursive))
     return {"success": True, "count": len(matches), "matches": matches}
 
+@app.post("/find_files")
+async def find_files(req: FindFilesRequest, _: str = Depends(verify_api_key)):
+    root = safe_read_path(req.root)
+    if not root.exists():
+        return {"success": False, "error": f"Path ne postoji: {req.root}"}
+    if not root.is_dir():
+        return {"success": False, "error": f"Nije direktorij: {req.root}"}
+
+    files = find_files_impl(root, req.pattern, bool(req.recursive), int(req.max_results or 50))
+    return {"success": True, "count": len(files), "files": files}
+
 @app.post("/run_build")
 async def run_build(req: RunBuildRequest, _: str = Depends(verify_api_key)):
     cwd = safe_path(req.cwd or ".")
@@ -927,23 +839,72 @@ async def read_logs(req: ReadLogsRequest, _: str = Depends(verify_api_key)):
         "stderr_log": str(stderr_log),
     }
 
+@app.post("/git_pull_rebase")
+async def git_pull_rebase(req: GitPullRebaseRequest, _: str = Depends(verify_api_key)):
+    repo_path = safe_path(req.repo_path or ".")
+    if repo_path.is_file():
+        repo_path = repo_path.parent
+    repo_path = repo_path.resolve()
+
+    branch = (req.branch or "").strip()
+    pull_cmd = ["git", "pull", "--rebase", "origin", branch] if branch else ["git", "pull", "--rebase"]
+    pull_result = run_simple_command(pull_cmd, repo_path, timeout=180)
+
+    return {
+        "success": pull_result["success"],
+        "stage": "git_pull_rebase",
+        "stdout": pull_result.get("stdout", ""),
+        "stderr": pull_result.get("stderr", ""),
+        "error": pull_result.get("error"),
+        "command": pull_result.get("command"),
+        "exit_code": pull_result.get("exit_code", 0),
+    }
+
+@app.post("/git_status")
+async def git_status(req: GitStatusRequest, _: str = Depends(verify_api_key)):
+    repo_path = safe_path(req.repo_path or ".")
+    if repo_path.is_file():
+        repo_path = repo_path.parent
+    repo_path = repo_path.resolve()
+
+    status_result = run_simple_command(["git", "status", "--short", "--branch"], repo_path, timeout=60)
+    return {
+        "success": status_result["success"],
+        "stage": "git_status",
+        "stdout": status_result.get("stdout", ""),
+        "stderr": status_result.get("stderr", ""),
+        "error": status_result.get("error"),
+        "command": status_result.get("command"),
+        "exit_code": status_result.get("exit_code", 0),
+    }
+
 @app.post("/git_commit")
 async def git_commit(req: GitCommitRequest, _: str = Depends(verify_api_key)):
     repo_path = safe_path(req.repo_path or ".")
     if repo_path.is_file():
         repo_path = repo_path.parent
+    repo_path = repo_path.resolve()
 
-    add_result = subprocess.run(["git", "add", "-A"], capture_output=True, text=True, cwd=str(repo_path))
-    if add_result.returncode != 0:
-        return {"success": False, "stage": "git_add", "stdout": add_result.stdout, "stderr": add_result.stderr}
+    add_result = run_simple_command(["git", "add", "-A"], repo_path, timeout=120)
+    if not add_result["success"]:
+        return {
+            "success": False,
+            "stage": "git_add",
+            "stdout": add_result.get("stdout", ""),
+            "stderr": add_result.get("stderr", ""),
+            "error": add_result.get("error"),
+            "command": add_result.get("command"),
+        }
 
-    commit_result = subprocess.run(["git", "commit", "-m", req.message], capture_output=True, text=True, cwd=str(repo_path))
+    commit_result = run_simple_command(["git", "commit", "-m", req.message], repo_path, timeout=120)
     return {
-        "success": commit_result.returncode == 0,
+        "success": commit_result["success"],
         "stage": "git_commit",
-        "stdout": truncate_output(commit_result.stdout),
-        "stderr": truncate_output(commit_result.stderr),
-        "exit_code": commit_result.returncode,
+        "stdout": commit_result.get("stdout", ""),
+        "stderr": commit_result.get("stderr", ""),
+        "error": commit_result.get("error"),
+        "command": commit_result.get("command"),
+        "exit_code": commit_result.get("exit_code", 0),
     }
 
 @app.post("/safe_apply_patch_set")
