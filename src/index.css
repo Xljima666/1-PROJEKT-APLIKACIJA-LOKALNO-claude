@@ -121,45 +121,45 @@
   }
 }
 
-  /* Dashboard blue theme override */
-  .dark.dashboard-theme {
-    --background: 220 30% 12%;
-    --foreground: 210 20% 96%;
+/* Dashboard blue theme override */
+.dark.dashboard-theme {
+  --background: 220 30% 12%;
+  --foreground: 210 20% 96%;
 
-    --card: 220 27% 14%;
-    --card-foreground: 210 20% 96%;
+  --card: 220 27% 14%;
+  --card-foreground: 210 20% 96%;
 
-    --popover: 220 27% 14%;
-    --popover-foreground: 210 20% 96%;
+  --popover: 220 27% 14%;
+  --popover-foreground: 210 20% 96%;
 
-    --primary: 217 91% 60%;
-    --primary-foreground: 0 0% 100%;
+  --primary: 217 91% 60%;
+  --primary-foreground: 0 0% 100%;
 
-    --secondary: 221 39% 28%;
-    --secondary-foreground: 0 0% 100%;
+  --secondary: 221 39% 28%;
+  --secondary-foreground: 0 0% 100%;
 
-    --muted: 220 24% 18%;
-    --muted-foreground: 215 14% 72%;
+  --muted: 220 24% 18%;
+  --muted-foreground: 215 14% 72%;
 
-    --accent: 199 89% 48%;
-    --accent-foreground: 0 0% 100%;
+  --accent: 199 89% 48%;
+  --accent-foreground: 0 0% 100%;
 
-    --border: 220 20% 24%;
-    --input: 220 20% 24%;
-    --ring: 217 91% 60%;
+  --border: 220 20% 24%;
+  --input: 220 20% 24%;
+  --ring: 217 91% 60%;
 
-    --sidebar-background: 220 30% 10%;
-    --sidebar-foreground: 210 20% 92%;
-    --sidebar-primary: 217 91% 60%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 221 39% 28%;
-    --sidebar-accent-foreground: 0 0% 100%;
-    --sidebar-border: 220 20% 20%;
-    --sidebar-ring: 217 91% 60%;
+  --sidebar-background: 220 30% 10%;
+  --sidebar-foreground: 210 20% 92%;
+  --sidebar-primary: 217 91% 60%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 221 39% 28%;
+  --sidebar-accent-foreground: 0 0% 100%;
+  --sidebar-border: 220 20% 20%;
+  --sidebar-ring: 217 91% 60%;
 
-    --gradient-primary: linear-gradient(135deg, hsl(217 91% 60%) 0%, hsl(222 47% 31%) 100%);
-    --gradient-accent: linear-gradient(135deg, hsl(199 89% 48%) 0%, hsl(217 91% 60%) 100%);
-  }
+  --gradient-primary: linear-gradient(135deg, hsl(217 91% 60%) 0%, hsl(222 47% 31%) 100%);
+  --gradient-accent: linear-gradient(135deg, hsl(199 89% 48%) 0%, hsl(217 91% 60%) 100%);
+}
 
 @layer base {
   * {
@@ -262,3 +262,69 @@ body::-webkit-scrollbar {
 .prose h1:hover { color: #34d399 !important; background-color: rgba(16, 185, 129, 0.12) !important; border-color: #34d399 !important; }
 .prose h2:hover { color: #6ee7b7 !important; background-color: rgba(16, 185, 129, 0.1) !important; border-color: #6ee7b7 !important; }
 .prose h3:hover { color: #a7f3d0 !important; background-color: rgba(16, 185, 129, 0.08) !important; border-color: #a7f3d0 !important; }
+
+/* DEV Flow / Workflow Builder visual layer */
+.dev-flow-bg {
+  position: relative;
+  background:
+    radial-gradient(circle at top left, rgba(16, 185, 129, 0.14), transparent 26%),
+    radial-gradient(circle at top right, rgba(20, 184, 166, 0.12), transparent 28%),
+    radial-gradient(circle at bottom center, rgba(8, 145, 178, 0.12), transparent 34%),
+    linear-gradient(180deg, #03110f 0%, #041715 38%, #051917 100%);
+}
+
+.dev-flow-bg::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.22;
+  background-image:
+    linear-gradient(rgba(52, 211, 153, 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(52, 211, 153, 0.08) 1px, transparent 1px);
+  background-size: 44px 44px;
+  mask-image: radial-gradient(circle at center, black 50%, transparent 100%);
+}
+
+.dev-flow-bg::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(180deg, rgba(4, 14, 13, 0.08) 0%, rgba(4, 14, 13, 0.36) 100%);
+}
+
+.dev-surface {
+  position: relative;
+  border: 1px solid rgba(110, 231, 183, 0.08);
+  background: linear-gradient(180deg, rgba(7, 23, 21, 0.82) 0%, rgba(5, 18, 17, 0.72) 100%);
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(18px);
+}
+
+.dev-surface-soft {
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  background: rgba(255, 255, 255, 0.025);
+  backdrop-filter: blur(12px);
+}
+
+.dev-pill {
+  border: 1px solid rgba(110, 231, 183, 0.14);
+  background: rgba(6, 95, 70, 0.22);
+  color: #d1fae5;
+  backdrop-filter: blur(12px);
+}
+
+.dev-pill-muted {
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  background: rgba(255, 255, 255, 0.03);
+  color: rgba(226, 232, 240, 0.78);
+}
+
+.dev-glow-border {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.03),
+    0 0 0 1px rgba(16, 185, 129, 0.03),
+    0 24px 60px rgba(0, 0, 0, 0.3);
+}
