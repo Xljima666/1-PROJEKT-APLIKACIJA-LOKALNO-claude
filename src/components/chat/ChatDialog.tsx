@@ -15,6 +15,7 @@ import type { CodeBlock } from "./ChatMessage";
 import { motion } from "framer-motion";
 import { useAuth } from "@/hooks/useAuth";
 import ProviderSelector, { PROVIDERS, type Provider } from "./ProviderSelector";
+import { useDevOpsStatus } from "@/hooks/useDevOpsStatus";
 
 interface Message {
   role: "user" | "assistant";
@@ -67,6 +68,7 @@ function extractCodeBlocks(messages: Message[]): CodeBlock[] {
 interface ChatDialogProps {
   open: boolean;
   onClose: () => void;
+  initialView?: "chat" | "dev";
 }
 
 // CopyButton imported from ChatMessage
@@ -129,7 +131,7 @@ const AgentStatusBadge = () => {
   );
 };
 
-const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
+const ChatDialog = ({ open, onClose, initialView = "chat" }: ChatDialogProps) => {
   const { user } = useAuth();
   const isMobile = useIsMobile();
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -173,6 +175,7 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
   const [studioInput, setStudioInput] = useState("");
   const [consoleLogs, setConsoleLogs] = useState<{t:string,msg:string}[]>([{t:"dim",msg:"Dev Studio spreman"}]);
   const [agentOnline, setAgentOnline] = useState<boolean|null>(null);
+  const [projectRootState, setProjectRootState] = useState<string>(() => (typeof window !== "undefined" ? localStorage.getItem("stellan_project_root") || "" : ""));
   const [generatedCode, setGeneratedCode] = useState("");
   const [previewScreenshot, setPreviewScreenshot] = useState<string | null>(null);
   const [previewScreenshotUrl, setPreviewScreenshotUrl] = useState<string>("");
@@ -186,6 +189,16 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
   const abortControllerRef = useRef<AbortController | null>(null);
   const [isValidating, setIsValidating] = useState(false);
   const [isAgentActionRunning, setIsAgentActionRunning] = useState(false);
+
+  const {
+    snapshot: devOpsSnapshot,
+    loading: devOpsLoading,
+    refreshing: devOpsRefreshing,
+    refresh: refreshDevOps,
+  } = useDevOpsStatus({
+    enabled: open && devStudioMode && !isMobile,
+    projectRoot: projectRootState,
+  });
 const handleDevPanelAction = async (
   action: "open" | "click" | "type" | "screenshot" | "learn",
   payload?: { url?: string; target?: string; value?: string }
@@ -237,6 +250,22 @@ const devPanelSteps = devSteps.map((step) => ({
   target: step.target,
   createdAt: undefined,
 }));
+
+
+useEffect(() => {
+  if (!open) return;
+
+  const nextRoot = typeof window !== "undefined" ? localStorage.getItem("stellan_project_root") || "" : "";
+  setProjectRootState(nextRoot);
+
+  if (initialView === "dev" && !isMobile) {
+    setDevStudioMode(true);
+    setDevMode(false);
+    setBrainMode(false);
+  } else if (initialView === "chat") {
+    setDevStudioMode(false);
+  }
+}, [open, initialView, isMobile]);
 
 const devPanelPreview = {
   url: previewUrl,
@@ -1057,6 +1086,7 @@ const devPanelPreview = {
     if (match) {
       const nextRoot = cleanQuoted(match[1]);
       localStorage.setItem("stellan_project_root", nextRoot);
+      setProjectRootState(nextRoot);
       pushAssistantMessage(`✅ Projekt root postavljen:\n\n\`${nextRoot}\``);
       addLog("ok", `Project root: ${nextRoot}`);
       return true;
@@ -1627,7 +1657,8 @@ const devPanelPreview = {
     if (!handled) {
       await executeStudioFlow(cmd);
     }
-  }, [executeProjectCommand, executeStudioFlow]);
+    window.setTimeout(() => { void refreshDevOps(); }, 250);
+  }, [executeProjectCommand, executeStudioFlow, refreshDevOps]);
 
 
   const handleStudioExecute = () => {
@@ -1762,21 +1793,8 @@ const devPanelPreview = {
     setIsDeploying(true);
     setDeployStatus("idle");
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) throw new Error("No session");
-      const res = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/agent-health`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${session.access_token}`,
-            apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ action: "git_push", message: "deploy via Stellan" }),
-        }
-      );
-      setDeployStatus(res.ok ? "success" : "error");
+      await handleDevPortalAction("deploy");
+      setDeployStatus("success");
     } catch {
       setDeployStatus("error");
     } finally {
@@ -1848,6 +1866,9 @@ const devPanelPreview = {
             isDeploying={isDeploying}
             deployStatus={deployStatus}
             savedActions={savedActions}
+            projectRoot={projectRootState}
+            devOps={devOpsSnapshot}
+            devOpsLoading={devOpsLoading || devOpsRefreshing}
             onRunAction={handleDevPanelAction}
             onStopAgent={() => abortControllerRef.current?.abort()}
             onClearSteps={() => setDevSteps([])}
@@ -1856,6 +1877,7 @@ const devPanelPreview = {
             onDescribePreview={handlePreviewDescribe}
             onWaitForLoad={handlePreviewWait}
             onRefreshScreenshot={handleStudioScreenshot}
+            onRefreshDevOps={() => { void refreshDevOps(); }}
             onDeploy={handleDeploy}
             onStartAgent={handleStartAgent}
             onStartRecording={() => { void handleStartRecording(); }}
@@ -2424,6 +2446,9 @@ const devPanelPreview = {
               isDeploying={isDeploying}
               deployStatus={deployStatus}
               savedActions={savedActions}
+            projectRoot={projectRootState}
+            devOps={devOpsSnapshot}
+            devOpsLoading={devOpsLoading || devOpsRefreshing}
               onRunAction={handleDevPanelAction}
               onStopAgent={() => abortControllerRef.current?.abort()}
               onClearSteps={() => setDevSteps([])}
@@ -2432,6 +2457,7 @@ const devPanelPreview = {
               onDescribePreview={handlePreviewDescribe}
               onWaitForLoad={handlePreviewWait}
               onRefreshScreenshot={handleStudioScreenshot}
+            onRefreshDevOps={() => { void refreshDevOps(); }}
               onDeploy={handleDeploy}
               onStartAgent={handleStartAgent}
               onStartRecording={() => { void handleStartRecording(); }}
