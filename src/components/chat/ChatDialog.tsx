@@ -1,5 +1,6 @@
 import DevPanel from "../dev/DevPanel";
 import type { ConsoleLog } from "../dev/DevPanel";
+import LearningPanel from "./LearningPanel";
 import BrainPanel from "./BrainPanel";
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { X, Send, Sparkles, Plus, MessageSquare, Trash2, Code2, PanelLeftClose, PanelLeftOpen, PanelRightClose, Mic, Square, ClipboardList, Upload, Camera, Image, File, FileText, Paperclip, HardDrive, ArrowDown, Search, Download, Zap, Brain } from "lucide-react";
@@ -149,6 +150,7 @@ const ChatDialog = ({ open, onClose }: ChatDialogProps) => {
   const [driveSearchMode, setDriveSearchMode] = useState(false);
   const [reasoningMode, setReasoningMode] = useState(false);
   const [devMode, setDevMode] = useState(false);
+  const [devStudioMode, setDevStudioMode] = useState(false);
   const [brainMode, setBrainMode] = useState(false);
   const [selectedModel, setSelectedModel] = useState<"flash" | "pro" | "flash3" | "pro3">("flash");
   const [selectedProvider, setSelectedProvider] = useState<Provider>("xai");
@@ -1505,7 +1507,20 @@ const devPanelPreview = {
             <div className="flex items-center gap-1.5">
 
               <button
-                onClick={() => setDevMode(!devMode)}
+                onClick={() => { setDevStudioMode(!devStudioMode); if (!devStudioMode) { setDevMode(false); setBrainMode(false); } }}
+                title="DEV Studio — agent preview, actions, build i patch"
+                className={cn(
+                  "h-7 px-2.5 rounded-lg flex items-center gap-1.5 text-[10px] transition-colors",
+                  devStudioMode
+                    ? "bg-cyan-500/20 text-cyan-300 ring-1 ring-cyan-500/30"
+                    : "bg-white/[0.06] text-white/40 hover:text-cyan-300 hover:bg-cyan-500/10"
+                )}
+              >
+                <Code2 className="w-3 h-3" />
+                DEV
+              </button>
+              <button
+                onClick={() => { setDevMode(!devMode); if (!devMode) { setDevStudioMode(false); setBrainMode(false); } }}
                 title="Učenje — Browser Use automation"
                 className={cn(
                   "h-7 px-2.5 rounded-lg flex items-center gap-1.5 text-[10px] transition-colors",
@@ -1518,7 +1533,7 @@ const devPanelPreview = {
                 Učenje
               </button>
               <button
-                onClick={() => { setBrainMode(!brainMode); if(!brainMode) setDevMode(false); }}
+                onClick={() => { setBrainMode(!brainMode); if(!brainMode) { setDevMode(false); setDevStudioMode(false); } }}
                 title="Mozak — Vizualni pregled Stellanovih toolova, znanja i workflowa"
                 className={cn(
                   "h-7 px-2.5 rounded-lg flex items-center gap-1.5 text-[10px] transition-colors",
@@ -1940,17 +1955,17 @@ const devPanelPreview = {
         </div>
 
 
-        {/* STELLAN UČENJE — Browser Use automation panel */}
-        {devMode && !isMobile && (
+        {/* DEV Studio */}
+        {devStudioMode && !isMobile && (
           <div className="flex-1 border-l border-white/[0.06] min-w-0 overflow-hidden">
             <DevPanel
-              title="Stellan DEV"
+              title="Dev Studio"
               steps={devPanelSteps}
               preview={devPanelPreview}
-              consoleLogs={consoleLogs as any}
+              consoleLogs={consoleLogs as ConsoleLog[]}
               isAgentRunning={isAgentActionRunning}
               agentOnline={agentOnline}
-              modelBadge={selectedProviderModel}
+              modelBadge={PROVIDERS[selectedProvider].models.find(m => m.id === selectedProviderModel)?.badge || MODEL_BADGES[selectedModel]}
               isRecording={isRecording}
               recordingName={recordingName}
               isDeploying={isDeploying}
@@ -1959,19 +1974,30 @@ const devPanelPreview = {
               onRunAction={handleDevPanelAction}
               onStopAgent={() => abortControllerRef.current?.abort()}
               onClearSteps={() => setDevSteps([])}
-              onDeleteStep={(stepId) => setDevSteps(prev => prev.filter(s => s.id !== stepId))}
+              onDeleteStep={(stepId) => setDevSteps(prev => prev.filter(step => step.id !== stepId))}
               onSelectStep={(step) => addLog("info", `Odabran korak: ${step.label}`)}
               onDescribePreview={handlePreviewDescribe}
               onWaitForLoad={handlePreviewWait}
               onRefreshScreenshot={handleStudioScreenshot}
               onDeploy={handleDeploy}
               onStartAgent={handleStartAgent}
-              onStartRecording={handleStartRecording}
-              onSaveRecording={handleSaveAction}
+              onStartRecording={() => { void handleStartRecording(); }}
+              onSaveRecording={() => { void handleSaveAction(); }}
               onCancelRecording={handleCancelRecording}
-              onRunSavedAction={handleRunSavedAction}
-              onRefreshActions={handleRefreshActions}
-              onCheckHealth={checkAgentHealth}
+              onRunSavedAction={(name) => { void handleRunSavedAction(name); }}
+              onRefreshActions={() => { void handleRefreshActions(); }}
+              onCheckHealth={() => { void checkAgentHealth(); }}
+            />
+          </div>
+        )}
+
+
+        {/* STELLAN UČENJE — Browser Use automation panel */}
+        {devMode && !isMobile && (
+          <div className="flex-1 border-l border-white/[0.06] min-w-0 overflow-hidden">
+            <LearningPanel
+              onClose={() => setDevMode(false)}
+              agentServerUrl={import.meta.env.VITE_AGENT_SERVER_URL || ""}
             />
           </div>
         )}
