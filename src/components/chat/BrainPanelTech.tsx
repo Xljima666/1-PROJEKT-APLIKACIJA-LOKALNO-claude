@@ -585,17 +585,20 @@ export function useBrainPanelTech(activeNodesInput: string[] = []): UseBrainPane
 
   const handleCanvasMouseDown = useCallback((e: React.MouseEvent) => {
     const target = e.target as HTMLElement;
-    if (
-      e.button === 1 ||
-      (e.button === 0 && (e.target === containerRef.current || target.dataset?.canvas))
-    ) {
-      e.preventDefault();
-      setIsPanning(true);
-      panStart.current = { x: e.clientX, y: e.clientY, px: pan.x, py: pan.y };
-    }
+    const isInteractive =
+      !!target.closest("[data-node-card='true'], button, input, textarea, select, a");
+    const isConnection = !!target.closest("[data-connection='true']");
 
-    setSelectedNode(null);
-    setSelectedConnection(null);
+    if (isInteractive || (e.button !== 0 && e.button !== 1)) return;
+
+    e.preventDefault();
+    setIsPanning(true);
+    panStart.current = { x: e.clientX, y: e.clientY, px: pan.x, py: pan.y };
+
+    if (!isConnection) {
+      setSelectedNode(null);
+      setSelectedConnection(null);
+    }
   }, [pan.x, pan.y]);
 
   useEffect(() => {
