@@ -1026,6 +1026,14 @@ const devPanelPreview = {
     };
     const trimOutput = (value: string, max = 16000) =>
       value.length > max ? value.slice(0, max) + "\n... [skraćeno]" : value;
+    const likelyFileQuery = (value: string) => {
+      const q = value.trim();
+      if (!q) return false;
+      if (/[\\/]/.test(q)) return true;
+      if (/\.[a-z0-9]{1,8}$/i.test(q)) return true;
+      if (/^(package|vite|tsconfig|vercel|tailwind|postcss|eslint|prettier|components)\b/i.test(q)) return true;
+      return false;
+    };
 
     addLog("info", "🗂 " + raw.slice(0, 100));
     setDevStudioMode(true);
@@ -1085,6 +1093,27 @@ const devPanelPreview = {
         addLog("warn", "Project root nije postavljen");
         return true;
       }
+
+      if (likelyFileQuery(query)) {
+        const findResult = await callAgentDirect("find_files", {
+          root: projectRoot,
+          pattern: query,
+          max_results: 20,
+        });
+
+        if (findResult?.success) {
+          const files = Array.isArray(findResult.files) ? findResult.files.slice(0, 20) : [];
+          if (!files.length) {
+            pushAssistantMessage(`🔎 Nisam našao file **${query}** u projektu.`);
+          } else {
+            const lines = files.map((item: any) => `- \`${item.path}\`${item.size ? ` — ${item.size} B` : ""}`).join("\n");
+            pushAssistantMessage(`### Find file\n\n**Pattern:** \`${query}\`\n**Root:** \`${projectRoot}\`\n\n${lines}`);
+          }
+          addLog("ok", `Find file: ${query}`);
+          return true;
+        }
+      }
+
       const result = await callAgentDirect("search_in_files", {
         root: projectRoot,
         query,
@@ -1115,13 +1144,22 @@ const devPanelPreview = {
         return true;
       }
       const result = await callAgentDirect("run_build", { cwd: projectRoot });
-      const output = trimOutput(`${result?.stdout || ""}\n${result?.stderr || ""}`.trim() || "Nema build outputa.");
+      const outputParts = [
+        result?.error ? `ERROR: ${result.error}` : "",
+        result?.stdout || "",
+        result?.stderr || "",
+      ].filter(Boolean);
+      const output = trimOutput(outputParts.join("\n\n").trim() || "Nema build outputa.");
+      const logHints = [result?.stdout_log, result?.stderr_log].filter(Boolean).map((item: string) => `- \`${item}\``).join("\n");
+      const extraHint = !result?.success && !result?.stdout && !result?.stderr && result?.error
+        ? "\n\nVjerojatno build puca prije zapisivanja loga."
+        : "";
       if (result?.success) {
-        pushAssistantMessage(`✅ Build je prošao.\n\n${makeCodeFence("build.log", output)}`);
+        pushAssistantMessage(`✅ Build je prošao.\n\n${makeCodeFence("build.log", output)}${logHints ? `\n\nLogovi:\n${logHints}` : ""}`);
         addLog("ok", "Build OK");
       } else {
-        pushAssistantMessage(`❌ Build je pao.\n\n${makeCodeFence("build.log", output)}`);
-        addLog("warn", "Build failed");
+        pushAssistantMessage(`❌ Build je pao.\n\n${makeCodeFence("build.log", output)}${logHints ? `\n\nLogovi:\n${logHints}` : ""}${extraHint}`);
+        addLog("warn", `Build failed${result?.error ? `: ${result.error}` : ""}`);
       }
       return true;
     }
