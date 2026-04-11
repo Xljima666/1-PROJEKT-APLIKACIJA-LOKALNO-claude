@@ -654,6 +654,14 @@ const devPanelPreview = {
     if (!rawText && pendingImages.length === 0 && pendingFiles.length === 0) return;
     if (isLoading || !user) return;
 
+    // ── PROJECT COMMAND INTERCEPT ──
+    if (pendingImages.length === 0 && pendingFiles.length === 0 && rawText && isLikelyProjectCommand(rawText)) {
+      setMessages(prev => [...prev, { role: "user", content: rawText }]);
+      setInput("");
+      await executeProjectCommand(rawText);
+      return;
+    }
+
     // ── DEV MODE INTERCEPT ──
     if (devMode && pendingImages.length === 0 && pendingFiles.length === 0 && rawText) {
       const lower = rawText.toLowerCase();
@@ -966,6 +974,225 @@ const devPanelPreview = {
     if (!content.trim()) return;
     setMessages(prev => [...prev, { role: "assistant", content }]);
   }, []);
+
+  const isLikelyProjectCommand = (raw: string) => {
+    const text = raw.trim();
+    return (
+      /^(procitaj|pročitaj|read)\s+/i.test(text) ||
+      /^(nadji|nađi)\s+/i.test(text) ||
+      /^(pretrazi projekt|pretraži projekt|search project)\s+/i.test(text) ||
+      /^(trazi u projektu|traži u projektu)\s+/i.test(text) ||
+      /^(pokreni build|run build|build)$/i.test(text) ||
+      /^(primijeni patch|primjeni patch|apply patch)\b/i.test(text) ||
+      /^(spremi file|zapisi file|zapiši file|write file)\s+/i.test(text) ||
+      /^(postavi projekt root|postavi project root|set project root|root)\s+/i.test(text)
+    );
+  };
+
+  const executeProjectCommand = async (rawInput: string) => {
+    const raw = rawInput.trim();
+    if (!raw) return false;
+
+    const cleanQuoted = (value: string) => value.trim().replace(/^["'`]|["'`]$/g, "");
+    const getProjectRoot = () => (localStorage.getItem("stellan_project_root") || "").trim();
+    const detectLanguage = (path: string) => {
+      const ext = path.split(".").pop()?.toLowerCase() || "";
+      const map: Record<string, string> = {
+        ts: "ts",
+        tsx: "tsx",
+        js: "javascript",
+        jsx: "jsx",
+        py: "python",
+        json: "json",
+        html: "html",
+        css: "css",
+        md: "markdown",
+        sql: "sql",
+        yaml: "yaml",
+        yml: "yaml",
+        sh: "bash",
+        bat: "bat",
+        ps1: "powershell",
+      };
+      return map[ext] || "";
+    };
+    const makeCodeFence = (path: string, content: string) => {
+      const lang = detectLanguage(path);
+      return `\`\`\`${lang}\n${content}\n\`\`\``;
+    };
+    const readCodeBlock = (text: string) => {
+      const match = text.match(/```(?:[a-z0-9_+-]+)?\n([\s\S]*?)```/i);
+      return match?.[1]?.trim() || "";
+    };
+    const trimOutput = (value: string, max = 16000) =>
+      value.length > max ? value.slice(0, max) + "\n... [skraćeno]" : value;
+
+    addLog("info", "🗂 " + raw.slice(0, 100));
+    setDevStudioMode(true);
+
+    let match = raw.match(/^(?:postavi projekt root|postavi project root|set project root|root)\s+([\s\S]+)$/i);
+    if (match) {
+      const nextRoot = cleanQuoted(match[1]);
+      localStorage.setItem("stellan_project_root", nextRoot);
+      pushAssistantMessage(`✅ Projekt root postavljen:\n\n\`${nextRoot}\``);
+      addLog("ok", `Project root: ${nextRoot}`);
+      return true;
+    }
+
+    match = raw.match(/^(?:procitaj|pročitaj|read)(?:\s+file)?\s+([\s\S]+)$/i);
+    if (match) {
+      const filePath = cleanQuoted(match[1]);
+      const result = await callAgentDirect("read_file", { path: filePath });
+      if (result?.success) {
+        const content = trimOutput(String(result.content || ""));
+        pushAssistantMessage(`### Read file\n\n**Path:** \`${filePath}\`\n\n${makeCodeFence(filePath, content)}`);
+        addLog("ok", `Read file: ${filePath}`);
+      } else {
+        pushAssistantMessage(`❌ Ne mogu pročitati file **${filePath}**: ${result?.error || "agent nedostupan"}`);
+        addLog("warn", `Read file failed: ${filePath}`);
+      }
+      return true;
+    }
+
+    match = raw.match(/^(?:spremi file|zapisi file|zapiši file|write file)\s+([^\n]+)$/i);
+    if (match) {
+      const filePath = cleanQuoted(match[1]);
+      const content = readCodeBlock(raw);
+      if (!content) {
+        pushAssistantMessage("⚠️ Za spremanje filea pošalji naredbu ovako:\n\n`spremi file src/.../Example.tsx`\n\npa ispod stavi full content u code blocku.");
+        return true;
+      }
+      const result = await callAgentDirect("write_file", { path: filePath, content, backup_first: true });
+      if (result?.success) {
+        pushAssistantMessage(`✅ Spremljeno u \`${filePath}\`${result?.backup_path ? `\n\nBackup: \`${result.backup_path}\`` : ""}`);
+        addLog("ok", `Write file: ${filePath}`);
+      } else {
+        pushAssistantMessage(`❌ Ne mogu spremiti file **${filePath}**: ${result?.error || "agent nedostupan"}`);
+        addLog("warn", `Write file failed: ${filePath}`);
+      }
+      return true;
+    }
+
+    match =
+      raw.match(/^(?:nadji|nađi)\s+(.+)$/i) ||
+      raw.match(/^(?:pretrazi projekt|pretraži projekt|search project|trazi u projektu|traži u projektu)\s+(.+)$/i);
+
+    if (match) {
+      const query = cleanQuoted(match[1]);
+      const projectRoot = getProjectRoot();
+      if (!projectRoot) {
+        pushAssistantMessage("⚠️ Prvo postavi projekt root. Primjer:\n\n`postavi project root D:/1 PROJEKT APLIKACIJA LOKALNO`");
+        addLog("warn", "Project root nije postavljen");
+        return true;
+      }
+      const result = await callAgentDirect("search_in_files", {
+        root: projectRoot,
+        query,
+        extensions: [".ts", ".tsx", ".js", ".jsx", ".py", ".json", ".md", ".sql"],
+        recursive: true,
+      });
+      if (result?.success) {
+        const matches = Array.isArray(result.matches) ? result.matches.slice(0, 20) : [];
+        if (!matches.length) {
+          pushAssistantMessage(`🔎 Nisam našao ništa za **${query}** u projektu.`);
+        } else {
+          const lines = matches.map((item: any) => `- \`${item.path}${item.line ? `:${item.line}` : ""}\` — ${String(item.text || "").trim()}`).join("\n");
+          pushAssistantMessage(`### Search project\n\n**Query:** \`${query}\`\n**Root:** \`${projectRoot}\`\n\n${lines}`);
+        }
+        addLog("ok", `Search project: ${query}`);
+      } else {
+        pushAssistantMessage(`❌ Pretraga projekta nije uspjela: ${result?.error || "agent nedostupan"}`);
+        addLog("warn", `Search failed: ${query}`);
+      }
+      return true;
+    }
+
+    if (/^(?:pokreni build|run build|build)$/i.test(raw)) {
+      const projectRoot = getProjectRoot();
+      if (!projectRoot) {
+        pushAssistantMessage("⚠️ Prvo postavi projekt root prije builda.");
+        addLog("warn", "Build bez project roota");
+        return true;
+      }
+      const result = await callAgentDirect("run_build", { cwd: projectRoot });
+      const output = trimOutput(`${result?.stdout || ""}\n${result?.stderr || ""}`.trim() || "Nema build outputa.");
+      if (result?.success) {
+        pushAssistantMessage(`✅ Build je prošao.\n\n${makeCodeFence("build.log", output)}`);
+        addLog("ok", "Build OK");
+      } else {
+        pushAssistantMessage(`❌ Build je pao.\n\n${makeCodeFence("build.log", output)}`);
+        addLog("warn", "Build failed");
+      }
+      return true;
+    }
+
+    if (/^(?:primijeni patch|primjeni patch|apply patch)\b/i.test(raw)) {
+      const projectRoot = getProjectRoot();
+      if (!projectRoot) {
+        pushAssistantMessage("⚠️ Prvo postavi projekt root prije apply patcha.");
+        addLog("warn", "Patch bez project roota");
+        return true;
+      }
+
+      let parsedPayload: any = null;
+      const codeBlock = readCodeBlock(raw);
+      const afterCommand = raw.replace(/^(?:primijeni patch|primjeni patch|apply patch)\b/i, "").trim();
+
+      try {
+        parsedPayload = JSON.parse(codeBlock || afterCommand);
+      } catch {
+        parsedPayload = null;
+      }
+
+      if (!parsedPayload) {
+        pushAssistantMessage("⚠️ Nisam uspio pročitati patch JSON. Pošalji `apply patch` i ispod JSON u code blocku.");
+        addLog("warn", "Patch JSON parse fail");
+        return true;
+      }
+
+      const payload = Array.isArray(parsedPayload)
+        ? {
+            cwd: projectRoot,
+            files: parsedPayload,
+            run_build: true,
+            git_commit: false,
+            git_push: false,
+          }
+        : {
+            cwd: parsedPayload.cwd || projectRoot,
+            files: parsedPayload.files || [],
+            run_build: parsedPayload.run_build ?? true,
+            build_command: parsedPayload.build_command,
+            build_timeout: parsedPayload.build_timeout,
+            git_commit: parsedPayload.git_commit ?? false,
+            commit_message: parsedPayload.commit_message || "patch via chat",
+            git_push: parsedPayload.git_push ?? false,
+            git_branch: parsedPayload.git_branch || "main",
+          };
+
+      const result = await callAgentDirect("safe_apply_patch_set", payload);
+      const buildBlock = result?.build ? trimOutput(`${result.build.stdout || ""}\n${result.build.stderr || ""}`.trim()) : "";
+      if (result?.success) {
+        pushAssistantMessage(
+          `✅ Patch je primijenjen.\n\n- Fileova: **${Array.isArray(result?.written_files) ? result.written_files.length : 0}**\n- Backupa: **${Array.isArray(result?.backups) ? result.backups.length : 0}**${
+            buildBlock ? `\n\n${makeCodeFence("build.log", buildBlock)}` : ""
+          }`
+        );
+        addLog("ok", "Patch applied");
+      } else {
+        pushAssistantMessage(
+          `❌ Patch nije uspio.${result?.error ? `\n\nGreška: ${result.error}` : ""}${
+            buildBlock ? `\n\n${makeCodeFence("build.log", buildBlock)}` : ""
+          }`
+        );
+        addLog("warn", "Patch failed");
+      }
+      return true;
+    }
+
+    return false;
+  };
+
 
   const extractVisibleSummary = (raw: string) => {
     const clean = raw.replace(/\s+/g, " ").trim();
@@ -1508,7 +1735,7 @@ const devPanelPreview = {
 
               <button
                 onClick={() => { setDevStudioMode(!devStudioMode); if (!devStudioMode) { setDevMode(false); setBrainMode(false); } }}
-                title="DEV Studio — agent preview, actions, build i patch"
+                title="DEV Studio — agent preview, actions, build, patch i project komande iz chata"
                 className={cn(
                   "h-7 px-2.5 rounded-lg flex items-center gap-1.5 text-[10px] transition-colors",
                   devStudioMode
