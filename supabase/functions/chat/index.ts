@@ -14,10 +14,10 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const BRAIN_FOLDER_NAME = "1 PROJEKT APLIKACIJA LOKALNO claude";
-const BRAIN_PRIORITY_FILES = ["memory.md", "upute.md", "projekti.md"];
-const BRAIN_MAX_TOTAL_CHARS = 30000;
-const BRAIN_FULL_LOAD_FILES = ["memory.md"];
+const BRAIN_FOLDER_NAME = "0 MOZAK";
+const BRAIN_PRIORITY_FILES = ["memory.md", "upute.md", "projekti.md", "ucenje.md", "graf.md"];
+const BRAIN_MAX_TOTAL_CHARS = 50000;
+const BRAIN_FULL_LOAD_FILES = ["memory.md", "upute.md"];
 const UPSTREAM_TIMEOUT_MS = 120000;
 const MEMORY_UPDATE_TIMEOUT_MS = 25000;
 const BRAIN_PRIMARY_HINTS = ["mozak", "brain"];

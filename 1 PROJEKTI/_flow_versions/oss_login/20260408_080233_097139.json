@@ -1,0 +1,16 @@
+{
+  "version_id": "20260408_080233_097139",
+  "name": "oss_login",
+  "source": "record_write",
+  "created_at": "2026-04-08T08:02:33.097139",
+  "code": "import asyncio\nimport os\nimport re\nfrom playwright.async_api import Playwright, async_playwright, expect\nfrom stellan_helpers import download_popup_pdf\n\nOSS_USERNAME = os.environ.get(\"OSS_USERNAME\", \"\")\nOSS_PASSWORD = os.environ.get(\"OSS_PASSWORD\", \"\")\n\n\nasync def run(playwright: Playwright) -> None:\n    if not OSS_USERNAME or not OSS_PASSWORD:\n        raise RuntimeError(\"OSS_USERNAME i OSS_PASSWORD nisu postavljeni.\")\n\n    browser = await playwright.chromium.launch(headless=False)\n    context = await browser.new_context(accept_downloads=True)\n    page = await context.new_page()\n    await page.goto(\"https://oss.uredjenazemlja.hr/\", wait_until=\"domcontentloaded\")\n    await page.wait_for_load_state(\"networkidle\")\n    await page.get_by_role(\"button\", name=\"Prijava\").click()\n    await page.get_by_role(\"button\", name=\"Poslovni korisnici\").click()\n    await page.get_by_role(\"button\", name=\"Prihvati\").click()\n    await page.get_by_role(\"textbox\", name=\"Korisničko ime\").click()\n    await page.get_by_role(\"textbox\", name=\"Korisničko ime\").fill(OSS_USERNAME)\n    await page.get_by_role(\"textbox\", name=\"Lozinka\").click()\n    await page.get_by_role(\"textbox\", name=\"Lozinka\").fill(OSS_PASSWORD)\n    await page.get_by_role(\"button\", name=\"Prijava\").click()\n    await page.get_by_text(\"Početna stranica\").click()\n    await page.get_by_text(\"Pronađi katastarsku česticu\").click()\n    await page.get_by_text(\"Katastarska općina\").click()\n    await page.get_by_role(\"combobox\", name=\"Katastarska općina\").fill(\"TREŠNJEVKA NOVA\")\n    await page.get_by_text(\"TREŠNJEVKA NOVA, GU ZAGREB\").click()\n    await page.get_by_text(\"Broj kat. čestice\").click()\n    await page.get_by_role(\"combobox\", name=\"Broj kat. čestice\").fill(\"2707\")\n    await page.get_by_text(\"2707\").click()\n    await page.get_by_role(\"button\", name=\"Pregledaj\").click()\n    await page.get_by_text(\"Neslužbena javna isprava\").click()\n    async with page.expect_popup() as page1_info:\n        await page.get_by_label(\"Neslužbena javna isprava\").get_by_text(\"Posjedovni list / BZP\").click()\n    page1 = await page1_info.value\n\n    pdf_result = await download_popup_pdf(page1)\n    if pdf_result['success']:\n        print(f\"PDF spremljen: {pdf_result['path']} ({pdf_result['size'] / 1024:.1f} KB)\")\n    else:\n        print(f\"PDF download neuspješan: {pdf_result.get('error', 'nepoznato')}\")\n    await page1.close()\n    # ---------------------\n    await context.close()\n    await browser.close()\n\n\nasync def main() -> None:\n    async with async_playwright() as playwright:\n        await run(playwright)\n\n\nasyncio.run(main())",
+  "metadata": {
+    "name": "oss_login",
+    "description": "",
+    "portal": "Ostalo",
+    "tags": [],
+    "params": [],
+    "example_inputs": {},
+    "updated_at": "2026-04-08T08:02:33.096133"
+  }
+}
