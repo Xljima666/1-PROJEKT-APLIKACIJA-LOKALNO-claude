@@ -1,12 +1,14 @@
 // ============================================================
-//  STELLAN — OpenAI GPT-4o handler (zamjena za Claude)
-//  API endpoint  →  https://api.openai.com/v1/chat/completions
-//  Model         →  gpt-4o
-//  Vision        →  Podržano (slike se šalju kao image_url content)
+//  STELLAN — OpenAI Responses API v2
+//  API endpoint  →  https://api.openai.com/v1/responses
+//  Model         →  gpt-5.4-mini
+//  Web search    →  built-in OpenAI web_search alat
+//  Vision        →  Podržano (native multimodal input)
 // ============================================================
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { zipSync, strToU8 } from "https://esm.sh/fflate@0.8.2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -14,19 +16,25 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const BRAIN_FOLDER_NAME = "0 MOZAK";
-const BRAIN_PRIORITY_FILES = ["memory.md", "upute.md", "projekti.md", "ucenje.md", "graf.md"];
-const BRAIN_MAX_TOTAL_CHARS = 50000;
-const BRAIN_FULL_LOAD_FILES = ["memory.md", "upute.md"];
 const UPSTREAM_TIMEOUT_MS = 120000;
 const MEMORY_UPDATE_TIMEOUT_MS = 25000;
-const BRAIN_PRIMARY_HINTS = ["mozak", "brain"];
-const BRAIN_ARCHIVE_HINTS = ["staro", "old", "backup", "archive", "arhiv", "deprecated"];
 
-// ─── OpenAI model ────────────────────────────────────────────
-const OPENAI_MODEL = "gpt-4o";
-const OPENAI_API_URL = "https://api.openai.com/v1/chat/completions";
-const OPENAI_MAX_TOKENS = 8096;
+// ─── OpenAI modeli ────────────────────────────────────────────
+const OPENAI_MODELS: Record<string, string> = {
+  "fast": "gpt-5.4-mini",
+  "smart": "gpt-5.4",
+  // legacy frontend vrijednosti (da ništa ne pukne dok ne promijeniš UI)
+  "flash": "gpt-5.4-mini",
+  "pro": "gpt-5.4",
+  "flash3": "gpt-5.4-mini",
+  "pro3": "gpt-5.4",
+  // direct passthrough opcije
+  "gpt-5.4-mini": "gpt-5.4-mini",
+  "gpt-5.4": "gpt-5.4",
+};
+const OPENAI_DEFAULT = "fast";
+const OPENAI_API_URL = "https://api.openai.com/v1/responses";
+const OPENAI_MAX_OUTPUT_TOKENS = 12000;
 
 // ─── Helper funkcije (identične) ─────────────────────────────
 
@@ -116,434 +124,6 @@ async function resolveBrainOwnerId(supabaseAdmin: any, currentUserId: string): P
   return null;
 }
 
-async function getOrCreateBrainFolder(accessToken: string): Promise<string | null> {
-  try {
-    const q = encodeURIComponent(
-      `name='${BRAIN_FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder' and trashed=false`,
-    );
-    const res = await fetch(
-      `https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name,modifiedTime,createdTime,parents)&pageSize=20&orderBy=createdTime`,
-      { headers: { Authorization: `Bearer ${accessToken}` } },
-    );
-    if (!res.ok) return null;
-    const data = await res.json();
-    const folders = data.files || [];
-    if (folders.length === 0) {
-      // Create new folder if none exist
-      const createRes = await fetch("https://www.googleapis.com/drive/v3/files", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ name: BRAIN_FOLDER_NAME, mimeType: "application/vnd.google-apps.folder" }),
-      });
-      if (!createRes.ok) return null;
-      const folder = await createRes.json();
-      return folder.id;
-    }
-    if (folders.length === 1) return folders[0].id;
-
-    // Multiple folders found — prefer synced (non-root) folder over My Drive root folder
-    // Google Drive for Desktop synced folders are nested inside "Computers" and have
-    // a parent that is NOT the user's root "My Drive" folder.
-    // Root "My Drive" folder ID can be fetched, but a simpler heuristic:
-    // manually-created folders typically have parent = root, synced ones don't.
-    try {
-      const rootRes = await fetch(
-        `https://www.googleapis.com/drive/v3/files/root?fields=id`,
-        { headers: { Authorization: `Bearer ${accessToken}` } },
-      );
-      if (rootRes.ok) {
-        const rootData = await rootRes.json();
-        const rootId = rootData.id;
-        // Prefer folder whose parent is NOT root (= synced from computer)
-        const synced = folders.find((f: any) => f.parents && !f.parents.includes(rootId));
-        if (synced) {
-          console.log(`[Brain] Using synced folder: ${synced.id} (non-root parent)`);
-          return synced.id;
-        }
-      }
-    } catch { /* fallback below */ }
-
-    // Fallback: pick most recently modified
-    folders.sort((a: any, b: any) => 
-      new Date(b.modifiedTime || 0).getTime() - new Date(a.modifiedTime || 0).getTime()
-    );
-    console.log(`[Brain] Fallback to most recently modified folder: ${folders[0].id}`);
-    return folders[0].id;
-  } catch {
-    return null;
-  }
-}
-
-async function uploadFileToBrain(
-  accessToken: string,
-  folderId: string,
-  fileName: string,
-  content: string,
-  mimeType: string = "text/markdown",
-): Promise<boolean> {
-  try {
-    const q = encodeURIComponent(`name='${fileName}' and '${folderId}' in parents and trashed=false`);
-    const searchRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name)&pageSize=1`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
-    if (!searchRes.ok) return false;
-    const searchData = await searchRes.json();
-    if (searchData.files?.length > 0) {
-      const fileId = searchData.files[0].id;
-      const updateRes = await fetch(`https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=media`, {
-        method: "PATCH",
-        headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": mimeType },
-        body: content,
-      });
-      return updateRes.ok;
-    } else {
-      const metadata = JSON.stringify({ name: fileName, parents: [folderId] });
-      const boundary = "stellan_upload_boundary_" + Date.now();
-      const body = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${metadata}\r\n--${boundary}\r\nContent-Type: ${mimeType}\r\n\r\n${content}\r\n--${boundary}--`;
-      const createRes = await fetch(
-        "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink",
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            "Content-Type": `multipart/related; boundary=${boundary}`,
-          },
-          body,
-        },
-      );
-      return createRes.ok;
-    }
-  } catch {
-    return false;
-  }
-}
-
-function toTimestamp(value?: string): number {
-  if (!value) return 0;
-  const ts = new Date(value).getTime();
-  return Number.isFinite(ts) ? ts : 0;
-}
-
-function scoreBrainSource(source: string, depth: number): number {
-  const s = source.toLowerCase();
-  let score = 0;
-  if (BRAIN_PRIMARY_HINTS.some((h) => s.includes(h))) score += 200;
-  if (s.includes("razgovor")) score -= 60;
-  if (BRAIN_ARCHIVE_HINTS.some((h) => s.includes(h))) score -= 300;
-  if (s === "root") score -= 8;
-  score -= depth * 2;
-  return score;
-}
-
-async function listSubfolders(accessToken: string, parentId: string): Promise<any[]> {
-  try {
-    const q = encodeURIComponent(
-      `'${parentId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
-    );
-    const res = await fetchWithTimeout(
-      `https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name,modifiedTime)&pageSize=100&orderBy=name_natural`,
-      { headers: { Authorization: `Bearer ${accessToken}` } },
-      10000,
-    );
-    if (!res.ok) return [];
-    const data = await res.json();
-    return data.files || [];
-  } catch {
-    return [];
-  }
-}
-
-async function downloadFileContent(
-  accessToken: string,
-  file: { id: string; name: string; mimeType?: string },
-): Promise<string | null> {
-  try {
-    let text = "";
-    if (file.mimeType === "application/vnd.google-apps.document") {
-      const r = await fetchWithTimeout(
-        `https://www.googleapis.com/drive/v3/files/${file.id}/export?mimeType=text/plain`,
-        { headers: { Authorization: `Bearer ${accessToken}` } },
-        12000,
-      );
-      if (r.ok) text = await r.text();
-    } else {
-      const r = await fetchWithTimeout(
-        `https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`,
-        { headers: { Authorization: `Bearer ${accessToken}` } },
-        12000,
-      );
-      if (r.ok) text = await r.text();
-    }
-    return text || null;
-  } catch {
-    return null;
-  }
-}
-
-async function loadBrainKnowledge(accessToken: string, folderId: string): Promise<string> {
-  try {
-    const level1 = await listSubfolders(accessToken, folderId);
-    const level2ByParent = await Promise.all(
-      level1.map(async (sf) => ({ parent: sf, children: await listSubfolders(accessToken, sf.id) })),
-    );
-    const scopes: { id: string; source: string; depth: number }[] = [
-      { id: folderId, source: "root", depth: 0 },
-      ...level1.map((sf) => ({ id: sf.id, source: sf.name, depth: 1 })),
-      ...level2ByParent.flatMap(({ parent, children }) =>
-        children.map((child) => ({ id: child.id, source: `${parent.name}/${child.name}`, depth: 2 })),
-      ),
-    ];
-    const fileGroups = await Promise.all(
-      scopes.map(async (scope) => {
-        const q = encodeURIComponent(`'${scope.id}' in parents and trashed=false`);
-        const res = await fetchWithTimeout(
-          `https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name,mimeType,modifiedTime)&pageSize=100&orderBy=modifiedTime desc`,
-          { headers: { Authorization: `Bearer ${accessToken}` } },
-          15000,
-        );
-        if (!res.ok) return [] as any[];
-        const data = await res.json();
-        return (data.files || [])
-          .filter((f: any) => f.mimeType !== "application/vnd.google-apps.folder")
-          .map((f: any) => ({
-            id: f.id,
-            name: f.name,
-            mimeType: f.mimeType,
-            modifiedTime: f.modifiedTime,
-            source: scope.source,
-            depth: scope.depth,
-            parentId: scope.id,
-          }));
-      }),
-    );
-    const allFiles = fileGroups.flat();
-    const fileMap = new Map<string, any>();
-    for (const file of allFiles) {
-      const existing = fileMap.get(file.name);
-      if (!existing) {
-        fileMap.set(file.name, file);
-        continue;
-      }
-      const fs = scoreBrainSource(file.source, file.depth),
-        es = scoreBrainSource(existing.source, existing.depth);
-      const ft = toTimestamp(file.modifiedTime),
-        et = toTimestamp(existing.modifiedTime);
-      if (fs > es || (fs === es && ft > et) || (fs === es && ft === et && file.id > existing.id))
-        fileMap.set(file.name, file);
-    }
-    const selectedFiles = BRAIN_PRIORITY_FILES.map((name) => fileMap.get(name)).filter(Boolean);
-    if (selectedFiles.length === 0) return "";
-    const otherFiles = selectedFiles.filter((f: any) => !BRAIN_FULL_LOAD_FILES.includes(f.name));
-    const fileContents = await Promise.all(
-      selectedFiles.map(async (file: any) => {
-        const text = await downloadFileContent(accessToken, file);
-        if (!text) return null;
-        if (BRAIN_FULL_LOAD_FILES.includes(file.name))
-          return `=== ${file.name} (${file.source}) — POTPUNI SADRŽAJ ===\n${text}`;
-        const maxLen = Math.floor(BRAIN_MAX_TOTAL_CHARS / Math.max(otherFiles.length, 1));
-        const wasTruncated = text.length > maxLen;
-        const trimmed = text.slice(0, maxLen);
-        const truncNote = wasTruncated
-          ? `\n\n⚠️ [DATOTEKA SKRAĆENA — prikazano ${maxLen}/${text.length} znakova. Za POTPUN sadržaj pozovi alat read_brain_file s file_name="${file.name}"]`
-          : "";
-        return `=== ${file.name} (${file.source}) ===\n${trimmed}${truncNote}`;
-      }),
-    );
-    return fileContents.filter(Boolean).join("\n\n");
-  } catch (e) {
-    console.error("Brain load error:", e);
-    return "";
-  }
-}
-
-function extractMarkdownHeadings(content: string): string[] {
-  return content
-    .split("\n")
-    .map((l) => l.trim().toLowerCase())
-    .filter((l) => l.startsWith("##"));
-}
-
-function isSafeMemoryReplacement(current: string, candidate: string): boolean {
-  if (candidate.trim().length === 0) return false;
-  if (current.trim().length > 800 && candidate.trim().length < current.trim().length * 0.7) return false;
-  const ch = new Set(extractMarkdownHeadings(current));
-  if (ch.size === 0) return true;
-  const candH = new Set(extractMarkdownHeadings(candidate));
-  let preserved = 0;
-  for (const h of ch) if (candH.has(h)) preserved++;
-  return preserved / ch.size >= 0.6;
-}
-
-async function initializeBrainIfEmpty(accessToken: string, folderId: string): Promise<boolean> {
-  try {
-    const q = encodeURIComponent(`'${folderId}' in parents and trashed=false`);
-    const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id)&pageSize=1`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
-    if (!res.ok) return false;
-    const data = await res.json();
-    if (data.files?.length > 0) return false;
-    const memoryContent = `# 🧠 Stellan Memory\n> Zadnje ažuriranje: ${new Date().toISOString()}\n\n## Korisnik\n- **Tvrtka:** GeoTerra Info\n- **Djelatnost:** Geodezija, katastar, prostorno planiranje\n\n## Ključna saznanja\n_Automatski se popunjava._\n\n## Česte teme\n_Automatski se puni._\n\n## Bilješke\n_Slobodni prostor._\n`;
-    await Promise.all([
-      uploadFileToBrain(accessToken, folderId, "memory.md", memoryContent),
-      uploadFileToBrain(
-        accessToken,
-        folderId,
-        "upute.md",
-        "# 📋 Stellan Upute\n\n## Osobnost\n- Profesionalan ali prijateljski\n- Govori hrvatski\n",
-      ),
-      uploadFileToBrain(
-        accessToken,
-        folderId,
-        "projekti.md",
-        "# 📁 Projekti\n\n## Aktivni projekti\n_Automatski se popunjava._\n",
-      ),
-    ]);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-async function findFolderRecursive(
-  accessToken: string,
-  parentId: string,
-  targetName: string,
-  depth = 0,
-): Promise<string | null> {
-  if (depth > 2) return null;
-  const subs = await listSubfolders(accessToken, parentId);
-  for (const sf of subs) if (sf.name.toLowerCase().includes(targetName.toLowerCase())) return sf.id;
-  for (const sf of subs) {
-    const found = await findFolderRecursive(accessToken, sf.id, targetName, depth + 1);
-    if (found) return found;
-  }
-  return null;
-}
-
-async function findFileInBrain(
-  accessToken: string,
-  brainFolderId: string,
-  fileName: string,
-): Promise<{ fileId: string; parentId: string } | null> {
-  const level1 = await listSubfolders(accessToken, brainFolderId);
-  const level2ByParent = await Promise.all(
-    level1.map(async (sf) => ({ parent: sf, children: await listSubfolders(accessToken, sf.id) })),
-  );
-  const scopes = [
-    { id: brainFolderId, source: "root", depth: 0 },
-    ...level1.map((sf) => ({ id: sf.id, source: sf.name, depth: 1 })),
-    ...level2ByParent.flatMap(({ parent, children }) =>
-      children.map((child) => ({ id: child.id, source: `${parent.name}/${child.name}`, depth: 2 })),
-    ),
-  ];
-  const matches = await Promise.all(
-    scopes.map(async (scope) => {
-      const q = encodeURIComponent(`name='${fileName}' and '${scope.id}' in parents and trashed=false`);
-      const res = await fetchWithTimeout(
-        `https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,modifiedTime)&pageSize=20&orderBy=modifiedTime desc`,
-        { headers: { Authorization: `Bearer ${accessToken}` } },
-        10000,
-      );
-      if (!res.ok) return [] as any[];
-      const data = await res.json();
-      return (data.files || []).map((f: any) => ({
-        fileId: f.id,
-        parentId: scope.id,
-        source: scope.source,
-        depth: scope.depth,
-        modifiedTime: f.modifiedTime,
-      }));
-    }),
-  );
-  const candidates = matches.flat();
-  if (candidates.length === 0) return null;
-  candidates.sort((a, b) => {
-    const sd = scoreBrainSource(b.source, b.depth) - scoreBrainSource(a.source, a.depth);
-    if (sd !== 0) return sd;
-    return toTimestamp(b.modifiedTime) - toTimestamp(a.modifiedTime);
-  });
-  return { fileId: candidates[0].fileId, parentId: candidates[0].parentId };
-}
-
-async function saveConversationToBrain(accessToken: string, folderId: string, messages: any[], conversationId: string) {
-  try {
-    const razgovoriId = (await findFolderRecursive(accessToken, folderId, "razgovor")) || folderId;
-    const dateStr = new Date().toISOString().slice(0, 10);
-    const fileName = `razgovor_${dateStr}_${conversationId?.slice(0, 8) || "auto"}.md`;
-    let content = `# Razgovor - ${dateStr}\n\n`;
-    for (const msg of messages) {
-      const textContent = typeof msg.content === "string" ? msg.content : "[multimodal content]";
-      content += `**${msg.role === "user" ? "Korisnik" : "Stellan"}:**\n${textContent}\n\n---\n\n`;
-    }
-    await uploadFileToBrain(accessToken, razgovoriId, fileName, content);
-  } catch (e) {
-    console.error("Save conversation error:", e);
-  }
-}
-
-// ─── Memory update - koristi OpenAI ───────────────────────────
-async function updateMemory(accessToken: string, folderId: string, messages: any[], openaiApiKey: string) {
-  try {
-    const found = await findFileInBrain(accessToken, folderId, "memory.md");
-    if (!found) return;
-    const dlRes = await fetchWithTimeout(
-      `https://www.googleapis.com/drive/v3/files/${found.fileId}?alt=media`,
-      { headers: { Authorization: `Bearer ${accessToken}` } },
-      MEMORY_UPDATE_TIMEOUT_MS,
-    );
-    if (!dlRes.ok) return;
-    const currentMemory = await dlRes.text();
-    const lastMessages = messages.slice(-6);
-    const conversationSnippet = lastMessages.map((m: any) => {
-      const text = typeof m.content === "string" ? m.content : "[multimodal]";
-      return `${m.role}: ${text}`;
-    }).join("\n");
-
-    const memRes = await fetchWithTimeout(
-      OPENAI_API_URL,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${openaiApiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: "gpt-4o-mini",
-          max_tokens: 8000,
-          messages: [
-            {
-              role: "system",
-              content: `Ti si memorijski procesor za Stellana. Ažuriraj memory.md s novim saznanjima iz razgovora.
-
-KRITIČNA PRAVILA:
-- NIKAD ne briši, ne skraćuj ni ne mijenjaj postojeće sekcije osim ako razgovor eksplicitno traži promjenu
-- Zadrži SVE postojeće podatke - svaki red, svaku sekciju
-- Dodaj SAMO nova važna saznanja (ne trivijalne razgovore)
-- Ako nema ništa novo, vrati IDENTIČAN sadržaj
-- Ažuriraj "Zadnje ažuriranje" na: ${new Date().toISOString()}
-- Odgovori SAMO s kompletnim ažuriranim sadržajem memory.md, ništa drugo`,
-            },
-            {
-              role: "user",
-              content: `TRENUTNA MEMORIJA:\n${currentMemory}\n\nNOVI RAZGOVOR:\n${conversationSnippet}`,
-            },
-          ],
-        }),
-      },
-      MEMORY_UPDATE_TIMEOUT_MS,
-    );
-
-    if (!memRes.ok) return;
-    const memData = await memRes.json();
-    const updatedMemory = memData.choices?.[0]?.message?.content;
-    if (updatedMemory && isSafeMemoryReplacement(currentMemory, updatedMemory)) {
-      await uploadFileToBrain(accessToken, found.parentId, "memory.md", updatedMemory);
-    }
-  } catch (e) {
-    console.error("Memory update error:", e);
-  }
-}
 
 // ─── Tool funkcije (identične) ───────────────────────────────
 
@@ -615,6 +195,84 @@ async function scrapeWebsite(url: string): Promise<string> {
     const title = data.data?.metadata?.title || "";
     const trimmed = markdown.length > 8000 ? markdown.slice(0, 8000) + "\n\n... [skraćeno]" : markdown;
     return JSON.stringify({ success: true, title, content: trimmed, url: formattedUrl });
+  } catch (e) {
+    return JSON.stringify({ success: false, error: String(e) });
+  }
+}
+
+async function webSearch(query: string): Promise<string> {
+  try {
+    const encoded = encodeURIComponent(query);
+    // DuckDuckGo HTML search — besplatno, bez API ključa
+    const res = await fetchWithTimeout(
+      `https://html.duckduckgo.com/html/?q=${encoded}`,
+      {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+          "Accept": "text/html",
+        },
+      },
+      20000,
+    );
+    if (!res.ok) return JSON.stringify({ success: false, error: `Search error: ${res.status}` });
+    const html = await res.text();
+    
+    // Izvuci rezultate iz HTML-a
+    const results: { title: string; url: string; description: string }[] = [];
+    const resultRegex = /<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>([^<]+)<\/a>/g;
+    const snippetRegex = /<a[^>]+class="result__snippet"[^>]*>([^<]+)<\/a>/g;
+    
+    const urls: string[] = [];
+    const titles: string[] = [];
+    const snippets: string[] = [];
+    
+    let m;
+    while ((m = resultRegex.exec(html)) !== null) {
+      urls.push(m[1]);
+      titles.push(m[2].trim());
+    }
+    while ((m = snippetRegex.exec(html)) !== null) {
+      snippets.push(m[1].trim());
+    }
+    
+    // Ako regex nije pronašao ništa, pokušaj s drugim parserom
+    if (urls.length === 0) {
+      // Fallback: Brave Search API (besplatno, 2000 req/month)
+      const BRAVE_KEY = Deno.env.get("BRAVE_SEARCH_API_KEY");
+      if (BRAVE_KEY) {
+        const braveRes = await fetchWithTimeout(
+          `https://api.search.brave.com/res/v1/web/search?q=${encoded}&count=6&search_lang=hr`,
+          {
+            headers: {
+              "Accept": "application/json",
+              "Accept-Encoding": "gzip",
+              "X-Subscription-Token": BRAVE_KEY,
+            },
+          },
+          15000,
+        );
+        if (braveRes.ok) {
+          const data = await braveRes.json();
+          const webResults = (data.web?.results || []).slice(0, 6).map((r: any) => ({
+            title: r.title || "",
+            url: r.url || "",
+            description: r.description || "",
+          }));
+          return JSON.stringify({ success: true, query, results: webResults });
+        }
+      }
+      return JSON.stringify({ success: false, error: "Pretraga nije vratila rezultate. Pokušaj ponovo." });
+    }
+    
+    for (let i = 0; i < Math.min(urls.length, 6); i++) {
+      results.push({
+        title: titles[i] || "",
+        url: urls[i] || "",
+        description: snippets[i] || "",
+      });
+    }
+    
+    return JSON.stringify({ success: true, query, results });
   } catch (e) {
     return JSON.stringify({ success: false, error: String(e) });
   }
@@ -888,17 +546,35 @@ async function fillPdf(params: any): Promise<string> {
 }
 
 async function searchOss(params: any): Promise<string> {
+  // OSS blokira server-side requestove (Cloudflare) — koristimo Playwright agent
+  const AGENT_SERVER_URL = Deno.env.get("AGENT_SERVER_URL");
+  if (AGENT_SERVER_URL) {
+    try {
+      const agentResult = await callAgent("oss/search", params);
+      const parsed = JSON.parse(agentResult);
+      if (parsed.success) return agentResult;
+      // Ako agent ne uspije, fallback na edge function
+      console.log("[OSS] Agent failed, trying edge function:", parsed.error);
+    } catch (e) {
+      console.log("[OSS] Agent error, trying edge function:", e);
+    }
+  }
+
+  // Fallback: direktni API (radi samo bez Cloudflare)
   try {
     const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-    const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
+    const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const res = await fetchWithTimeout(
       `${SUPABASE_URL}/functions/v1/search-oss`,
       {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${SUPABASE_ANON_KEY}` },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
+        },
         body: JSON.stringify(params),
       },
-      60000,
+      90000,
     );
     if (!res.ok) return JSON.stringify({ success: false, error: `OSS error: ${res.status}` });
     return await res.text();
@@ -981,38 +657,83 @@ async function searchGmail(query: string): Promise<string> {
   }
 }
 
-async function searchSolo(params: { tip?: string; stranica?: number }): Promise<string> {
-  const SOLO_API_TOKEN = Deno.env.get("SOLO_API_TOKEN");
+async function searchSolo(params: { tip?: string; stranica?: number; query?: string }): Promise<string> {
+  const SOLO_API_TOKEN = Deno.env.get("SOLO_API_TOKEN") || Deno.env.get("SOLO_API_KEY");
   if (!SOLO_API_TOKEN) return JSON.stringify({ success: false, error: "Solo API token nije konfiguriran" });
+
+  const query = (params.query || "").toLowerCase().trim();
+
+  async function fetchSoloEndpoint(endpoint: string, label: string): Promise<any> {
+    try {
+      const urlParams = new URLSearchParams({ token: SOLO_API_TOKEN! });
+      if (params.stranica) urlParams.set("stranica", String(params.stranica));
+      const res = await fetchWithTimeout(
+        `https://api.solo.com.hr/${endpoint}?${urlParams.toString()}`,
+        { method: "GET" },
+        15000,
+      );
+      if (!res.ok) return { success: false, error: `${label}: HTTP ${res.status}` };
+      const data = await res.json();
+      if (data.status !== 0) return { success: false, error: data.message || `${label} greška` };
+
+      const items = data.racuni || data.ponude || data.nalozi ||
+        (data.racun ? [data.racun] : data.ponuda ? [data.ponuda] : data.nalog ? [data.nalog] : []);
+
+      let filtered = items;
+      if (query) {
+        filtered = items.filter((item: any) => {
+          const searchable = [
+            item.kupac_naziv, item.broj_racuna, item.broj_ponude, item.broj_naloga,
+            item.napomena, item.opis, item.kupac_oib,
+          ].filter(Boolean).join(" ").toLowerCase();
+          return searchable.includes(query);
+        });
+      }
+
+      return {
+        success: true,
+        tip: label,
+        items: filtered.slice(0, 15).map((item: any) => ({
+          id: item.id,
+          broj: item.broj_racuna || item.broj_ponude || item.broj_naloga || "",
+          kupac: item.kupac_naziv || "",
+          oib: item.kupac_oib || "",
+          datum: item.datum_racuna || item.datum_ponude || item.datum_naloga || "",
+          ukupno: item.ukupno || "",
+          status: item.status_racuna || item.status_ponude || item.status_naloga || "",
+          fiskaliziran: item.fiskaliziran || "",
+          napomena: item.napomena || item.opis || "",
+        })),
+        total: filtered.length,
+        total_all: items.length,
+      };
+    } catch (e) {
+      return { success: false, error: `${label}: ${String(e)}` };
+    }
+  }
+
   try {
-    const tip = params.tip || "racun"; // "racun" or "ponuda"
-    const endpoint = tip === "ponuda" ? "ponuda" : "racun";
-    const urlParams = new URLSearchParams({ token: SOLO_API_TOKEN });
-    if (params.stranica) urlParams.set("stranica", String(params.stranica));
+    const tip = (params.tip || "").toLowerCase();
 
-    const res = await fetchWithTimeout(
-      `https://api.solo.com.hr/${endpoint}?${urlParams.toString()}`,
-      { method: "GET" },
-      15000,
-    );
-    if (!res.ok) return JSON.stringify({ success: false, error: `Solo API error: ${res.status}` });
-    const data = await res.json();
-    if (data.status !== 0) return JSON.stringify({ success: false, error: data.message || "Solo API greška" });
+    // Ako je zadan specifičan tip, traži samo njega
+    if (tip === "racun") return JSON.stringify(await fetchSoloEndpoint("racun", "Računi"));
+    if (tip === "ponuda") return JSON.stringify(await fetchSoloEndpoint("ponuda", "Ponude"));
+    if (tip === "radni_nalog" || tip === "nalog") return JSON.stringify(await fetchSoloEndpoint("radni-nalog", "Radni nalozi"));
 
-    // Parse response
-    const items = data.racuni || data.ponude || (data.racun ? [data.racun] : data.ponuda ? [data.ponuda] : []);
-    const mapped = items.slice(0, 20).map((item: any) => ({
-      id: item.id,
-      broj: item.broj_racuna || item.broj_ponude || "",
-      kupac: item.kupac_naziv || "",
-      oib: item.kupac_oib || "",
-      datum: item.datum_racuna || item.datum_ponude || "",
-      ukupno: item.ukupno || "",
-      status: item.status_racuna || item.status_ponude || "",
-      fiskaliziran: item.fiskaliziran || "",
-      napomena: item.napomena || "",
-    }));
-    return JSON.stringify({ success: true, tip: endpoint, items: mapped, total: items.length });
+    // Inače traži SVE tipove
+    const [racuni, ponude, nalozi] = await Promise.all([
+      fetchSoloEndpoint("racun", "Računi"),
+      fetchSoloEndpoint("ponuda", "Ponude"),
+      fetchSoloEndpoint("radni-nalog", "Radni nalozi"),
+    ]);
+
+    return JSON.stringify({
+      success: true,
+      racuni: racuni.success ? racuni : { error: racuni.error },
+      ponude: ponude.success ? ponude : { error: ponude.error },
+      radni_nalozi: nalozi.success ? nalozi : { error: nalozi.error },
+      query: query || undefined,
+    });
   } catch (e) {
     return JSON.stringify({ success: false, error: String(e) });
   }
@@ -1445,6 +1166,588 @@ function shouldEnableDriveTools(messages: any[]): boolean {
 //  OPENAI TOOL DEFINITIONS (function calling format)
 // ─────────────────────────────────────────────────────────────
 
+// ─────────────────────────────────────────────────────────────
+//  STELLAN SELF-AWARENESS — dynamic tools, knowledge, DB inspect
+// ─────────────────────────────────────────────────────────────
+
+async function loadStellanKnowledge(supabaseAdmin: any): Promise<string> {
+  try {
+    const { data } = await supabaseAdmin
+      .from("stellan_knowledge")
+      .select("title, category")
+      .order("category");
+    if (!data?.length) return "";
+    // Samo indeks znanja — puni sadržaj se dohvaća kroz search_knowledge tool
+    const byCategory: Record<string, string[]> = {};
+    for (const k of data) {
+      const cat = k.category || "general";
+      if (!byCategory[cat]) byCategory[cat] = [];
+      byCategory[cat].push(k.title);
+    }
+    let out = "Imaš spremljeno znanje o ovim temama (koristi search_knowledge za detalje):\n";
+    for (const [cat, titles] of Object.entries(byCategory)) {
+      out += `- **${cat}**: ${titles.join(", ")}\n`;
+    }
+    return out;
+  } catch { return ""; }
+}
+
+async function loadStellanToolsRegistry(supabaseAdmin: any): Promise<string> {
+  try {
+    const { data } = await supabaseAdmin
+      .from("stellan_tools")
+      .select("name, description, category, enabled")
+      .eq("auto_load", true)
+      .order("category");
+    if (!data?.length) return "";
+    const byCategory: Record<string, any[]> = {};
+    for (const t of data) {
+      const cat = t.category || "general";
+      if (!byCategory[cat]) byCategory[cat] = [];
+      byCategory[cat].push(t);
+    }
+    let out = "";
+    for (const [cat, tools] of Object.entries(byCategory)) {
+      out += `\n### ${cat.toUpperCase()}\n`;
+      for (const t of tools) {
+        out += `- ${t.name} ${t.enabled ? "" : "(DISABLED)"} — ${t.description}\n`;
+      }
+    }
+    return out;
+  } catch { return ""; }
+}
+
+async function dbInspect(supabaseAdmin: any, args: any): Promise<string> {
+  try {
+    const table = args.table || "";
+    if (!table) {
+      return JSON.stringify({ success: true, tables: [
+        "Profiles","activity_log","archived_boards","archived_cards","archived_columns",
+        "attachments","boards","calendar_events","card_labels","cards","chat_conversations",
+        "chat_messages","columns","comments","company_settings","contact_submissions",
+        "google_brain_tokens","google_tokens","invitations","invoice_items","invoices",
+        "labels","oauth_nonces","profiles","push_subscriptions","quote_items","quotes",
+        "sdge_notifications","stellan_memory","stellan_tools","stellan_knowledge",
+        "token_usage","user_api_keys","user_roles","user_tab_permissions",
+        "work_order_items","work_orders","workspace_items"
+      ]});
+    }
+    // Inspect specific table — get first 3 rows to see structure
+    const { data: sample, error } = await supabaseAdmin
+      .from(table)
+      .select("*")
+      .limit(3);
+    if (error) return JSON.stringify({ success: false, error: error.message });
+    const columns = sample && sample.length > 0 ? Object.keys(sample[0]) : [];
+    const { count } = await supabaseAdmin.from(table).select("*", { count: "exact", head: true });
+    return JSON.stringify({
+      success: true,
+      table,
+      columns,
+      row_count: count,
+      sample: sample?.map((row: any) => {
+        const cleaned: any = {};
+        for (const [k, v] of Object.entries(row)) {
+          const val = typeof v === "string" && v.length > 200 ? v.substring(0, 200) + "..." : v;
+          cleaned[k] = val;
+        }
+        return cleaned;
+      }),
+    });
+  } catch (e) {
+    return JSON.stringify({ success: false, error: String(e) });
+  }
+}
+
+async function registerTool(supabaseAdmin: any, args: any): Promise<string> {
+  try {
+    const { name, description, category, edge_function, parameters } = args;
+    if (!name || !description) {
+      return JSON.stringify({ success: false, error: "name i description su obavezni" });
+    }
+    const { data, error } = await supabaseAdmin
+      .from("stellan_tools")
+      .upsert({
+        name,
+        description,
+        category: category || "custom",
+        edge_function: edge_function || null,
+        parameters: parameters || {},
+        enabled: true,
+        auto_load: true,
+        created_by: "stellan",
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "name" })
+      .select()
+      .single();
+    if (error) return JSON.stringify({ success: false, error: error.message });
+    return JSON.stringify({ success: true, message: `Tool '${name}' registriran.`, tool: data });
+  } catch (e) {
+    return JSON.stringify({ success: false, error: String(e) });
+  }
+}
+
+async function saveKnowledge(supabaseAdmin: any, args: any): Promise<string> {
+  try {
+    const { title, content, category, tags } = args;
+    if (!title || !content) {
+      return JSON.stringify({ success: false, error: "title i content su obavezni" });
+    }
+    // Upsert by title
+    const { data: existing } = await supabaseAdmin
+      .from("stellan_knowledge")
+      .select("id")
+      .eq("title", title)
+      .limit(1);
+    
+    if (existing && existing.length > 0) {
+      const { error } = await supabaseAdmin
+        .from("stellan_knowledge")
+        .update({
+          content,
+          category: category || "general",
+          tags: tags || [],
+          created_by: "stellan",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", existing[0].id);
+      if (error) return JSON.stringify({ success: false, error: error.message });
+      return JSON.stringify({ success: true, message: `Znanje '${title}' ažurirano.`, action: "updated" });
+    }
+
+    const { error } = await supabaseAdmin
+      .from("stellan_knowledge")
+      .insert({
+        title,
+        content,
+        category: category || "general",
+        tags: tags || [],
+        created_by: "stellan",
+      });
+    if (error) return JSON.stringify({ success: false, error: error.message });
+    return JSON.stringify({ success: true, message: `Znanje '${title}' spremljeno.`, action: "created" });
+  } catch (e) {
+    return JSON.stringify({ success: false, error: String(e) });
+  }
+}
+
+async function searchKnowledge(supabaseAdmin: any, query: string): Promise<string> {
+  try {
+    const { data } = await supabaseAdmin
+      .from("stellan_knowledge")
+      .select("title, category, content, tags")
+      .or(`title.ilike.%${query}%,content.ilike.%${query}%,category.ilike.%${query}%`)
+      .limit(5);
+    if (!data?.length) return JSON.stringify({ success: true, results: [], message: "Nema rezultata." });
+    return JSON.stringify({ success: true, results: data.map((k: any) => ({ title: k.title, category: k.category, content: k.content.substring(0, 500) + (k.content.length > 500 ? "..." : ""), tags: k.tags })) });
+  } catch (e) {
+    return JSON.stringify({ success: false, error: String(e) });
+  }
+}
+
+async function dbQuery(supabaseAdmin: any, args: any): Promise<string> {
+  try {
+    const { table, select, filter, limit: rowLimit } = args;
+    if (!table) return JSON.stringify({ success: false, error: "table je obavezan" });
+    let query = supabaseAdmin.from(table).select(select || "*");
+    if (filter) {
+      for (const [key, value] of Object.entries(filter)) {
+        query = query.eq(key, value);
+      }
+    }
+    query = query.limit(rowLimit || 20);
+    const { data, error } = await query;
+    if (error) return JSON.stringify({ success: false, error: error.message });
+    return JSON.stringify({ success: true, table, count: data?.length || 0, data });
+  } catch (e) {
+    return JSON.stringify({ success: false, error: String(e) });
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+//  GENERATE FILE — spremi datoteku u Storage za download
+// ─────────────────────────────────────────────────────────────
+
+async function generateFile(supabaseAdmin: any, userId: string, args: any): Promise<string> {
+  try {
+    const { filename, content, content_type } = args;
+    if (!filename || !content) {
+      return JSON.stringify({ success: false, error: "filename i content su obavezni" });
+    }
+    // Reject placeholder/description content for code files
+    const codeExts = [".ts",".tsx",".js",".jsx",".py",".html",".css",".json",".sql",".sh",".bat"];
+    const isCodeFile = codeExts.some(ext => filename.toLowerCase().endsWith(ext));
+    if (isCodeFile && content.length < 100 && (content.startsWith("[") || content.startsWith("(") || content.includes("kompletan") || content.includes("cijela datoteka"))) {
+      return JSON.stringify({ success: false, error: `GREŠKA: content sadrži OPIS datoteke umjesto STVARNOG KODA. Moraš napisati KOMPLETNI izvorni kod za ${filename}, ne opisivati što bi trebalo biti unutra. Napiši svaki red koda.` });
+    }
+    const mime = content_type || (
+      filename.endsWith(".lsp") ? "text/plain" :
+      filename.endsWith(".gml") ? "application/gml+xml" :
+      filename.endsWith(".geojson") ? "application/geo+json" :
+      filename.endsWith(".kml") ? "application/vnd.google-earth.kml+xml" :
+      filename.endsWith(".csv") ? "text/csv" :
+      filename.endsWith(".json") ? "application/json" :
+      filename.endsWith(".xml") ? "application/xml" :
+      filename.endsWith(".txt") ? "text/plain" :
+      "application/octet-stream"
+    );
+    const path = `files/${userId}/${Date.now()}_${filename}`;
+    const encoder = new TextEncoder();
+    const bytes = encoder.encode(content);
+    const { data, error } = await supabaseAdmin.storage
+      .from("screenshots")
+      .upload(path, bytes, { contentType: mime, upsert: true });
+    if (error) return JSON.stringify({ success: false, error: error.message });
+    const { data: urlData } = supabaseAdmin.storage.from("screenshots").getPublicUrl(path);
+    const url = urlData?.publicUrl || "";
+    return JSON.stringify({
+      success: true,
+      filename,
+      url,
+      size: bytes.length,
+      message: `Datoteka '${filename}' spremljena (${(bytes.length / 1024).toFixed(1)} KB).`,
+      _instruction: "Download gumb je automatski prikazan korisniku. NE piši link ni URL u odgovoru.",
+    });
+  } catch (e) {
+    return JSON.stringify({ success: false, error: String(e) });
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+//  GENERATE ZIP — spakuj više datoteka u ZIP za download
+// ─────────────────────────────────────────────────────────────
+
+async function generateZip(supabaseAdmin: any, userId: string, args: any): Promise<string> {
+  try {
+    const { zip_filename, files } = args;
+    if (!zip_filename || !files || !Array.isArray(files) || files.length === 0) {
+      return JSON.stringify({ success: false, error: "zip_filename i files (array) su obavezni" });
+    }
+
+    const zipData: Record<string, Uint8Array> = {};
+    const codeExts = [".ts",".tsx",".js",".jsx",".py",".html",".css",".json",".sql",".sh",".bat"];
+    for (const f of files) {
+      if (f.filename && f.content) {
+        const isCodeFile = codeExts.some(ext => f.filename.toLowerCase().endsWith(ext));
+        if (isCodeFile && f.content.length < 100 && (f.content.startsWith("[") || f.content.startsWith("(") || f.content.includes("kompletan") || f.content.includes("cijela"))) {
+          return JSON.stringify({ success: false, error: `GREŠKA: Datoteka '${f.filename}' sadrži OPIS umjesto STVARNOG KODA. content mora biti KOMPLETNI izvorni kod — svaki import, svaka funkcija, svaki export. Ne opisuj kod, NAPIŠI ga.` });
+        }
+        zipData[f.filename] = strToU8(f.content);
+      }
+    }
+
+    if (Object.keys(zipData).length === 0) {
+      return JSON.stringify({ success: false, error: "Nema validnih datoteka za zip" });
+    }
+
+    const zipped = zipSync(zipData, { level: 6 });
+    const path = `files/${userId}/${Date.now()}_${zip_filename}`;
+
+    const { data, error } = await supabaseAdmin.storage
+      .from("screenshots")
+      .upload(path, zipped, { contentType: "application/zip", upsert: true });
+
+    if (error) return JSON.stringify({ success: false, error: error.message });
+
+    const { data: urlData } = supabaseAdmin.storage.from("screenshots").getPublicUrl(path);
+    const url = urlData?.publicUrl || "";
+
+    return JSON.stringify({
+      success: true,
+      filename: zip_filename,
+      url,
+      size: zipped.length,
+      file_count: Object.keys(zipData).length,
+      message: `ZIP '${zip_filename}' (${Object.keys(zipData).length} datoteka, ${(zipped.length / 1024).toFixed(1)} KB).`,
+      _instruction: "Download gumb je automatski prikazan korisniku. NE piši link ni URL u odgovoru.",
+    });
+  } catch (e) {
+    return JSON.stringify({ success: false, error: String(e) });
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+//  PARSE GML — izvuci podatke iz GML stringa
+// ─────────────────────────────────────────────────────────────
+
+function parseGml(args: any): string {
+  try {
+    const gml = args.gml_content || "";
+    if (!gml) return JSON.stringify({ success: false, error: "gml_content je obavezan" });
+
+    const parcels: any[] = [];
+    const points: any[] = [];
+
+    // Izvuci čestice
+    const parcelRegex = /<(?:\w+:)?KatastarskaCestica[^>]*gml:id="([^"]*)"[^>]*>([\s\S]*?)<\/(?:\w+:)?KatastarskaCestica>/g;
+    let pm;
+    while ((pm = parcelRegex.exec(gml)) !== null) {
+      const block = pm[2];
+      const num = block.match(/<(?:\w+:)?brojCestice>([^<]+)/)?.[1] || "";
+      const area = block.match(/<(?:\w+:)?povrsina>([^<]+)/)?.[1] || "";
+      const koId = block.match(/<(?:\w+:)?katOpcinaId>([^<]+)/)?.[1] || "";
+
+      // Izvuci koordinate iz posList
+      const posListMatch = block.match(/<gml:posList[^>]*>([^<]+)/);
+      let coords: number[][] = [];
+      if (posListMatch) {
+        const nums = posListMatch[1].trim().split(/\s+/).map(Number);
+        for (let i = 0; i < nums.length - 1; i += 2) {
+          coords.push([nums[i], nums[i + 1]]);
+        }
+      }
+
+      parcels.push({
+        id: pm[1],
+        brojCestice: num,
+        povrsina: area ? parseFloat(area) : null,
+        katOpcinaId: koId,
+        coordinates: coords,
+        numPoints: coords.length,
+      });
+    }
+
+    // Izvuci točke (MedjasnaTocka)
+    const pointRegex = /<(?:\w+:)?MedjasnaTocka[^>]*>([\s\S]*?)<\/(?:\w+:)?MedjasnaTocka>/g;
+    let ptm;
+    while ((ptm = pointRegex.exec(gml)) !== null) {
+      const block = ptm[1];
+      const posMatch = block.match(/<gml:pos[^>]*>([^<]+)/);
+      if (posMatch) {
+        const [e, n] = posMatch[1].trim().split(/\s+/).map(Number);
+        const id = block.match(/gml:id="([^"]*)"/)?.[1] || "";
+        const br = block.match(/<(?:\w+:)?brojTocke>([^<]+)/)?.[1] || "";
+        points.push({ id, brojTocke: br, easting: e, northing: n });
+      }
+    }
+
+    // Izvuci srsName
+    const srsMatch = gml.match(/srsName="([^"]+)"/);
+    const srs = srsMatch ? srsMatch[1] : "nepoznat";
+
+    return JSON.stringify({
+      success: true,
+      srs,
+      parcels,
+      points,
+      total_parcels: parcels.length,
+      total_points: points.length,
+    });
+  } catch (e) {
+    return JSON.stringify({ success: false, error: String(e) });
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+//  GENERATE GML — generiraj GML iz podataka
+// ─────────────────────────────────────────────────────────────
+
+function generateGml(args: any): string {
+  try {
+    const { parcels, srs = "EPSG:3765", ko_id = "" } = args;
+    if (!parcels || !Array.isArray(parcels) || parcels.length === 0) {
+      return JSON.stringify({ success: false, error: "parcels je obavezan (array s coordinates)" });
+    }
+
+    let gml = `<?xml version="1.0" encoding="UTF-8"?>\n`;
+    gml += `<gml:FeatureCollection xmlns:gml="http://www.opengis.net/gml/3.2"\n`;
+    gml += `    xmlns:hr="http://www.dgu.hr/schemas/elaborate">\n`;
+
+    for (let i = 0; i < parcels.length; i++) {
+      const p = parcels[i];
+      const coords = p.coordinates || [];
+      const num = p.brojCestice || p.number || `${i + 1}`;
+      const area = p.povrsina || p.area || 0;
+      const koIdVal = p.katOpcinaId || ko_id;
+
+      gml += `  <gml:featureMember>\n`;
+      gml += `    <hr:KatastarskaCestica gml:id="cestica.${i + 1}">\n`;
+      gml += `      <hr:brojCestice>${num}</hr:brojCestice>\n`;
+      if (koIdVal) gml += `      <hr:katOpcinaId>${koIdVal}</hr:katOpcinaId>\n`;
+      if (area) gml += `      <hr:povrsina>${area}</hr:povrsina>\n`;
+
+      if (coords.length > 0) {
+        gml += `      <hr:geometrija>\n`;
+        gml += `        <gml:Polygon srsName="${srs}">\n`;
+        gml += `          <gml:exterior>\n`;
+        gml += `            <gml:LinearRing>\n`;
+        gml += `              <gml:posList>\n`;
+
+        const posCoords = coords.map((c: number[]) => `                ${c[0]} ${c[1]}`).join("\n");
+        gml += posCoords + "\n";
+
+        // Zatvori poligon ako nije zatvoren
+        if (coords.length > 0 && (coords[0][0] !== coords[coords.length - 1][0] || coords[0][1] !== coords[coords.length - 1][1])) {
+          gml += `                ${coords[0][0]} ${coords[0][1]}\n`;
+        }
+
+        gml += `              </gml:posList>\n`;
+        gml += `            </gml:LinearRing>\n`;
+        gml += `          </gml:exterior>\n`;
+        gml += `        </gml:Polygon>\n`;
+        gml += `      </hr:geometrija>\n`;
+      }
+
+      gml += `    </hr:KatastarskaCestica>\n`;
+      gml += `  </gml:featureMember>\n`;
+    }
+
+    gml += `</gml:FeatureCollection>\n`;
+
+    return JSON.stringify({
+      success: true,
+      gml_content: gml,
+      parcels_count: parcels.length,
+      srs,
+      message: `GML generiran s ${parcels.length} čestica u ${srs}`,
+    });
+  } catch (e) {
+    return JSON.stringify({ success: false, error: String(e) });
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+//  CONVERT COORDINATES — WGS84 ↔ HTRS96/TM (EPSG:3765)
+// ─────────────────────────────────────────────────────────────
+
+function convertCoordinates(args: any): string {
+  try {
+    const { coordinates, from_srs, to_srs } = args;
+    if (!coordinates || !Array.isArray(coordinates) || coordinates.length === 0) {
+      return JSON.stringify({ success: false, error: "coordinates je obavezan (array of [x, y] ili [lon, lat])" });
+    }
+    const fromSrs = (from_srs || "").toUpperCase();
+    const toSrs = (to_srs || "").toUpperCase();
+
+    if (!fromSrs || !toSrs) {
+      return JSON.stringify({ success: false, error: "from_srs i to_srs su obavezni (npr. 'WGS84' ili 'HTRS96')" });
+    }
+
+    // GRS80 ellipsoid parameters (used by HTRS96)
+    const a = 6378137.0;
+    const f = 1 / 298.257222101;
+    const b = a * (1 - f);
+    const e2 = (a * a - b * b) / (a * a);
+    const e_prime2 = (a * a - b * b) / (b * b);
+
+    // HTRS96/TM parameters (EPSG:3765)
+    const lon0 = 16.5 * Math.PI / 180; // central meridian 16.5°
+    const k0 = 0.9999;
+    const FE = 500000; // false easting
+    const FN = 0; // false northing
+
+    function degToRad(d: number) { return d * Math.PI / 180; }
+    function radToDeg(r: number) { return r * 180 / Math.PI; }
+
+    // WGS84 → HTRS96/TM
+    function toTM(lon: number, lat: number): [number, number] {
+      const phi = degToRad(lat);
+      const lambda = degToRad(lon);
+      const dLambda = lambda - lon0;
+
+      const N = a / Math.sqrt(1 - e2 * Math.sin(phi) * Math.sin(phi));
+      const T = Math.tan(phi) * Math.tan(phi);
+      const C = e_prime2 * Math.cos(phi) * Math.cos(phi);
+      const A = Math.cos(phi) * dLambda;
+
+      // Meridian arc
+      const e4 = e2 * e2;
+      const e6 = e4 * e2;
+      const M = a * (
+        (1 - e2 / 4 - 3 * e4 / 64 - 5 * e6 / 256) * phi
+        - (3 * e2 / 8 + 3 * e4 / 32 + 45 * e6 / 1024) * Math.sin(2 * phi)
+        + (15 * e4 / 256 + 45 * e6 / 1024) * Math.sin(4 * phi)
+        - (35 * e6 / 3072) * Math.sin(6 * phi)
+      );
+
+      const easting = FE + k0 * N * (
+        A + (1 - T + C) * A * A * A / 6
+        + (5 - 18 * T + T * T + 72 * C - 58 * e_prime2) * A * A * A * A * A / 120
+      );
+
+      const northing = FN + k0 * (
+        M + N * Math.tan(phi) * (
+          A * A / 2
+          + (5 - T + 9 * C + 4 * C * C) * A * A * A * A / 24
+          + (61 - 58 * T + T * T + 600 * C - 330 * e_prime2) * A * A * A * A * A * A / 720
+        )
+      );
+
+      return [Math.round(easting * 100) / 100, Math.round(northing * 100) / 100];
+    }
+
+    // HTRS96/TM → WGS84
+    function fromTM(easting: number, northing: number): [number, number] {
+      const x = easting - FE;
+      const y = northing - FN;
+
+      const M0 = y / k0;
+      const mu = M0 / (a * (1 - e2 / 4 - 3 * e2 * e2 / 64 - 5 * e2 * e2 * e2 / 256));
+
+      const e1 = (1 - Math.sqrt(1 - e2)) / (1 + Math.sqrt(1 - e2));
+      const phi1 = mu
+        + (3 * e1 / 2 - 27 * e1 * e1 * e1 / 32) * Math.sin(2 * mu)
+        + (21 * e1 * e1 / 16 - 55 * e1 * e1 * e1 * e1 / 32) * Math.sin(4 * mu)
+        + (151 * e1 * e1 * e1 / 96) * Math.sin(6 * mu);
+
+      const N1 = a / Math.sqrt(1 - e2 * Math.sin(phi1) * Math.sin(phi1));
+      const T1 = Math.tan(phi1) * Math.tan(phi1);
+      const C1 = e_prime2 * Math.cos(phi1) * Math.cos(phi1);
+      const R1 = a * (1 - e2) / Math.pow(1 - e2 * Math.sin(phi1) * Math.sin(phi1), 1.5);
+      const D = x / (N1 * k0);
+
+      const lat = phi1 - (N1 * Math.tan(phi1) / R1) * (
+        D * D / 2
+        - (5 + 3 * T1 + 10 * C1 - 4 * C1 * C1 - 9 * e_prime2) * D * D * D * D / 24
+        + (61 + 90 * T1 + 298 * C1 + 45 * T1 * T1 - 252 * e_prime2 - 3 * C1 * C1) * D * D * D * D * D * D / 720
+      );
+
+      const lon = lon0 + (
+        D - (1 + 2 * T1 + C1) * D * D * D / 6
+        + (5 - 2 * C1 + 28 * T1 - 3 * C1 * C1 + 8 * e_prime2 + 24 * T1 * T1) * D * D * D * D * D / 120
+      ) / Math.cos(phi1);
+
+      return [
+        Math.round(radToDeg(lon) * 1000000) / 1000000,
+        Math.round(radToDeg(lat) * 1000000) / 1000000,
+      ];
+    }
+
+    const converted: any[] = [];
+    const isToTM = (fromSrs.includes("WGS") || fromSrs.includes("4326")) && (toSrs.includes("HTRS") || toSrs.includes("3765"));
+    const isFromTM = (fromSrs.includes("HTRS") || fromSrs.includes("3765")) && (toSrs.includes("WGS") || toSrs.includes("4326"));
+
+    if (!isToTM && !isFromTM) {
+      return JSON.stringify({
+        success: false,
+        error: `Konverzija ${fromSrs} → ${toSrs} nije podržana. Podržano: WGS84/EPSG:4326 ↔ HTRS96/EPSG:3765`,
+      });
+    }
+
+    for (const coord of coordinates) {
+      const [x, y] = Array.isArray(coord) ? coord : [coord.x || coord.lon || coord.easting, coord.y || coord.lat || coord.northing];
+      if (isToTM) {
+        const [e, n] = toTM(x, y);
+        converted.push({ input: { lon: x, lat: y }, output: { easting: e, northing: n } });
+      } else {
+        const [lon, lat] = fromTM(x, y);
+        converted.push({ input: { easting: x, northing: y }, output: { lon, lat } });
+      }
+    }
+
+    return JSON.stringify({
+      success: true,
+      from: fromSrs,
+      to: toSrs,
+      count: converted.length,
+      converted,
+      message: `Konvertirano ${converted.length} točaka iz ${fromSrs} u ${toSrs}`,
+    });
+  } catch (e) {
+    return JSON.stringify({ success: false, error: String(e) });
+  }
+}
+
 function buildTools(opts: {
   enableDriveTools: boolean;
   hasTrello: boolean;
@@ -1521,6 +1824,17 @@ function buildTools(opts: {
       properties: { query: { type: "string" } },
       required: ["query"],
     }));
+
+  // Internet je sada built-in preko OpenAI Responses web_search alata.
+  // Ali za Grok/Claude/Gemini trebamo eksplicitni tool:
+  tools.push(fn("search_internet", "Pretraži internet/web za informacije, novosti, proizvode, cijene, dokumentaciju, tutoriale, i bilo što drugo. UVIJEK koristi kad korisnik pita o nečemu što nije u internim izvorima (SDGE, Trello, Drive). Koristi za: novosti, proizvode, tehnologije, cijene, vremenske prognoze, sportske rezultate, općenito znanje.", {
+    type: "object",
+    properties: {
+      query: { type: "string", description: "Pojam za pretragu na internetu (na engleskom ili hrvatskom)" },
+    },
+    required: ["query"],
+  }));
+
   if (opts.hasFirecrawl)
     tools.push(fn("scrape_website", "Dohvati sadržaj web stranice po URL-u.", {
       type: "object",
@@ -1558,17 +1872,12 @@ function buildTools(opts: {
       properties: { broj_predmeta: { type: "string" } },
       required: ["broj_predmeta"],
     }),
-    fn("sdge_povratnice", "Dohvati popis povratnica iz SDGE-a.", {
+    fn("sdge_povratnice", "Dohvati povratnice (otprema/dostava) za SDGE predmet. Koristi kad korisnik pita za povratnice, otpremu, dostavu za neki predmet.", {
       type: "object",
       properties: {
-        broj_predmeta: { type: "string" },
-        interni_broj: { type: "string" },
-        max_pages: { type: "number" },
-        discover_only: { type: "boolean" },
-        tab_sheet_id: { type: "string" },
-        tab_index: { type: "string" },
-        pager_next_id: { type: "string" },
-        data_communicator_id: { type: "string" },
+        broj_predmeta: { type: "string", description: "Broj predmeta u formatu 'X/YYYY' (npr. '3/2026')" },
+        redni_broj: { type: "string", description: "Redni broj predmeta (npr. '3')" },
+        godina: { type: "string", description: "Godina (npr. '2026')" },
       },
     }),
     fn("search_geoterra_app", "Pretraži GeoTerra aplikaciju (Kanban ploče i kartice).", {
@@ -1596,9 +1905,15 @@ function buildTools(opts: {
       },
       required: ["card_id"],
     }),
-    fn("search_oss", "Pretraži OSS portal (oss.uredjenazemlja.hr) za katastarske čestice i ZK izvadke.", {
+    fn("search_oss", "Pretraži OSS portal (oss.uredjenazemlja.hr). Modovi: 'search' za pretragu čestice, 'details' za detalje, 'owners' za vlasnike, 'land_registry' za ZK uložak, 'download' za PDF. Kad dobiješ parcel_id iz pretrage, koristi ga za ostale modove.", {
       type: "object",
-      properties: { cestica: { type: "string" }, katastarska_opcina: { type: "string" } },
+      properties: {
+        cestica: { type: "string", description: "Broj čestice (npr. '1234' ili '1234/2')" },
+        katastarska_opcina: { type: "string", description: "Naziv katastarske općine (npr. 'Zagreb', 'Trnje')" },
+        mode: { type: "string", enum: ["search", "details", "owners", "land_registry", "download"], description: "Mod pretrage. Default: search" },
+        parcel_id: { type: "string", description: "ID čestice iz prethodne pretrage (za details/owners/land_registry/download)" },
+        doc_type: { type: "string", enum: ["posjedovni_list", "kopija_plana", "zk_izvadak"], description: "Tip dokumenta za download" },
+      },
     }),
     fn("lookup_oib", "Provjeri podatke o tvrtki ili osobi po OIB-u.", {
       type: "object",
@@ -1610,11 +1925,12 @@ function buildTools(opts: {
       properties: { query: { type: "string", description: "Gmail search query" } },
       required: ["query"],
     }),
-    fn("search_solo", "Pretraži Solo.com.hr račune ili ponude. Solo je servis za fakturiranje.", {
+    fn("search_solo", "Pretraži Solo.com.hr — račune, ponude i radne naloge. Bez tipa pretražuje SVE. Koristi query za filtriranje po kupcu ili broju.", {
       type: "object",
       properties: {
-        tip: { type: "string", enum: ["racun", "ponuda"], description: "Tip dokumenta: 'racun' ili 'ponuda'" },
-        stranica: { type: "number", description: "Broj stranice (1000 rezultata po stranici)" },
+        tip: { type: "string", enum: ["racun", "ponuda", "radni_nalog"], description: "Tip dokumenta. Prazno = pretražuj sve tipove." },
+        query: { type: "string", description: "Filtar po kupcu, broju, ili opisu (npr. 'Pogačić')" },
+        stranica: { type: "number", description: "Broj stranice" },
       },
     }),
     fn("fill_zahtjev", "Ispuni obrazac Zahtjev za izdavanje potvrde.", {
@@ -1633,6 +1949,22 @@ function buildTools(opts: {
         kontakt: { type: "string" },
         description: { type: "string" },
       },
+    }),
+    fn("search_ideas", "Pretraži sve Stellanove spremljene ideje. Koristi kad korisnik pita 'koje ideje imam', 'što smo planirali', 'sjeti me ideja'.", {
+      type: "object",
+      properties: { query: { type: "string", description: "Opcionalni filter (ostavi prazno za sve ideje)" } },
+    }),
+    fn("search_memory", "Semantički pretraži Stellanovu memoriju. Koristi za 'što znamo o X', 'sjeti me', 'što smo pričali o'.", {
+      type: "object",
+      properties: { 
+        query: { type: "string", description: "Što tražiš u memoriji" },
+        memory_type: { type: "string", description: "Opcionalni filter: conversation, idea, fact, decision, person, daily_summary" }
+      },
+      required: ["query"],
+    }),
+    fn("get_proactive_suggestions", "Daj proaktivne prijedloge — nedovršene ideje, stare dogovore, što treba pratiti. Koristi kad korisnik pita 'što sam zaboravio', 'što treba napraviti', 'što sam planirao'.", {
+      type: "object",
+      properties: {},
     }),
     fn("fill_pdf", "Ispuni PDF obrazac s form poljima.", {
       type: "object",
@@ -1703,8 +2035,127 @@ function buildTools(opts: {
         },
         required: ["action"],
       }),
+      // Recording tools
+      fn("start_recording", "Pokreni snimanje Playwright akcija. Koristi kad korisnik kaže 'snimi', 'uči', 'zapamti korake'.", {
+        type: "object",
+        properties: { name: { type: "string", description: "Ime akcije koja se snima" } },
+        required: ["name"],
+      }),
+      fn("stop_recording", "Zaustavi snimanje bez spremanja.", { type: "object", properties: {} }),
+      fn("save_action", "Spremi snimljene korake kao Python skriptu. Pozovi nakon što je korisnik završio s koracima.", {
+        type: "object",
+        properties: { name: { type: "string", description: "Ime akcije za spremanje" } },
+        required: ["name"],
+      }),
+      fn("list_actions", "Prikaži sve snimljene/naučene akcije.", { type: "object", properties: {} }),
+      fn("run_action", "Pokreni naučenu akciju po imenu.", {
+        type: "object",
+        properties: { name: { type: "string", description: "Ime akcije za pokretanje" } },
+        required: ["name"],
+      }),
     );
   }
+
+  // ── Stellan Self-Awareness Tools ──────────────────────────
+  tools.push(
+    fn("db_inspect", "Pregledaj strukturu tablice u bazi (stupci, broj redova, primjeri podataka). Bez argumenta daje listu svih tablica. Koristi kad trebaš razumjeti podatke.", {
+      type: "object",
+      properties: { table: { type: "string", description: "Ime tablice (npr. 'cards', 'invoices'). Prazno = lista svih tablica." } },
+    }),
+    fn("db_query", "Čitaj podatke iz bilo koje tablice u bazi. Možeš filtrirati po stupcima.", {
+      type: "object",
+      properties: {
+        table: { type: "string", description: "Ime tablice" },
+        select: { type: "string", description: "Stupci za dohvatiti (npr. 'id,title,status'). Default: *" },
+        filter: { type: "object", description: "Filter (npr. {\"status\": \"active\"})" },
+        limit: { type: "number", description: "Maks broj redova. Default: 20" },
+      },
+      required: ["table"],
+    }),
+    fn("register_tool", "Registriraj novi tool koji Stellan može koristiti u budućnosti. Koristi kad napraviš novu edge function ili otkriješ novi capability.", {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Jedinstveno ime toola (snake_case)" },
+        description: { type: "string", description: "Opis što tool radi" },
+        category: { type: "string", description: "Kategorija (sdge, oss, geodezija, web, app, custom)" },
+        edge_function: { type: "string", description: "Ime Supabase edge function ako postoji" },
+        parameters: { type: "object", description: "JSON Schema za parametre toola" },
+      },
+      required: ["name", "description"],
+    }),
+    fn("save_knowledge", "Spremi novo znanje u Stellanovu bazu znanja. Koristi kad naučiš nešto novo, kad korisnik kaže 'zapamti ovo', ili kad otkriješ korisne informacije.", {
+      type: "object",
+      properties: {
+        title: { type: "string", description: "Naslov znanja" },
+        content: { type: "string", description: "Sadržaj — može biti markdown" },
+        category: { type: "string", description: "Kategorija (geodezija, tech, firma, sdge, oss, cad, custom)" },
+        tags: { type: "array", items: { type: "string" }, description: "Tagovi za pretragu" },
+      },
+      required: ["title", "content"],
+    }),
+    fn("search_knowledge", "Pretraži Stellanovu bazu znanja po ključnim riječima.", {
+      type: "object",
+      properties: { query: { type: "string", description: "Tekst pretrage" } },
+      required: ["query"],
+    }),
+  );
+
+  // ── Geodetski alati ───────────────────────────────────────
+  tools.push(
+    fn("generate_file", "Generiraj datoteku za preuzimanje (LISP, GML, CSV, GeoJSON, KML, TXT, TSX, JS, PY...). UVIJEK uključi CIJELI sadržaj datoteke. Download gumb se automatski prikazuje — NE piši linkove u odgovoru.", {
+      type: "object",
+      properties: {
+        filename: { type: "string", description: "Ime datoteke s ekstenzijom (npr. 'export_tocke.lsp', 'cestica.gml')" },
+        content: { type: "string", description: "Sadržaj datoteke" },
+        content_type: { type: "string", description: "MIME tip (opcionalno, auto-detektira se iz ekstenzije)" },
+      },
+      required: ["filename", "content"],
+    }),
+    fn("generate_zip", "Generiraj ZIP s više datoteka za preuzimanje. OBAVEZNO koristi kad ispravljaš ili vraćaš više datoteka. SVAKA datoteka mora biti KOMPLETNA od prvog do zadnjeg reda — nikad ne piši samo diff. Download gumb se automatski prikazuje — NE piši linkove u odgovoru.", {
+      type: "object",
+      properties: {
+        zip_filename: { type: "string", description: "Ime ZIP datoteke (npr. 'ispravke.zip', 'projekt.zip')" },
+        files: {
+          type: "array",
+          description: "Lista datoteka za zip",
+          items: {
+            type: "object",
+            properties: {
+              filename: { type: "string", description: "Ime datoteke s ekstenzijom (npr. 'ChatMessage.tsx')" },
+              content: { type: "string", description: "CIJELI sadržaj datoteke — ne samo diff, nego kompletna datoteka" },
+            },
+            required: ["filename", "content"],
+          },
+        },
+      },
+      required: ["zip_filename", "files"],
+    }),
+    fn("parse_gml", "Parsiraj GML datoteku i izvuci katastarske čestice, koordinate, površine, točke. Koristi kad korisnik uploadea GML.", {
+      type: "object",
+      properties: {
+        gml_content: { type: "string", description: "Sadržaj GML datoteke" },
+      },
+      required: ["gml_content"],
+    }),
+    fn("generate_gml", "Generiraj GML datoteku iz podataka o česticama. Koordinate moraju biti u HTRS96/TM (EPSG:3765).", {
+      type: "object",
+      properties: {
+        parcels: { type: "array", description: "Lista čestica. Svaka ima: brojCestice, coordinates [[e,n],...], povrsina, katOpcinaId", items: { type: "object" } },
+        srs: { type: "string", description: "Koordinatni sustav (default: EPSG:3765)" },
+        ko_id: { type: "string", description: "ID katastarske općine" },
+      },
+      required: ["parcels"],
+    }),
+    fn("convert_coordinates", "Konvertiraj koordinate između WGS84 (GPS, EPSG:4326) i HTRS96/TM (EPSG:3765). Za WGS84 šalji [lon, lat], za HTRS96 šalji [easting, northing].", {
+      type: "object",
+      properties: {
+        coordinates: { type: "array", description: "Lista koordinata [[x,y], [x,y]...]", items: { type: "array", items: { type: "number" } } },
+        from_srs: { type: "string", description: "Izvorni sustav: 'WGS84' ili 'HTRS96'" },
+        to_srs: { type: "string", description: "Ciljni sustav: 'WGS84' ili 'HTRS96'" },
+      },
+      required: ["coordinates", "from_srs", "to_srs"],
+    }),
+  );
 
   return tools;
 }
@@ -1721,9 +2172,12 @@ async function executeTool(
     brainFolderId: string | null;
     geoterraToken: string | null;
     enableDriveTools: boolean;
+    supabaseAdmin: any;
+    user_id: string;
+    openaiApiKey: string;
   },
 ): Promise<string> {
-  const { accessToken, brainFolderId, geoterraToken } = ctx;
+  const { accessToken, brainFolderId, geoterraToken, supabaseAdmin, user_id, openaiApiKey } = ctx;
 
   if (ctx.enableDriveTools && accessToken && brainFolderId) {
     const driveToolNames = [
@@ -1738,6 +2192,9 @@ async function executeTool(
       return searchTrello(args.query || "");
     case "scrape_website":
       return scrapeWebsite(args.url || "");
+    case "web_search":
+    case "search_internet":
+      return webSearch(args.query || "");
     case "search_drive":
       return geoterraToken
         ? searchGoogleDrive(geoterraToken, args.query || "")
@@ -1750,20 +2207,105 @@ async function executeTool(
       return searchSdge(args);
     case "download_sdge_pdf":
       return downloadSdgePdf(args);
-    case "sdge_povratnice":
+    case "sdge_povratnice": {
+      // Prvo probaj Playwright agent (pouzdanije od Vaadin RPC)
+      const AGENT_URL = Deno.env.get("AGENT_SERVER_URL");
+      if (AGENT_URL) {
+        try {
+          const agentResult = await callAgent("sdge/povratnice", args);
+          const agentParsed = JSON.parse(agentResult);
+          if (agentParsed.success && (agentParsed.povratnice_count > 0 || agentParsed.screenshot_base64)) {
+            // Upload screenshot if present
+            if (agentParsed.screenshot_base64) {
+              try {
+                const raw = atob(agentParsed.screenshot_base64);
+                const bytes = new Uint8Array(raw.length);
+                for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+                const filename = `screenshots/${user_id}/sdge_pov_${Date.now()}.png`;
+                const { data: upData, error: upErr } = await supabaseAdmin.storage
+                  .from("screenshots")
+                  .upload(filename, bytes, { contentType: "image/png", upsert: true });
+                if (!upErr && upData) {
+                  const { data: urlData } = supabaseAdmin.storage.from("screenshots").getPublicUrl(filename);
+                  if (urlData?.publicUrl) {
+                    agentParsed.screenshot_url = urlData.publicUrl;
+                    agentParsed.display = `![SDGE povratnice](${urlData.publicUrl})`;
+                    delete agentParsed.screenshot_base64;
+                  }
+                }
+              } catch (e) { console.error("SDGE screenshot upload:", e); }
+            }
+            return JSON.stringify(agentParsed);
+          }
+          console.log("[SDGE Povratnice] Agent returned no results, falling back to edge function");
+        } catch (e) {
+          console.log("[SDGE Povratnice] Agent error:", e);
+        }
+      }
+      // Fallback: Vaadin RPC edge function
       return sdgePovratnice(args);
+    }
     case "search_geoterra_app":
       return searchGeoterraApp(args.query || "");
     case "update_geoterra_card":
       return updateGeoterraCard(args);
-    case "search_oss":
-      return searchOss(args);
+    case "search_oss": {
+      const ossResult = await searchOss(args);
+      // Upload screenshot if present
+      try {
+        const ossParsed = JSON.parse(ossResult);
+        if (ossParsed.screenshot_base64) {
+          try {
+            const raw = atob(ossParsed.screenshot_base64);
+            const bytes = new Uint8Array(raw.length);
+            for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+            const filename = `screenshots/${user_id}/oss_${Date.now()}.png`;
+            const { data: upData, error: upErr } = await supabaseAdmin.storage
+              .from("screenshots")
+              .upload(filename, bytes, { contentType: "image/png", upsert: true });
+            if (!upErr && upData) {
+              const { data: urlData } = supabaseAdmin.storage.from("screenshots").getPublicUrl(filename);
+              if (urlData?.publicUrl) {
+                ossParsed.screenshot_url = urlData.publicUrl;
+                ossParsed.display = `![OSS rezultat](${urlData.publicUrl})`;
+                delete ossParsed.screenshot_base64;
+                return JSON.stringify(ossParsed);
+              }
+            }
+          } catch (e) {
+            console.error("OSS screenshot upload error:", e);
+          }
+        }
+      } catch { /* not JSON */ }
+      return ossResult;
+    }
     case "lookup_oib":
       return lookupOib(args.oib || "");
     case "search_gmail":
       return searchGmail(args.query || "");
     case "search_solo":
       return searchSolo(args);
+    case "search_ideas":
+      return searchIdeasFromMemory(supabaseAdmin, user_id, args.query || "", openaiApiKey);
+    case "search_memory": {
+      const memType = args.memory_type || null;
+      const embedding = await createEmbedding(args.query, openaiApiKey);
+      if (!embedding) return JSON.stringify({ success: false, error: "Embedding failed" });
+      const { data } = await supabaseAdmin.rpc("search_stellan_memory", {
+        query_embedding: embedding,
+        match_user_id: user_id,
+        match_count: 10,
+        min_importance: 1,
+        memory_types: memType ? [memType] : null,
+      });
+      if (!data?.length) return JSON.stringify({ success: true, results: "Nema relevantnih memorija.", count: 0 });
+      const results = data.filter((m: any) => m.similarity > 0.65).map((m: any) => `[${m.memory_type}] ${m.content}`).join("\n");
+      return JSON.stringify({ success: true, results: results || "Nema dovoljno relevantnih rezultata.", count: data.length });
+    }
+    case "get_proactive_suggestions":
+      return getProactiveSuggestions(supabaseAdmin, user_id, openaiApiKey).then(s => 
+        JSON.stringify({ success: true, suggestions: s || "Nema posebnih prijedloga trenutno." })
+      );
     case "fill_zahtjev":
       return fillZahtjev(args);
     case "fill_pdf":
@@ -1782,56 +2324,322 @@ async function executeTool(
       return callAgent("git_push", args);
     case "pip_install":
       return callAgent("pip_install", args);
-    case "playwright":
-      return callAgent("playwright", args);
+    case "playwright": {
+      const pwResult = await callAgent("playwright", args);
+      try {
+        const parsed = JSON.parse(pwResult);
+        if (parsed.screenshot_base64 && parsed.success) {
+          // Upload screenshot to Supabase Storage za pouzdan prikaz u chatu
+          let imgUrl = "";
+          try {
+            const raw = atob(parsed.screenshot_base64);
+            const bytes = new Uint8Array(raw.length);
+            for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+            const filename = `screenshots/${user_id}/${Date.now()}.png`;
+            const { data: upData, error: upErr } = await supabaseAdmin.storage
+              .from("screenshots")
+              .upload(filename, bytes, { contentType: "image/png", upsert: true });
+            if (!upErr && upData) {
+              const { data: urlData } = supabaseAdmin.storage.from("screenshots").getPublicUrl(filename);
+              imgUrl = urlData?.publicUrl || "";
+            }
+          } catch (e) {
+            console.error("Screenshot upload error:", e);
+          }
+          const msg = parsed.message || "Screenshot napravljen";
+          const title = parsed.title ? ` — **${parsed.title}**` : "";
+          const imgMd = imgUrl
+            ? `![screenshot](${imgUrl})`
+            : `![screenshot](data:image/png;base64,${parsed.screenshot_base64})`;
+          return JSON.stringify({
+            ...parsed,
+            display: `${imgMd}\n\n${msg}${title}`,
+            screenshot_base64: "[uploaded]",
+            screenshot_url: imgUrl || undefined,
+          });
+        }
+      } catch { /* vrati original */ }
+      return pwResult;
+    }
+    case "start_recording":
+      return callAgent("record/start", args);
+    case "stop_recording":
+      return callAgent("record/stop", {});
+    case "save_action":
+      return callAgent("record/save", args);
+    case "list_actions":
+      return callAgent("record/list", {});
+    case "run_action":
+      return callAgent("record/run", args);
+    // ── Stellan Self-Awareness ──────────────────────────────
+    case "db_inspect":
+      return dbInspect(supabaseAdmin, args);
+    case "db_query":
+      return dbQuery(supabaseAdmin, args);
+    case "register_tool":
+      return registerTool(supabaseAdmin, args);
+    case "save_knowledge":
+      return saveKnowledge(supabaseAdmin, args);
+    case "search_knowledge":
+      return searchKnowledge(supabaseAdmin, args.query || "");
+    // ── Geodetski alati ──────────────────────────────────────
+    case "generate_file":
+      return generateFile(supabaseAdmin, user_id, args);
+    case "generate_zip":
+      return generateZip(supabaseAdmin, user_id, args);
+    case "parse_gml":
+      return parseGml(args);
+    case "generate_gml":
+      return generateGml(args);
+    case "convert_coordinates":
+      return convertCoordinates(args);
     default:
       return JSON.stringify({ success: false, error: `Unknown tool: ${toolName}` });
   }
+}
+
+// ─── Helper: inject download block after generate_file/generate_zip ──
+async function injectFileDownload(
+  toolName: string,
+  result: string,
+  streamDelta: (text: string) => Promise<void>,
+): Promise<string> {
+  if (toolName !== "generate_file" && toolName !== "generate_zip") return "";
+  try {
+    const parsed = JSON.parse(result);
+    if (parsed.success && parsed.url && parsed.filename) {
+      const sizeKb = parsed.size ? `${(parsed.size / 1024).toFixed(1)} KB` : "";
+      const extra = parsed.file_count ? ` (${parsed.file_count} datoteka)` : "";
+      const block = `\n\n%%FILE_DOWNLOAD:${JSON.stringify({ filename: parsed.filename, url: parsed.url, size: sizeKb + extra })}%%\n\n`;
+      await streamDelta(block);
+      return block;
+    }
+  } catch { /* ignore */ }
+  return "";
 }
 
 // ─────────────────────────────────────────────────────────────
 //  OPENAI STREAMING SA TOOL USE AGENTIC LOOP
 // ─────────────────────────────────────────────────────────────
 
-// Convert messages to OpenAI format, extracting inline base64 images for vision
-function convertMessagesToOpenAI(messages: any[]): any[] {
-  return messages.map((m: any) => {
-    if (m.role !== "user" || typeof m.content !== "string") {
-      return { role: m.role, content: m.content };
+// ─── OPENAI VISION (fallback helper) ─────────────────────────
+async function analyzeImageWithOpenAI(base64DataUrl: string, textContext: string, apiKey: string): Promise<string> {
+  try {
+    const resp = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "gpt-5.4-mini",
+        max_completion_tokens: 1024,
+        messages: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text:
+                  `Precizno i detaljno opiši što točno vidiš na ovoj slici. ` +
+                  `Budi precizan s tekstom, UI elementima, nazivima, brojevima i lokacijama. ` +
+                  `Ako nešto nije jasno vidljivo, napiši [nečitko]. ` +
+                  `Ne pretpostavljaj sadržaj koji nije vidljiv.` +
+                  (textContext ? `\n\nKontekst korisnika: ${textContext}` : ""),
+              },
+              {
+                type: "image_url",
+                image_url: { url: base64DataUrl },
+              },
+            ],
+          },
+        ],
+      }),
+    });
+    if (!resp.ok) {
+      console.error("OpenAI vision error:", resp.status, await resp.text());
+      return "[OpenAI vision greška]";
+    }
+    const data = await resp.json();
+    return data.choices?.[0]?.message?.content || "[OpenAI nije vratio odgovor]";
+  } catch (e) {
+    console.error("OpenAI vision exception:", e);
+    return "[OpenAI vision nedostupan]";
+  }
+}
+
+async function preprocessImagesWithOpenAI(messages: any[], openaiApiKey: string): Promise<any[]> {
+  const imgRegex = /!\[([^\]]*)\]\((data:image\/[^)]+)\)/g;
+  const result = [];
+  for (const msg of messages) {
+    if (msg.role !== "user" || typeof msg.content !== "string") {
+      result.push(msg);
+      continue;
+    }
+    const matches = [...msg.content.matchAll(new RegExp(imgRegex.source, "g"))];
+    if (matches.length === 0) {
+      result.push(msg);
+      continue;
+    }
+    const textContext = msg.content.replace(new RegExp(imgRegex.source, "g"), "").trim();
+    let processedContent = msg.content;
+    for (const m of matches) {
+      const description = await analyzeImageWithOpenAI(m[2], textContext, openaiApiKey);
+      processedContent = processedContent.replace(
+        m[0],
+        `\n[ANALIZA SLIKE "${m[1]}":\n${description}\n]`
+      );
+    }
+    result.push({ ...msg, content: processedContent });
+  }
+  return result;
+}
+// ──────────────────────────────────────────────────────────────
+
+// Convert messages to Responses API input format, extracting inline base64 images for vision
+function convertMessagesToResponsesInput(messages: any[]): any[] {
+  // Truncate to last 20 messages to avoid context overflow
+  const MAX_MESSAGES = 20;
+  const MAX_CONTENT_LENGTH = 30000; // per message
+  const recentMessages = messages.length > MAX_MESSAGES ? messages.slice(-MAX_MESSAGES) : messages;
+
+  return recentMessages.map((m: any) => {
+    const role = m.role === "assistant" ? "assistant" : "user";
+    let rawContent = typeof m.content === "string" ? m.content : String(m.content ?? "");
+    
+    // Truncate very long messages (web search results, large code files)
+    if (rawContent.length > MAX_CONTENT_LENGTH) {
+      rawContent = rawContent.substring(0, MAX_CONTENT_LENGTH) + "\n...[skraćeno]";
     }
 
-    // Check for base64 images in markdown format: ![alt](data:image/...;base64,...)
+    // Strip %%FILE_DOWNLOAD%% markers from history (already rendered as buttons)
+    rawContent = rawContent.replace(/%%FILE_DOWNLOAD:.*?%%/g, "").trim();
+
     const imageRegex = /!\[([^\]]*)\]\((data:image\/([^;]+);base64,([^)]+))\)/g;
-    const images: { alt: string; dataUrl: string }[] = [];
-    let match;
-    while ((match = imageRegex.exec(m.content)) !== null) {
-      images.push({ alt: match[1], dataUrl: match[2] });
-    }
 
-    if (images.length === 0) {
-      return { role: "user", content: m.content };
-    }
-
-    // Build multimodal content array for OpenAI vision
-    const textContent = m.content.replace(imageRegex, "").trim();
     const contentParts: any[] = [];
+    let match;
+    let hasImages = false;
+    while ((match = imageRegex.exec(rawContent)) !== null) {
+      hasImages = true;
+    }
 
+    // Assistant poruke koriste "output_text", user poruke koriste "input_text"
+    const textType = role === "assistant" ? "output_text" : "input_text";
+
+    const textContent = rawContent.replace(imageRegex, "").trim();
     if (textContent) {
-      contentParts.push({ type: "text", text: textContent });
+      contentParts.push({ type: textType, text: textContent });
     }
 
-    for (const img of images) {
-      contentParts.push({
-        type: "image_url",
-        image_url: { url: img.dataUrl, detail: "auto" },
-      });
+    if (role === "user" && hasImages) {
+      imageRegex.lastIndex = 0;
+      while ((match = imageRegex.exec(rawContent)) !== null) {
+        contentParts.push({
+          type: "input_image",
+          image_url: match[2],
+          detail: "auto",
+        });
+      }
     }
 
-    return { role: "user", content: contentParts };
+    if (contentParts.length === 0) {
+      contentParts.push({ type: textType, text: "" });
+    }
+
+    const item: any = {
+      type: "message",
+      role,
+      content: contentParts,
+    };
+
+    return item;
   });
 }
 
-async function runOpenAIWithTools(
+function convertCustomToolsToResponsesTools(customTools: any[]): any[] {
+  const mapped = (customTools || [])
+    .filter((tool: any) => tool?.type === "function" && tool?.function?.name)
+    .map((tool: any) => ({
+      type: "function",
+      name: tool.function.name,
+      description: tool.function.description,
+      parameters: tool.function.parameters,
+    }));
+
+  return [
+    { type: "web_search" },
+    ...mapped,
+  ];
+}
+
+function extractTextFromResponse(response: any): string {
+  const parts: string[] = [];
+
+  if (Array.isArray(response?.output)) {
+    for (const item of response.output) {
+      if (item?.type === "message" && item?.role === "assistant" && Array.isArray(item.content)) {
+        for (const c of item.content) {
+          if ((c?.type === "output_text" || c?.type === "text") && c?.text) {
+            parts.push(c.text);
+          }
+        }
+      }
+    }
+  }
+
+  if (parts.length === 0 && typeof response?.output_text === "string") {
+    parts.push(response.output_text);
+  }
+
+  return parts.join("").trim();
+}
+
+function extractFunctionCallsFromResponse(response: any): Array<{ id?: string; call_id: string; name: string; arguments: string }> {
+  const calls: Array<{ id?: string; call_id: string; name: string; arguments: string }> = [];
+
+  for (const item of response?.output || []) {
+    if (item?.type === "function_call" && item?.name && item?.call_id) {
+      calls.push({
+        id: item.id,
+        call_id: item.call_id,
+        name: item.name,
+        arguments: item.arguments || "{}",
+      });
+    }
+  }
+
+  return calls;
+}
+
+function extractWebSourcesFromResponse(response: any): Array<{ title: string; url: string }> {
+  const out: Array<{ title: string; url: string }> = [];
+  const seen = new Set<string>();
+
+  for (const item of response?.output || []) {
+    if (item?.type !== "web_search_call") continue;
+    const sources = item?.action?.sources || item?.sources || [];
+    if (!Array.isArray(sources)) continue;
+
+    for (const src of sources) {
+      const url = src?.url || "";
+      const title = src?.title || src?.name || url;
+      if (!url || seen.has(url)) continue;
+      seen.add(url);
+      out.push({ title, url });
+    }
+  }
+
+  return out;
+}
+
+function appendWebSourcesToAnswer(answer: string, sources: Array<{ title: string; url: string }>): string {
+  if (!sources.length) return answer;
+  const lines = sources.slice(0, 5).map((s) => `- ${s.title}: ${s.url}`);
+  return `${answer.trim()}\n\nIzvori:\n${lines.join("\n")}`.trim();
+}
+
+async function runResponsesApiWithTools(
   openaiApiKey: string,
   systemPrompt: string,
   messages: any[],
@@ -1843,14 +2651,17 @@ async function runOpenAIWithTools(
     brainFolderId: string | null;
     geoterraToken: string | null;
     enableDriveTools: boolean;
+    supabaseAdmin: any;
+    user_id: string;
+    openaiApiKey: string;
+    model: string;
   },
 ): Promise<string> {
   let fullResponse = "";
-  // Convert messages to OpenAI format with vision support
-  let openaiMessages: any[] = [
-    { role: "system", content: systemPrompt },
-    ...convertMessagesToOpenAI(messages),
-  ];
+  const OPENAI_MODEL = ctx.model;
+  const responseTools = convertCustomToolsToResponsesTools(tools);
+  
+  let pendingInput: any[] = convertMessagesToResponsesInput(messages);
 
   const streamDelta = async (text: string) => {
     if (!text) return;
@@ -1858,15 +2669,27 @@ async function runOpenAIWithTools(
     await writer.write(encoder.encode(`data: ${sseData}\n\n`));
   };
 
-  // Agentic loop
+  const emitStatus = async (status: string) => {
+    const statusEvent = JSON.stringify({ status });
+    await writer.write(encoder.encode(`data: ${statusEvent}\n\n`));
+  };
+
   for (let iteration = 0; iteration < 10; iteration++) {
     const requestBody: any = {
       model: OPENAI_MODEL,
-      max_tokens: OPENAI_MAX_TOKENS,
-      messages: openaiMessages,
-      stream: true,
+      instructions: systemPrompt,
+      input: pendingInput,
+      tools: responseTools,
+      tool_choice: "auto",
+      max_output_tokens: OPENAI_MAX_OUTPUT_TOKENS,
+      include: ["web_search_call.action.sources"],
+      reasoning: { effort: "medium" },
+      store: true,
     };
-    if (tools.length > 0) requestBody.tools = tools;
+
+    if (previousResponseId) {
+      requestBody.previous_response_id = previousResponseId;
+    }
 
     const res = await fetchWithTimeout(OPENAI_API_URL, {
       method: "POST",
@@ -1879,115 +2702,1048 @@ async function runOpenAIWithTools(
 
     if (!res.ok) {
       const errText = await res.text();
-      console.error("OpenAI API error:", res.status, errText);
-      const errMsg = "⚠️ Stellan trenutno nije dostupan. Pokušaj ponovo.";
+      console.error("OpenAI Responses API error:", res.status, errText);
+      // Parse error for user-friendly message
+      let detail = "";
+      try {
+        const errJson = JSON.parse(errText);
+        detail = errJson?.error?.message || errText.substring(0, 300);
+      } catch { detail = errText.substring(0, 300); }
+      const errMsg = `⚠️ API greška (${res.status}): ${detail}`;
       await streamDelta(errMsg);
       fullResponse += errMsg;
       break;
     }
 
-    // Parse OpenAI SSE stream
+    const response = await res.json();
+    
+
+    const functionCalls = extractFunctionCallsFromResponse(response);
+    const responseText = extractTextFromResponse(response);
+    const webSources = extractWebSourcesFromResponse(response);
+
+    if (functionCalls.length === 0) {
+      const finalText = appendWebSourcesToAnswer(responseText, webSources);
+      if (finalText) {
+        await streamDelta(finalText);
+        fullResponse += finalText;
+      }
+      break;
+    }
+
+    const toolStatusMap: Record<string, string> = {
+      "search_sdge": "📊 Pretražujem SDGE portal...",
+      "search_geoterra_app": "📋 Pretražujem GeoTerra projekte...",
+      "search_drive": "📁 Pretražujem Google Drive...",
+      "search_gmail": "✉️ Pretražujem Gmail...",
+      "search_solo": "🧾 Pretražujem Solo račune...",
+      "search_oss": "🗺️ Pretražujem OSS portal...",
+      "search_trello": "📌 Pretražujem Trello...",
+      "lookup_oib": "🔎 Provjeravam OIB...",
+      "download_sdge_pdf": "📄 Preuzimam PDF iz SDGE...",
+      "run_python": "💻 Pokrećem Python skriptu...",
+      "run_shell": "💻 Izvršavam naredbu...",
+      "playwright": "🌐 Kontroliram preglednik...",
+      "start_recording": "🔴 Pokrećem snimanje...",
+      "stop_recording": "⏹ Zaustavljam snimanje...",
+      "save_action": "💾 Spremam akciju...",
+      "list_actions": "📋 Učitavam akcije...",
+      "run_action": "▶ Pokrećem akciju...",
+      "fill_zahtjev": "📝 Ispunjavam zahtjev...",
+      "scrape_website": "🔗 Dohvaćam web stranicu...",
+      "search_memory": "🧠 Pretražujem memoriju...",
+      "create_drive_folder": "🧠 Stvaram folder u brainu...",
+      "create_drive_file": "🧠 Pišem datoteku u brain...",
+      "list_drive_files": "🧠 Čitam brain datoteke...",
+      "read_brain_file": "🧠 Čitam brain datoteku...",
+      "rename_drive_item": "🧠 Preimenujem stavku u brainu...",
+      "move_drive_item": "🧠 Premještam stavku u brainu...",
+      "copy_drive_file": "🧠 Kopiram datoteku u brainu...",
+    };
+
+    for (const call of functionCalls) {
+      await emitStatus(toolStatusMap[call.name] || `🔍 ${call.name}...`);
+    }
+
+    const functionOutputs: any[] = [];
+
+    for (const call of functionCalls) {
+      let args = {};
+      try {
+        args = JSON.parse(call.arguments || "{}");
+      } catch {
+        args = {};
+      }
+
+      const result = await executeTool(call.name, args, ctx);
+      console.log(`[Responses Tools] ${call.name} result: ${result.slice(0, 200)}`);
+
+      // Inject download block for generate_file
+      const dlBlock = await injectFileDownload(call.name, result, streamDelta);
+      if (dlBlock) fullResponse += dlBlock;
+
+      let toolContent = result;
+      try {
+        const parsed = JSON.parse(result);
+        if (parsed.display && (parsed.display.includes("![") || parsed.display.includes("data:image"))) {
+          await streamDelta("\n\n" + parsed.display + "\n\n");
+          fullResponse += "\n\n" + parsed.display + "\n\n";
+          toolContent = JSON.stringify({ ...parsed, display: "[prikazano korisniku]" });
+        }
+      } catch {
+        // ignore
+      }
+
+      functionOutputs.push({
+        type: "function_call_output",
+        call_id: call.call_id,
+        output: toolContent,
+      });
+    }
+
+    pendingInput = functionOutputs;
+  }
+
+  return fullResponse;
+}
+
+// Backward-compatible alias so ostatak fajla ne puca
+async function runOpenAIWithTools(
+  openaiApiKey: string,
+  systemPrompt: string,
+  messages: any[],
+  tools: any[],
+  writer: WritableStreamDefaultWriter<Uint8Array>,
+  encoder: TextEncoder,
+  ctx: {
+    accessToken: string | null;
+    brainFolderId: string | null;
+    geoterraToken: string | null;
+    enableDriveTools: boolean;
+    supabaseAdmin: any;
+    user_id: string;
+    openaiApiKey: string;
+    model: string;
+  },
+): Promise<string> {
+  return runResponsesApiWithTools(
+    openaiApiKey,
+    systemPrompt,
+    messages,
+    tools,
+    writer,
+    encoder,
+    ctx,
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+//  ANTHROPIC CLAUDE — Messages API handler
+// ─────────────────────────────────────────────────────────────
+
+function convertMessagesToAnthropic(messages: any[]): { system: string; messages: any[] } {
+  let systemText = "";
+  const out: any[] = [];
+
+  for (const m of messages) {
+    if (m.role === "system") {
+      systemText += (systemText ? "\n" : "") + (typeof m.content === "string" ? m.content : String(m.content ?? ""));
+      continue;
+    }
+    const role = m.role === "assistant" ? "assistant" : "user";
+    const content = typeof m.content === "string" ? m.content : String(m.content ?? "");
+    
+    // Handle inline images for vision
+    const imgRegex = /!\[([^\]]*)\]\((data:image\/([^;]+);base64,([^)]+))\)/g;
+    const parts: any[] = [];
+    let lastIdx = 0;
+    let match;
+    
+    while ((match = imgRegex.exec(content)) !== null) {
+      const before = content.slice(lastIdx, match.index).trim();
+      if (before) parts.push({ type: "text", text: before });
+      parts.push({
+        type: "image",
+        source: { type: "base64", media_type: `image/${match[3]}`, data: match[4] },
+      });
+      lastIdx = match.index + match[0].length;
+    }
+    const remaining = content.slice(lastIdx).trim();
+    if (remaining) parts.push({ type: "text", text: remaining });
+    
+    if (parts.length === 0) parts.push({ type: "text", text: "" });
+    
+    out.push({ role, content: parts.length === 1 && parts[0].type === "text" ? parts[0].text : parts });
+  }
+
+  return { system: systemText, messages: out };
+}
+
+function convertToolsToAnthropic(tools: any[]): any[] {
+  return (tools || [])
+    .filter((t: any) => t?.type === "function" && t?.function?.name)
+    .map((t: any) => ({
+      name: t.function.name,
+      description: t.function.description || "",
+      input_schema: t.function.parameters || { type: "object", properties: {} },
+    }));
+}
+
+async function runAnthropicWithTools(
+  apiKey: string,
+  systemPrompt: string,
+  messages: any[],
+  tools: any[],
+  writer: WritableStreamDefaultWriter<Uint8Array>,
+  encoder: TextEncoder,
+  ctx: {
+    accessToken: string | null;
+    brainFolderId: string | null;
+    geoterraToken: string | null;
+    enableDriveTools: boolean;
+    supabaseAdmin: any;
+    user_id: string;
+    openaiApiKey: string;
+    model: string;
+  },
+): Promise<string> {
+  let fullResponse = "";
+  const anthropicTools = convertToolsToAnthropic(tools);
+  const { system: extractedSystem, messages: anthropicMessages } = convertMessagesToAnthropic(messages);
+  const finalSystem = [systemPrompt, extractedSystem].filter(Boolean).join("\n\n");
+
+  const streamDelta = async (text: string) => {
+    if (!text) return;
+    const sseData = JSON.stringify({ choices: [{ delta: { content: text } }] });
+    await writer.write(encoder.encode(`data: ${sseData}\n\n`));
+  };
+  const emitStatus = async (status: string) => {
+    await writer.write(encoder.encode(`data: ${JSON.stringify({ status })}\n\n`));
+  };
+
+  let currentMessages = [...anthropicMessages];
+
+  for (let iteration = 0; iteration < 10; iteration++) {
+    const body: any = {
+      model: ctx.model,
+      max_tokens: 8192,
+      system: finalSystem,
+      messages: currentMessages,
+      stream: true,
+    };
+    if (anthropicTools.length > 0) {
+      body.tools = anthropicTools;
+      body.tool_choice = { type: "auto" };
+    }
+
+    const res = await fetchWithTimeout("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      console.error("Anthropic error:", res.status, errText);
+      let detail = "";
+      try { const j = JSON.parse(errText); detail = j?.error?.message || errText.substring(0, 300); } catch { detail = errText.substring(0, 300); }
+      const errMsg = `⚠️ Claude greška (${res.status}): ${detail}`;
+      await streamDelta(errMsg);
+      fullResponse += errMsg;
+      break;
+    }
+
+    // Parse SSE stream
     const reader = res.body!.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
     let iterationText = "";
-    const toolCalls: Map<number, { id: string; name: string; arguments: string }> = new Map();
-    let finishReason = "";
+    let toolUseBlocks: any[] = [];
+    let currentToolUse: any = null;
+    let stopReason = "";
 
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
 
-      let newlineIndex: number;
-      while ((newlineIndex = buffer.indexOf("\n")) !== -1) {
-        let line = buffer.slice(0, newlineIndex);
-        buffer = buffer.slice(newlineIndex + 1);
-        if (line.endsWith("\r")) line = line.slice(0, -1);
+      for (const line of lines) {
         if (!line.startsWith("data: ")) continue;
-        const jsonStr = line.slice(6).trim();
-        if (jsonStr === "[DONE]") break;
+        const data = line.slice(6).trim();
+        if (data === "[DONE]") continue;
         try {
-          const ev = JSON.parse(jsonStr);
-          const choice = ev.choices?.[0];
-          if (!choice) continue;
-
-          // Finish reason
-          if (choice.finish_reason) finishReason = choice.finish_reason;
-
-          const delta = choice.delta;
-          if (!delta) continue;
-
-          // Text content
-          if (delta.content) {
-            iterationText += delta.content;
-            await streamDelta(delta.content);
-          }
-
-          // Tool calls
-          if (delta.tool_calls) {
-            for (const tc of delta.tool_calls) {
-              const idx = tc.index;
-              if (!toolCalls.has(idx)) {
-                toolCalls.set(idx, { id: tc.id || "", name: tc.function?.name || "", arguments: "" });
-              }
-              const existing = toolCalls.get(idx)!;
-              if (tc.id) existing.id = tc.id;
-              if (tc.function?.name) existing.name = tc.function.name;
-              if (tc.function?.arguments) existing.arguments += tc.function.arguments;
+          const evt = JSON.parse(data);
+          if (evt.type === "content_block_start") {
+            if (evt.content_block?.type === "tool_use") {
+              currentToolUse = { id: evt.content_block.id, name: evt.content_block.name, input: "" };
             }
+          } else if (evt.type === "content_block_delta") {
+            if (evt.delta?.type === "text_delta" && evt.delta.text) {
+              await streamDelta(evt.delta.text);
+              iterationText += evt.delta.text;
+            } else if (evt.delta?.type === "input_json_delta" && currentToolUse) {
+              currentToolUse.input += evt.delta.partial_json || "";
+            }
+          } else if (evt.type === "content_block_stop" && currentToolUse) {
+            toolUseBlocks.push({ ...currentToolUse });
+            currentToolUse = null;
+          } else if (evt.type === "message_delta") {
+            stopReason = evt.delta?.stop_reason || stopReason;
           }
-        } catch {
-          /* skip invalid JSON */
-        }
+        } catch { /* ignore parse errors */ }
       }
     }
 
     fullResponse += iterationText;
 
-    // If no tool calls - done
-    if (toolCalls.size === 0 || finishReason === "stop") break;
+    if (stopReason !== "tool_use" || toolUseBlocks.length === 0) break;
 
     // Execute tool calls
-    const toolCallsList = Array.from(toolCalls.values());
-    console.log(
-      `[OpenAI Tools] Executing ${toolCallsList.length} tool(s): ${toolCallsList.map((t) => t.name).join(", ")}`,
-    );
-    await streamDelta("\n\n🔍 *Pretražujem...*\n\n");
-
-    // Add assistant message with tool_calls
-    const assistantMsg: any = { role: "assistant", content: iterationText || null };
-    assistantMsg.tool_calls = toolCallsList.map((tc) => ({
-      id: tc.id,
-      type: "function",
-      function: { name: tc.name, arguments: tc.arguments },
-    }));
-    openaiMessages.push(assistantMsg);
-
-    // Execute tools and add results
-    for (const tc of toolCallsList) {
-      let args = {};
-      try {
-        args = JSON.parse(tc.arguments || "{}");
-      } catch {
-        args = {};
-      }
-      const result = await executeTool(tc.name, args, ctx);
-      console.log(`[OpenAI Tools] ${tc.name} result: ${result.slice(0, 200)}`);
-      openaiMessages.push({
-        role: "tool",
-        tool_call_id: tc.id,
-        content: result,
-      });
+    const assistantContent: any[] = [];
+    if (iterationText) assistantContent.push({ type: "text", text: iterationText });
+    for (const tb of toolUseBlocks) {
+      let parsedInput = {};
+      try { parsedInput = JSON.parse(tb.input || "{}"); } catch { parsedInput = {}; }
+      assistantContent.push({ type: "tool_use", id: tb.id, name: tb.name, input: parsedInput });
     }
+
+    const toolResults: any[] = [];
+    for (const tb of toolUseBlocks) {
+      let args = {};
+      try { args = JSON.parse(tb.input || "{}"); } catch { args = {}; }
+      await emitStatus(`🔍 ${tb.name}...`);
+      const result = await executeTool(tb.name, args, ctx);
+      // Inject download block for generate_file
+      const dlBlock = await injectFileDownload(tb.name, result, streamDelta);
+      if (dlBlock) fullResponse += dlBlock;
+      toolResults.push({ type: "tool_result", tool_use_id: tb.id, content: result });
+    }
+
+    currentMessages = [
+      ...currentMessages,
+      { role: "assistant", content: assistantContent },
+      { role: "user", content: toolResults },
+    ];
   }
 
   return fullResponse;
 }
 
 // ─────────────────────────────────────────────────────────────
+//  GOOGLE GEMINI — Generative Language API handler
+// ─────────────────────────────────────────────────────────────
+
+function convertMessagesToGemini(messages: any[], systemPrompt: string): { systemInstruction: any; contents: any[] } {
+  const contents: any[] = [];
+
+  for (const m of messages) {
+    if (m.role === "system") continue;
+    const role = m.role === "assistant" ? "model" : "user";
+    const content = typeof m.content === "string" ? m.content : String(m.content ?? "");
+    const parts: any[] = [];
+    
+    const imgRegex = /!\[([^\]]*)\]\((data:image\/([^;]+);base64,([^)]+))\)/g;
+    let lastIdx = 0;
+    let match;
+    while ((match = imgRegex.exec(content)) !== null) {
+      const before = content.slice(lastIdx, match.index).trim();
+      if (before) parts.push({ text: before });
+      parts.push({ inlineData: { mimeType: `image/${match[3]}`, data: match[4] } });
+      lastIdx = match.index + match[0].length;
+    }
+    const remaining = content.slice(lastIdx).trim();
+    if (remaining) parts.push({ text: remaining });
+    if (parts.length === 0) parts.push({ text: "" });
+
+    contents.push({ role, parts });
+  }
+
+  return {
+    systemInstruction: { parts: [{ text: systemPrompt }] },
+    contents,
+  };
+}
+
+function convertToolsToGemini(tools: any[]): any[] {
+  const fns = (tools || [])
+    .filter((t: any) => t?.type === "function" && t?.function?.name)
+    .map((t: any) => ({
+      name: t.function.name,
+      description: t.function.description || "",
+      parameters: t.function.parameters || { type: "object", properties: {} },
+    }));
+  return fns.length > 0 ? [{ functionDeclarations: fns }] : [];
+}
+
+async function runGeminiWithTools(
+  apiKey: string,
+  systemPrompt: string,
+  messages: any[],
+  tools: any[],
+  writer: WritableStreamDefaultWriter<Uint8Array>,
+  encoder: TextEncoder,
+  ctx: {
+    accessToken: string | null;
+    brainFolderId: string | null;
+    geoterraToken: string | null;
+    enableDriveTools: boolean;
+    supabaseAdmin: any;
+    user_id: string;
+    openaiApiKey: string;
+    model: string;
+  },
+): Promise<string> {
+  let fullResponse = "";
+  const { systemInstruction, contents } = convertMessagesToGemini(messages, systemPrompt);
+  const geminiTools = convertToolsToGemini(tools);
+  let currentContents = [...contents];
+
+  const streamDelta = async (text: string) => {
+    if (!text) return;
+    const sseData = JSON.stringify({ choices: [{ delta: { content: text } }] });
+    await writer.write(encoder.encode(`data: ${sseData}\n\n`));
+  };
+  const emitStatus = async (status: string) => {
+    await writer.write(encoder.encode(`data: ${JSON.stringify({ status })}\n\n`));
+  };
+
+  const geminiModel = ctx.model;
+  const baseUrl = `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}`;
+
+  for (let iteration = 0; iteration < 10; iteration++) {
+    const body: any = {
+      systemInstruction,
+      contents: currentContents,
+      generationConfig: { maxOutputTokens: 8192 },
+    };
+    if (geminiTools.length > 0) {
+      body.tools = geminiTools;
+      body.toolConfig = { functionCallingConfig: { mode: "AUTO" } };
+    }
+
+    const res = await fetchWithTimeout(
+      `${baseUrl}:generateContent?key=${apiKey}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      },
+    );
+
+    if (!res.ok) {
+      const errText = await res.text();
+      console.error("Gemini error:", res.status, errText);
+      let detail = "";
+      try { const j = JSON.parse(errText); detail = j?.error?.message || errText.substring(0, 300); } catch { detail = errText.substring(0, 300); }
+      const errMsg = `⚠️ Gemini greška (${res.status}): ${detail}`;
+      await streamDelta(errMsg);
+      fullResponse += errMsg;
+      break;
+    }
+
+    const data = await res.json();
+    const candidate = data.candidates?.[0];
+    if (!candidate) break;
+
+    const parts = candidate.content?.parts || [];
+    let textParts = "";
+    const functionCalls: any[] = [];
+
+    for (const part of parts) {
+      if (part.text) textParts += part.text;
+      if (part.functionCall) functionCalls.push(part.functionCall);
+    }
+
+    if (textParts) {
+      await streamDelta(textParts);
+      fullResponse += textParts;
+    }
+
+    if (functionCalls.length === 0) break;
+
+    // Add model response to contents
+    currentContents.push({ role: "model", parts });
+
+    // Execute tools and add responses
+    const functionResponseParts: any[] = [];
+    for (const fc of functionCalls) {
+      await emitStatus(`🔍 ${fc.name}...`);
+      const result = await executeTool(fc.name, fc.args || {}, ctx);
+      // Inject download block for generate_file
+      const dlBlock = await injectFileDownload(fc.name, result, streamDelta);
+      if (dlBlock) fullResponse += dlBlock;
+      let parsedResult: any;
+      try { parsedResult = JSON.parse(result); } catch { parsedResult = { result }; }
+      functionResponseParts.push({
+        functionResponse: { name: fc.name, response: parsedResult },
+      });
+    }
+
+    currentContents.push({ role: "user", parts: functionResponseParts });
+  }
+
+  return fullResponse;
+}
+
+// ─────────────────────────────────────────────────────────────
+//  xAI GROK — Responses API (web_search + x_search + tools)
+// ─────────────────────────────────────────────────────────────
+
+const XAI_RESPONSES_URL = "https://api.x.ai/v1/responses";
+
+async function runOpenAICompatibleWithTools(
+  apiKey: string,
+  _apiUrl: string, // ignored — always uses Responses API
+  systemPrompt: string,
+  messages: any[],
+  tools: any[],
+  writer: WritableStreamDefaultWriter<Uint8Array>,
+  encoder: TextEncoder,
+  ctx: {
+    accessToken: string | null;
+    brainFolderId: string | null;
+    geoterraToken: string | null;
+    enableDriveTools: boolean;
+    supabaseAdmin: any;
+    user_id: string;
+    openaiApiKey: string;
+    model: string;
+  },
+): Promise<string> {
+  let fullResponse = "";
+  const isReasoning = ctx.model.includes("4.20") || ctx.model.includes("reasoning");
+
+  // Convert custom tools to Responses API format + add web_search & x_search
+  const responseTools: any[] = [
+    { type: "web_search" },
+    { type: "x_search" },
+    ...(tools || [])
+      .filter((t: any) => t?.type === "function" && t?.function?.name && t.function.name !== "search_internet")
+      .map((t: any) => ({
+        type: "function",
+        name: t.function.name,
+        description: t.function.description,
+        parameters: t.function.parameters,
+      })),
+  ];
+
+  let pendingInput: any[] = convertMessagesToResponsesInput(messages);
+
+  // Clean xAI internal markup from streamed text
+  function cleanGrokMarkup(text: string): string {
+    return text
+      .replace(/<grok:render[^>]*type="render_inline_citation"[^>]*>\s*<argument[^>]*name="citation_id"[^>]*>(\d+)<\/argument>\s*<\/grok:render>/g, '[$1]')
+      .replace(/<\/?grok:render[^>]*>/g, '')
+      .replace(/<argument[^>]*name="citation_id"[^>]*>(\d+)<\/argument>/g, '[$1]')
+      .replace(/<\/?argument[^>]*>/g, '');
+  }
+
+  let tagBuffer = "";
+
+  const streamDelta = async (text: string) => {
+    if (!text) return;
+    tagBuffer += text;
+    // Buffer partial <grok:render> tags that span across deltas
+    if (tagBuffer.includes("<grok:") && !tagBuffer.includes("</grok:render>")) {
+      return;
+    }
+    const cleaned = cleanGrokMarkup(tagBuffer);
+    tagBuffer = "";
+    if (!cleaned) return;
+    const sseData = JSON.stringify({ choices: [{ delta: { content: cleaned } }] });
+    await writer.write(encoder.encode(`data: ${sseData}\n\n`));
+  };
+  const flushTagBuffer = async () => {
+    if (tagBuffer) {
+      const cleaned = cleanGrokMarkup(tagBuffer);
+      tagBuffer = "";
+      if (cleaned) {
+        const sseData = JSON.stringify({ choices: [{ delta: { content: cleaned } }] });
+        await writer.write(encoder.encode(`data: ${sseData}\n\n`));
+      }
+    }
+  };
+  const emitStatus = async (status: string) => {
+    await writer.write(encoder.encode(`data: ${JSON.stringify({ status })}\n\n`));
+  };
+
+  const toolStatusMap: Record<string, string> = {
+    "search_sdge": "📊 Pretražujem SDGE portal...",
+    "search_geoterra_app": "📋 Pretražujem GeoTerra projekte...",
+    "search_drive": "📁 Pretražujem Google Drive...",
+    "search_gmail": "✉️ Pretražujem Gmail...",
+    "search_solo": "🧾 Pretražujem Solo račune...",
+    "search_oss": "🗺️ Pretražujem OSS portal...",
+    "search_trello": "📌 Pretražujem Trello...",
+    "scrape_website": "🔗 Dohvaćam web stranicu...",
+    "search_memory": "🧠 Pretražujem memoriju...",
+    "search_knowledge": "📚 Pretražujem bazu znanja...",
+    "playwright": "🌐 Kontroliram preglednik...",
+    "generate_file": "📄 Generiram datoteku...",
+    "generate_zip": "📦 Pakiram ZIP...",
+  };
+
+  for (let iteration = 0; iteration < 10; iteration++) {
+    const inputWithSystem = iteration === 0
+      ? [{ role: "system", content: systemPrompt }, ...pendingInput]
+      : pendingInput;
+
+    const requestBody: any = {
+      model: ctx.model,
+      input: inputWithSystem,
+      tools: responseTools,
+      tool_choice: "auto",
+      max_output_tokens: isReasoning ? 16384 : 8192,
+      stream: true,
+      store: false,
+      include: ["web_search_call.action.sources"],
+    };
+
+    if (isReasoning) {
+      requestBody.reasoning = { effort: "high" };
+    }
+
+    // ── Retry logika (do 3 pokušaja) ──────────────
+    let res: Response | null = null;
+    let lastError = "";
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        res = await fetchWithTimeout(XAI_RESPONSES_URL, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(requestBody),
+        }, 180000); // 3min timeout za streaming
+        if (res.ok) break;
+
+        const errText = await res.text();
+        lastError = errText;
+
+        if (res.status !== 429 && res.status < 500) break;
+
+        console.warn(`[Grok] Attempt ${attempt + 1} failed (${res.status}), retrying...`);
+        await new Promise(r => setTimeout(r, (attempt + 1) * 2000));
+        res = null;
+      } catch (e) {
+        lastError = e instanceof Error ? e.message : String(e);
+        console.warn(`[Grok] Attempt ${attempt + 1} error: ${lastError}, retrying...`);
+        await new Promise(r => setTimeout(r, (attempt + 1) * 2000));
+      }
+    }
+
+    if (!res || !res.ok) {
+      let detail = lastError.substring(0, 300);
+      try { const j = JSON.parse(lastError); detail = j?.error?.message || detail; } catch {}
+      const errMsg = `⚠️ Grok greška nakon 3 pokušaja: ${detail}`;
+      await streamDelta(errMsg);
+      fullResponse += errMsg;
+      break;
+    }
+
+    // ── Parse SSE stream ──────────────────────────
+    const reader = res.body!.getReader();
+    const decoder = new TextDecoder();
+    let sseBuffer = "";
+    let currentEvent = "";
+    let responseText = "";
+    const functionCalls: Array<{ call_id: string; name: string; arguments: string }> = [];
+    const webSources: Array<{ title: string; url: string }> = [];
+    let emittedWebSearchStatus = false;
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        sseBuffer += decoder.decode(value, { stream: true });
+        const lines = sseBuffer.split("\n");
+        sseBuffer = lines.pop() || ""; // keep incomplete line in buffer
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+
+          if (trimmed.startsWith("event: ")) {
+            currentEvent = trimmed.slice(7).trim();
+            continue;
+          }
+
+          if (!trimmed.startsWith("data: ")) continue;
+          const dataStr = trimmed.slice(6);
+          if (dataStr === "[DONE]") continue;
+
+          let data: any;
+          try { data = JSON.parse(dataStr); } catch { continue; }
+
+          switch (currentEvent) {
+            // ── Text streaming (word by word) ──────
+            case "response.output_text.delta": {
+              const delta = data.delta || "";
+              if (delta) {
+                await streamDelta(delta);
+                responseText += delta;
+                fullResponse += delta;
+              }
+              break;
+            }
+
+            // ── Function call complete ─────────────
+            case "response.function_call_arguments.done": {
+              const callId = data.call_id || data.id || "";
+              const name = data.name || "";
+              const args = data.arguments || "{}";
+              if (name && callId) {
+                functionCalls.push({ call_id: callId, name, arguments: args });
+              }
+              break;
+            }
+
+            // ── Web search status ─────────────────
+            case "response.web_search_call.in_progress":
+            case "response.web_search_call.searching": {
+              if (!emittedWebSearchStatus) {
+                await emitStatus("🌐 Pretražujem web...");
+                emittedWebSearchStatus = true;
+              }
+              break;
+            }
+
+            // ── Web search completed (sources) ────
+            case "response.web_search_call.completed": {
+              try {
+                const sources = data?.action?.sources || data?.sources || [];
+                for (const s of sources) {
+                  if (s.url && s.title) webSources.push({ title: s.title, url: s.url });
+                }
+              } catch { /* ignore */ }
+              break;
+            }
+
+            // ── Response completed ────────────────
+            case "response.completed": {
+              // Extract any remaining web sources from completed response
+              try {
+                const output = data?.response?.output || data?.output || [];
+                for (const item of output) {
+                  if (item.type === "web_search_call" && item.action?.sources) {
+                    for (const s of item.action.sources) {
+                      if (s.url && s.title && !webSources.find(ws => ws.url === s.url)) {
+                        webSources.push({ title: s.title, url: s.url });
+                      }
+                    }
+                  }
+                }
+              } catch { /* ignore */ }
+              break;
+            }
+          }
+        }
+      }
+    } catch (streamErr) {
+      console.error("[Grok Stream] Error reading SSE:", streamErr);
+    }
+
+    // Flush any remaining buffered text
+    await flushTagBuffer();
+    fullResponse = cleanGrokMarkup(fullResponse);
+
+    // ── Append web sources as citations ────────────
+    if (webSources.length > 0 && responseText) {
+      const sourcesText = "\n\n" + webSources.slice(0, 8).map((s, i) => `[${i + 1}] [${s.title}](${s.url})`).join("\n");
+      // Only append if not already in response
+      if (!fullResponse.includes("[1]")) {
+        await streamDelta(sourcesText);
+        fullResponse += sourcesText;
+      }
+    }
+
+    // ── If no function calls, we're done ──────────
+    if (functionCalls.length === 0) break;
+
+    // ── Execute tool calls ────────────────────────
+    for (const call of functionCalls) {
+      await emitStatus(toolStatusMap[call.name] || `🔍 ${call.name}...`);
+    }
+
+    const functionOutputs: any[] = await Promise.all(
+      functionCalls.map(async (call) => {
+        let args = {};
+        try { args = JSON.parse(call.arguments || "{}"); } catch { args = {}; }
+
+        const result = await executeTool(call.name, args, ctx);
+        console.log(`[Grok Tools] ${call.name} result: ${result.slice(0, 200)}`);
+
+        const dlBlock = await injectFileDownload(call.name, result, streamDelta);
+        if (dlBlock) fullResponse += dlBlock;
+
+        let toolContent = result;
+        try {
+          const parsed = JSON.parse(result);
+          if (parsed.display && (parsed.display.includes("![") || parsed.display.includes("data:image"))) {
+            await streamDelta("\n\n" + parsed.display + "\n\n");
+            fullResponse += "\n\n" + parsed.display + "\n\n";
+            toolContent = JSON.stringify({ ...parsed, display: "[prikazano korisniku]" });
+          }
+        } catch { /* ignore */ }
+
+        return {
+          type: "function_call_output",
+          call_id: call.call_id,
+          output: toolContent,
+        };
+      })
+    );
+
+    pendingInput = functionOutputs;
+  }
+
+  return fullResponse;
+}
+
+
+
+// ─────────────────────────────────────────────────────────────
 //  GLAVNI SERVE HANDLER
 // ─────────────────────────────────────────────────────────────
+
+// ─────────────────────────────────────────────────────────────
+//  VECTOR MEMORY — Semantičko pamćenje
+// ─────────────────────────────────────────────────────────────
+
+async function createEmbedding(text: string, openaiApiKey: string): Promise<number[] | null> {
+  try {
+    // Embeddings koriste OpenAI (Gemini embeddings imaju drukčiji format)
+    const embeddingKey = Deno.env.get("OPENAI_API_KEY") || openaiApiKey;
+    const res = await fetchWithTimeout(
+      "https://api.openai.com/v1/embeddings",
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${embeddingKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ model: "text-embedding-3-small", input: text.slice(0, 8000) }),
+      },
+      15000,
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.data?.[0]?.embedding || null;
+  } catch {
+    return null;
+  }
+}
+
+async function searchVectorMemory(
+  supabaseAdmin: any,
+  userId: string,
+  query: string,
+  openaiApiKey: string,
+  limit = 5,
+): Promise<string> {
+  try {
+    const embedding = await createEmbedding(query, openaiApiKey);
+    if (!embedding) return "";
+    const { data, error } = await supabaseAdmin.rpc("search_stellan_memory", {
+      query_embedding: embedding,
+      match_user_id: userId,
+      match_count: limit,
+      min_importance: 1,
+    });
+    if (error || !data?.length) return "";
+    const memories = data
+      .filter((m: any) => m.similarity > 0.6)
+      .map((m: any) => `[${m.memory_type}] ${m.content}`)
+      .join("\n");
+    return memories ? `\n\n====== RELEVANTNE MEMORIJE IZ SUPABASE BAZE ======\n${memories}\n====== KRAJ MEMORIJA ======` : "";
+  } catch {
+    return "";
+  }
+}
+
+
+async function getRecentMemoryContext(
+  supabaseAdmin: any,
+  userId: string,
+  limit = 12,
+): Promise<string> {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from("stellan_memory")
+      .select("content, summary, memory_type, importance, created_at")
+      .eq("user_id", userId)
+      .order("importance", { ascending: false })
+      .order("created_at", { ascending: false })
+      .limit(limit);
+
+    if (error || !data?.length) return "";
+
+    const lines = data.map((m: any) => {
+      const text = (m.summary || m.content || "").toString().slice(0, 220);
+      return `[${m.memory_type} | važnost ${m.importance}] ${text}`;
+    });
+
+    return lines.length
+      ? `\n\n====== NEDAVNE I VAŽNE MEMORIJE IZ SUPABASE BAZE ======\n${lines.join("\n")}\n====== KRAJ MEMORIJA ======`
+      : "";
+  } catch {
+    return "";
+  }
+}
+
+async function saveToVectorMemory(
+  supabaseAdmin: any,
+  userId: string,
+  messages: any[],
+  response: string,
+  openaiApiKey: string,
+): Promise<void> {
+  try {
+    // Napravi sažetak razgovora za pamćenje
+    const lastUser = [...messages].reverse().find((m: any) => m.role === "user");
+    const userText = typeof lastUser?.content === "string" ? lastUser.content : "";
+    if (!userText || userText.length < 20) return;
+
+    const conversationText = `Korisnik: ${userText}\nStellan: ${response.slice(0, 500)}`;
+    
+    // Procijeni važnost (jednostavna heuristika)
+    const t = userText.toLowerCase();
+
+    // Tip memorije
+    let memory_type = "conversation";
+    const ideaTriggers = ["ideja", "ideju", "ideje", "što misliš", "razmišljam", "moglo bi", "zamisli", "a što ako", "imam plan", "htio bih", "planiramo", "predlažem", "kako bi bilo", "možda bi", "trebalo bi napraviti", "imao bih", "imam prijedlog"];
+    const factTriggers = ["zapamti", "ne zaboravi", "uvijek", "nikad", "važno je da znaš", "bitno je"];
+    const decisionTriggers = ["odlučili", "dogovorili", "zaključili", "idemo s", "odluka je", "finalno"];
+    const personTriggers = ["upoznao", "radi za", "kontakt je", "zove se", "njegova email", "njena email"];
+
+    if (ideaTriggers.some(k => t.includes(k))) memory_type = "idea";
+    else if (factTriggers.some(k => t.includes(k))) memory_type = "fact";
+    else if (decisionTriggers.some(k => t.includes(k))) memory_type = "decision";
+    else if (personTriggers.some(k => t.includes(k))) memory_type = "person";
+
+    // Važnost
+    const highImportance = ["zapamti", "važno", "uvijek", "nikad", "odluka", "dogovor", "ideja", "plan"];
+    const importance = highImportance.some(k => t.includes(k)) ? 8 : memory_type === "conversation" ? 4 : 6;
+
+    // Preskoči trivijalne razgovore
+    if (memory_type === "conversation" && userText.length < 30) return;
+
+    const embedding = await createEmbedding(conversationText, openaiApiKey);
+    if (!embedding) return;
+
+    // Permanentno pamćenje - "zapamti zauvijek" dobiva importance 10
+    const isPermanent = t.includes("zapamti zauvijek") || t.includes("nikad ne zaboravi") || t.includes("super važno");
+    const finalImportance = isPermanent ? 10 : importance;
+
+    await supabaseAdmin.from("stellan_memory").insert({
+      user_id: userId,
+      content: conversationText,
+      summary: userText.slice(0, 200),
+      memory_type,
+      importance: finalImportance,
+      embedding,
+      metadata: { 
+        conversation_length: messages.length,
+        permanent: isPermanent,
+      },
+    });
+  } catch (e) {
+    console.error("Vector memory save error:", e);
+  }
+}
+
+
+async function searchIdeasFromMemory(supabaseAdmin: any, userId: string, query: string, openaiApiKey: string): Promise<string> {
+  try {
+    // If specific query, use vector search
+    if (query && query.length > 3) {
+      const embedding = await createEmbedding(query, openaiApiKey);
+      if (embedding) {
+        const { data } = await supabaseAdmin.rpc("search_stellan_memory", {
+          query_embedding: embedding,
+          match_user_id: userId,
+          match_count: 20,
+          min_importance: 1,
+          memory_types: ["idea"],
+        });
+        if (data?.length) {
+          const ideas = data.map((m: any, i: number) => `${i+1}. ${m.content}`).join("\n");
+          return JSON.stringify({ success: true, ideas, count: data.length });
+        }
+      }
+    }
+    // Otherwise get all ideas
+    const { data } = await supabaseAdmin
+      .from("stellan_memory")
+      .select("content, created_at, importance, metadata")
+      .eq("user_id", userId)
+      .eq("memory_type", "idea")
+      .order("importance", { ascending: false })
+      .order("created_at", { ascending: false })
+      .limit(50);
+    
+    if (!data?.length) return JSON.stringify({ success: true, ideas: "Nema spremljenih ideja.", count: 0 });
+    const ideas = data.map((m: any, i: number) => `${i+1}. ${m.content} (${new Date(m.created_at).toLocaleDateString("hr")})`).join("\n");
+    return JSON.stringify({ success: true, ideas, count: data.length });
+  } catch (e) {
+    return JSON.stringify({ success: false, error: String(e) });
+  }
+}
+
+
+// ─────────────────────────────────────────────────────────────
+//  PROAKTIVNOST — Stellan analizira memorije i predlaže akcije
+// ─────────────────────────────────────────────────────────────
+
+async function getProactiveSuggestions(
+  supabaseAdmin: any,
+  userId: string,
+  openaiApiKey: string,
+): Promise<string> {
+  try {
+    // Dohvati nedavne memorije visoke važnosti
+    const { data: recentMemories } = await supabaseAdmin
+      .from("stellan_memory")
+      .select("content, memory_type, importance, created_at, metadata")
+      .eq("user_id", userId)
+      .gte("importance", 6)
+      .not("memory_type", "eq", "daily_summary")
+      .order("created_at", { ascending: false })
+      .limit(20);
+
+    if (!recentMemories?.length) return "";
+
+    // Provjeri stare ideje (> 7 dana bez follow-up)
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const oldIdeas = recentMemories.filter((m: any) => 
+      m.memory_type === "idea" && new Date(m.created_at) < sevenDaysAgo
+    );
+
+    const suggestions: string[] = [];
+
+    if (oldIdeas.length > 0) {
+      suggestions.push(`💡 Imaš ${oldIdeas.length} staru/e idej/e koje nisi razvio: ${oldIdeas.slice(0, 2).map((m: any) => m.summary || m.content.slice(0, 80)).join("; ")}`);
+    }
+
+    // Provjeri nedovršene odluke
+    const pendingDecisions = recentMemories.filter((m: any) => m.memory_type === "decision");
+    if (pendingDecisions.length > 0) {
+      suggestions.push(`📋 Postoji ${pendingDecisions.length} dogovor/odluka koji treba pratiti`);
+    }
+
+    return suggestions.length > 0 
+      ? `\n\n⚡ **Stellan predlaže:** ${suggestions.join(" | ")}`
+      : "";
+  } catch {
+    return "";
+  }
+}
+
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -2016,145 +3772,304 @@ serve(async (req) => {
     }
     const user_id = claimsData.claims.sub as string;
 
-    // ── Dohvati OpenAI API key ────────────────────────────────
+    // ── Dohvati API keys iz Secrets (fallback) ───────────────
     const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
     if (!OPENAI_API_KEY) throw new Error("OPENAI_API_KEY nije konfiguriran!");
+    const SECRET_ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY") || "";
+    const SECRET_GOOGLE_AI_API_KEY = Deno.env.get("GOOGLE_AI_API_KEY") || "";
+    const SECRET_GROK_API_KEY = Deno.env.get("GROK_API_KEY") || "";
 
-    const { messages, conversation_id } = await req.json();
-
-    // ── Brain/Drive setup ─────────────────────────────────────
-    let brainKnowledge = "";
-    let accessToken: string | null = null;
-    let brainFolderId: string | null = null;
-    let geoterraToken: string | null = null;
-    let brainOwnerId: string | null = null;
-    let isBrainOwner = false;
+    const { messages, conversation_id, user_id: _client_user_id, model: requestedModel, reasoning, provider: requestedProvider, provider_model: requestedProviderModel } = await req.json();
 
     const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabaseAdmin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 
-    brainOwnerId = await resolveBrainOwnerId(supabaseAdmin, user_id);
-    isBrainOwner = !!brainOwnerId && user_id === brainOwnerId;
+    // ── Resolve provider & model ──────────────────────────────
+    const activeProvider: string = (typeof requestedProvider === "string" && ["openai", "anthropic", "google", "xai"].includes(requestedProvider))
+      ? requestedProvider
+      : "xai";
 
-    if (brainOwnerId) {
-      accessToken = await getValidAccessToken(supabaseAdmin, brainOwnerId, "google_brain_tokens");
-      if (!accessToken) accessToken = await getValidAccessToken(supabaseAdmin, brainOwnerId, "google_tokens");
+    const PROVIDER_KEY_MAP: Record<string, string> = {
+      openai: "OPENAI_API_KEY",
+      anthropic: "ANTHROPIC_API_KEY",
+      google: "GOOGLE_AI_API_KEY",
+      xai: "GROK_API_KEY",
+    };
+
+    let userApiKey: string | null = null;
+    const keyName = PROVIDER_KEY_MAP[activeProvider];
+    if (keyName) {
+      const { data: keyRow } = await supabaseAdmin
+        .from("user_api_keys")
+        .select("key_value")
+        .eq("user_id", user_id)
+        .eq("key_name", keyName)
+        .maybeSingle();
+      if (keyRow?.key_value) userApiKey = keyRow.key_value;
     }
 
-    if (accessToken) {
-      brainFolderId = await getOrCreateBrainFolder(accessToken);
-      if (brainFolderId) {
-        if (isBrainOwner) await initializeBrainIfEmpty(accessToken, brainFolderId);
-        brainKnowledge = await loadBrainKnowledge(accessToken, brainFolderId);
-        console.log("[Brain] Knowledge loaded, chars:", brainKnowledge.length);
+    let effectiveApiKey: string;
+    let effectiveModel: string;
+
+    if (activeProvider === "openai") {
+      effectiveApiKey = userApiKey || OPENAI_API_KEY;
+      // Prioritiziraj provider_model iz frontenda (npr. "gpt-5.4", "gpt-5.4-mini")
+      if (typeof requestedProviderModel === "string" && requestedProviderModel && OPENAI_MODELS[requestedProviderModel]) {
+        effectiveModel = OPENAI_MODELS[requestedProviderModel];
+      } else if (typeof requestedProviderModel === "string" && requestedProviderModel) {
+        effectiveModel = requestedProviderModel;
+      } else {
+        const requestedKey = typeof requestedModel === "string" ? requestedModel : "";
+        const modelKey = requestedKey && OPENAI_MODELS[requestedKey] ? requestedKey : (reasoning ? "smart" : OPENAI_DEFAULT);
+        effectiveModel = OPENAI_MODELS[modelKey] || OPENAI_MODELS[OPENAI_DEFAULT];
       }
+    } else if (activeProvider === "anthropic") {
+      effectiveApiKey = userApiKey || SECRET_ANTHROPIC_API_KEY;
+      effectiveModel = (typeof requestedProviderModel === "string" && requestedProviderModel)
+        ? requestedProviderModel
+        : (typeof requestedModel === "string" && requestedModel ? requestedModel : "claude-sonnet-4-20250514");
+    } else if (activeProvider === "google") {
+      effectiveApiKey = userApiKey || SECRET_GOOGLE_AI_API_KEY;
+      effectiveModel = (typeof requestedProviderModel === "string" && requestedProviderModel)
+        ? requestedProviderModel
+        : (typeof requestedModel === "string" && requestedModel ? requestedModel : "gemini-2.5-flash");
+    } else if (activeProvider === "xai") {
+      effectiveApiKey = userApiKey || SECRET_GROK_API_KEY;
+      effectiveModel = (typeof requestedProviderModel === "string" && requestedProviderModel)
+        ? requestedProviderModel
+        : (typeof requestedModel === "string" && requestedModel ? requestedModel : "grok-4-1-fast");
+    } else {
+      effectiveApiKey = SECRET_GROK_API_KEY || OPENAI_API_KEY;
+      effectiveModel = "grok-4-1-fast";
     }
 
-    let geoToken = await getValidAccessToken(supabaseAdmin, user_id, "google_tokens");
-    if (!geoToken && brainOwnerId && !isBrainOwner)
-      geoToken = await getValidAccessToken(supabaseAdmin, brainOwnerId, "google_tokens");
+    if (activeProvider !== "openai" && !effectiveApiKey) {
+      return new Response(
+        JSON.stringify({ error: `API ključ za ${activeProvider} nije postavljen. Postavi ga u postavkama chata.` }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+    let geoterraToken: string | null = null;
+    const geoToken = await getValidAccessToken(supabaseAdmin, user_id, "google_tokens");
     if (geoToken) geoterraToken = geoToken;
 
-    const hasBrain = !!(accessToken && brainFolderId);
-    const enableDriveTools = hasBrain && isBrainOwner && shouldEnableDriveTools(messages || []);
+    // ── Supabase memory context ───────────────────────────────
+    let recentMemories = await getRecentMemoryContext(supabaseAdmin, user_id, 12);
+
+    let vectorMemories = "";
+    const lastUserMsg = [...(messages || [])].reverse().find((m: any) => m.role === "user");
+    const lastUserText = typeof lastUserMsg?.content === "string" ? lastUserMsg.content : "";
+    if (lastUserText.length > 3) {
+      vectorMemories = await searchVectorMemory(supabaseAdmin, user_id, lastUserText, OPENAI_API_KEY, 10);
+    }
+
+    const memoryContext = [recentMemories, vectorMemories].filter(Boolean).join("\n");
+    // ── Brain/Drive tools — dinamički check ──────────────
+    let enableDriveTools = false;
+    let brainAccessToken: string | null = null;
+    let brainFolderIdResolved: string | null = null;
+    try {
+      const brainOwnerId = await resolveBrainOwnerId(supabaseAdmin, user_id);
+      if (brainOwnerId) {
+        const brainToken = await getValidAccessToken(supabaseAdmin, brainOwnerId, "google_brain_tokens")
+          || await getValidAccessToken(supabaseAdmin, brainOwnerId, "google_tokens");
+        if (brainToken) {
+          // Pronađi ili kreiraj Brain folder
+          const folderQ = encodeURIComponent("name='Stellan Brain' and mimeType='application/vnd.google-apps.folder' and trashed=false");
+          const folderRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${folderQ}&fields=files(id,name)`, {
+            headers: { Authorization: `Bearer ${brainToken}` },
+          });
+          if (folderRes.ok) {
+            const folderData = await folderRes.json();
+            if (folderData.files?.length > 0) {
+              brainFolderIdResolved = folderData.files[0].id;
+              brainAccessToken = brainToken;
+              enableDriveTools = true;
+              console.log("[Brain] Drive tools ENABLED, folder:", brainFolderIdResolved);
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("[Brain] Drive tools check failed, continuing without:", e);
+    }
     const hasTrello = !!(Deno.env.get("TRELLO_API_KEY") && Deno.env.get("TRELLO_TOKEN"));
     const hasFirecrawl = !!Deno.env.get("FIRECRAWL_API_KEY");
     const hasGeoterraDrive = !!geoterraToken;
     const hasAgent = !!(Deno.env.get("AGENT_SERVER_URL") && sanitizeAgentServerUrl(Deno.env.get("AGENT_SERVER_URL")!));
 
+    const providerLabel = activeProvider === "openai" ? `OpenAI (${effectiveModel})`
+      : activeProvider === "anthropic" ? `Claude (${effectiveModel})`
+      : activeProvider === "google" ? `Gemini (${effectiveModel})`
+      : `Grok (${effectiveModel})`;
+
+    // ── Load knowledge & tool registry from DB ───────────────
+    const [knowledgeBase, toolsRegistry] = await Promise.all([
+      loadStellanKnowledge(supabaseAdmin),
+      loadStellanToolsRegistry(supabaseAdmin),
+    ]);
+
     // ── System prompt ─────────────────────────────────────────
-    const systemPrompt = `Ti si Stellan — osobni AI asistent geodetske tvrtke GeoTerra Info d.o.o. iz Hrvatske. Pametan si, konkretan i uvijek fokusiran na to da stvarno pomogneš — ne daješ prazne odgovore.
+    const systemPrompt = `
+Ti si Stellan — AI agent za GeoTerra Info d.o.o., hrvatsku geodetsku tvrtku.
+Koristiš ${providerLabel}. Datum: ${new Date().toISOString().split("T")[0]}.
 
-## TKO SI TI
-Stellan je interni asistent GeoTerra Info tima. Poznaješ geodetsku struku, hrvatske zakone i propise vezane uz katastar, SDGE portal, prostorno planiranje i GIS. Govoriš kao kolega iz tima — prijateljski, direktno, bez nepotrebnog formalizma. Kad nešto ne znaš — kažeš to jasno umjesto da izmišljaš.
+═══════════════════════════════════════════════════════
+## 🧠 CORE WORKFLOW
+═══════════════════════════════════════════════════════
 
-## TVOJI ALATI (koristi ih ODMAH bez pitanja kad je kontekst jasan)
+NEJASAN zahtjev → pitaj 1-2 pitanja. JASAN → djeluj odmah.
 
-### 🔍 PRETRAGA — kad korisnik traži projekt, osobu, dokument, parcelu ili bilo što:
-- **search_sdge** → pretraži SDGE portal (službeni geodetski podaci, zahtjevi, elaborati)
-- **search_geoterra_app** → pretraži internu GeoTerra aplikaciju (projekti, kartice, klijenti)
-- **search_drive** → pretraži firmeni Google Drive (dokumenti, elaborati, ugovori)
-- **search_gmail** → pretraži Gmail (prepiske, obavijesti, privitak)
-- **search_trello** → pretraži Trello ploče (zadaci, rokovi, statusi)
-- **search_solo** → pretraži Solo.com.hr (računi, ponude, plaćanja)
-- **search_oss** → pretraži OSS portal oss.uredjenazemlja.hr
-- **lookup_oib** → provjeri OIB osobe ili tvrtke
+### PRAVILA:
+- Opća pitanja (novosti, proizvodi, tehnologije, sport...) → **web_search ODMAH**
+- Firmeni podatci (predmeti, čestice, računi...) → interni toolovi paralelno
+- Podatke TRAŽI (search/db_query/web_search) — ne govori "nemam info" bez pretrage
+- Datoteke ČITAJ CIJELE prije modificiranja
+- Kontekst → search_knowledge + search_memory
+- Odgovori kratko kad može, detaljno kad treba
+- Kod → generate_file/generate_zip, NIKAD u chat
+- Pretraži SVE izvore paralelno
+- Pamti važne stvari: save_knowledge + memory.md
 
-⚡ **PRAVILO PRETRAGE**: Kad korisnik traži bilo što (projekt, osobu, dokument) — ODMAH pozovi relevantne alate BEZ dugih uvoda. Rezultate prikaži u čitljivom formatu s linkovima.
+═══════════════════════════════════════════════════════
+## ⛔ APSOLUTNA ZABRANA KODA U CHATU
+═══════════════════════════════════════════════════════
 
-### 📄 SDGE PORTAL
-- **search_sdge** → pretraži zahtjeve i elaborate
-- **download_sdge_pdf** → preuzmi PDF dokumenta
-- **sdge_povratnice** → dohvati povratnice/potvrde
+### ZABRANJENO — bez iznimke:
+- ❌ Code blokovi (\`\`\`bilo što\`\`\`) — ZABRANJENO UVIJEK
+- ❌ Snippeti, dijelovi koda, primjeri koda u tekstu — ZABRANJENO
+- ❌ "Evo koda koji trebaš dodati..." — ZABRANJENO
+- ❌ Pokazivanje promjena inline u poruci — ZABRANJENO
 
-### 📁 GOOGLE DRIVE (${hasGeoterraDrive ? "AKTIVAN ✅" : "NIJE SPOJEN ❌"})
-- **search_drive** → pretraži firmeni Drive
-${enableDriveTools ? `- **list_drive_files** → izlistaj datoteke u folderu
-- **read_brain_file** → pročitaj datoteku iz Stellan Braina
-- **create_drive_folder/file** → kreiraj folder ili datoteku
-- **rename_drive_item / move_drive_item / copy_drive_file** → upravljaj datotekama` : ""}
+### ISPRAVNO ponašanje:
+- ✅ Sav kod → generate_file ili generate_zip
+- ✅ U chatu SAMO kratko objašnjenje na ljudskom jeziku
+- ✅ Dozvoljeni jedino kratki \`inline\` nazivi (npr. \`useState\`, \`handleClick\`)
 
-### 📧 GMAIL (${hasGeoterraDrive ? "AKTIVAN ✅" : "NIJE SPOJEN ❌"})
-- **search_gmail** → pretraži inbox. Podržava: from:, to:, subject:, has:attachment, after:, before:
+### SELF-CHECK prije slanja:
+Ima li BILO KOJI code block (\`\`\`) u odgovoru? → OBRIŠI i stavi u generate_file.
 
-### 🧾 FAKTURIRANJE
-- **search_solo** → pretraži račune i ponude na Solo.com.hr
+═══════════════════════════════════════════════════════
+## 📁 DATOTEKE — ČITAJ → RAZUMIJ → MODIFICIRAJ → VRATI
+═══════════════════════════════════════════════════════
 
-### 📝 FILL ALATI
-- **fill_zahtjev** → ispuni geodetski zahtjev/obrazac automatski
-- **fill_pdf** → ispuni PDF obrazac
+### Kad korisnik POŠALJE datoteku:
+1. **PROČITAJ** cijeli sadržaj — razumij strukturu, importove, logiku, stilove
+2. **RAZUMIJ** kontekst — zašto je datoteka takva kakva je, koje komponente koristi
+3. **MODIFICIRAJ** pažljivo — napravi SAMO tražene promjene, NE diraj ono što radi
+4. **VRATI** kompletnu datoteku kroz generate_file/generate_zip
+5. **OBJASNI** kratko (1-3 rečenice) što si promijenio i zašto
 
-${hasTrello ? `### 📌 TRELLO
-- **search_trello** → pretraži ploče, liste i kartice` : ""}
+### Kad korisnik NIJE poslao datoteku, a treba izmjenu:
+→ ODMAH pitaj: "Pošalji mi [ime datoteke] da ju izmijenim."
+→ NE objašnjavaj kako bi trebao ručno mijenjati
 
-${hasFirecrawl ? `### 🌐 WEB SCRAPING
-- **scrape_website** → dohvati sadržaj bilo koje web stranice` : ""}
+### STROGA PRAVILA:
+- UVIJEK vrati CIJELU datoteku — od prvog do zadnjeg reda
+- NIKAD ne piši "// ... ostatak koda ostaje isti"
+- Jedna datoteka → generate_file, više datoteka → generate_zip
+- NE piši linkove na datoteke u tekst — download gumb se automatski prikazuje
+- Kad pišeš TypeScript/React → SVE importove, SVE funkcije, SVE exportove
 
-${hasAgent ? `### 💻 LOKALNI AGENT (${hasAgent ? "ONLINE ✅" : "OFFLINE ❌"})
-- **run_python** → pokreni Python skriptu
-- **run_shell** → pokreni shell naredbu
-- **agent_read_file / agent_write_file / agent_list_files** → čitaj/piši datoteke
-- **git_push** → deploy na GitHub → Netlify
-- **pip_install** → instaliraj Python pakete
-- **playwright** → automatizacija preglednika` : ""}
+═══════════════════════════════════════════════════════
+## 🧠 STRUKTURIRANO PAMĆENJE
+═══════════════════════════════════════════════════════
 
-### 🧠 MOZAK — Stellan Brain (${hasBrain ? "AKTIVAN ✅" : "NIJE SPOJEN ❌"})
-Google Drive folder "Stellan Brain" — tu su memory.md, upute.md, projekti.md. Pamtiš sve važno između razgovora.
+### Automatsko pamćenje:
+Stellan automatski pamti svaki razgovor (vector memory). Ali za VAŽNE stvari koristi strukturirano pamćenje:
 
-## KAKO ODGOVARAŠ
+### Kad korisnik kaže "zapamti ovo" ili otkriješ nešto važno:
+1. **save_knowledge** → spremi u bazu znanja s kategorijom i tagovima
+2. **create_drive_file** → spremi u brain folder kao .md datoteku (ako je drive dostupan)
 
-**Format odgovora:**
-- Kratki odgovori za kratka pitanja — ne piši eseje kad je dovoljna jedna rečenica
-- Koristiti **bold** za važne informacije, tablice za usporedbe, bullet liste za korake
-- Linkove uvijek prikazuj kao klikabilne: [Naziv](url)
-- Kod uvijek u code bloku s jezikom
-- Emoji koristi umjereno — samo kad pomaže razumijevanju
+### Kategorije pamćenja:
+- **preference** — kako korisnik želi da radiš (stil odgovora, format, pravila)
+- **decision** — odluke koje su donesene (nikad ih ne mijenjaj bez pitanja)
+- **fact** — činjenice o tvrtki, klijentima, procesima
+- **idea** — ideje za budućnost
+- **constraint** — stvari koje su zabranjene ili odbijene (nikad ih ne predlaži ponovo)
 
-**Rezultati pretrage:**
-- Prikaži kao tablicu ili numerirani popis s: Naziv | Status | Link | Datum
-- Uvijek uključi direktne linkove ako postoje
-- Ako nema rezultata — jasno reci i predloži alternativu
+### Dohvaćanje pamćenja:
+- Na početku svakog razgovora, provjeri search_knowledge za relevantne preferencije
+- Kad korisnik pita nešto vezano uz prošle razgovore → search_memory
+- Kad trebaš podsjetnik → read_brain_file("memory.md")
 
-**Drive rezultati:**
-- Foldere prikazuj s hijerarhijom: 📁 [Naziv](link)
-  - └ 📂 [Podfolder](link)
-- Datoteke pokazuj samo ako nema folder pogodaka ili korisnik eksplicitno traži datoteke
+═══════════════════════════════════════════════════════
+## 🔍 PRETRAGA — SVE IZVORE PARALELNO
+═══════════════════════════════════════════════════════
 
-**Greške:**
-- Ako alat vrati grešku — odmah reci korisniku što se desilo i predloži rješenje
-- Ne skrivaj greške i ne izmišljaj da je nešto uspjelo
+### 🌐 WEB PRETRAGA — UVIJEK KORISTI ZA OPĆA PITANJA
+Kad korisnik pita o nečemu OPĆENITOM (proizvodi, novosti, tehnologije, aplikacije, igre, cijene, vremenska prognoza, sport, politika, bilo što izvan firme):
+→ **ODMAH koristi web_search** — ne čekaj, ne pitaj, pretražuj!
+Primjer: "ima li novosti za app X" → web_search("app X latest news")
+Primjer: "koliko košta Y" → web_search("Y price 2026")
+Primjer: "što je Z" → web_search("Z")
 
-## STROGO ZABRANJENO
-- ❌ NIKAD ne tvrdi da si nešto napravio bez da si pozvao alat i dobio "success": true
-- ❌ NIKAD ne izmišljaj podatke o projektima, parcelama, OIB-ovima ili dokumentima
-- ❌ NIKAD ne govori "prilagodio sam", "napravio sam", "pokrenuo sam" bez stvarnog poziva alata
-- ❌ Ne odgovaraj na jeziku koji nije hrvatski osim ako korisnik ne piše na drugom jeziku
-- ❌ Kad korisnik traži promjenu tvojeg koda ili pravila — jasno reci: "To zahtijeva developersku izmjenu."
+### 🏢 FIRMENI IZVORI — za interne pretrage
+Kad korisnik traži predmet, osobu, firmu, česticu po imenu u kontekstu POSLA:
+OBAVEZNO pretražuj **SVE dostupne izvore** paralelno:
+1. **search_sdge** — SDGE predmeti i elaborati
+2. **search_geoterra_app** — kartice i projekti u aplikaciji
+3. **search_trello** — Trello kartice i boardovi
+4. **search_drive** — Google Drive dokumenti
+5. **search_solo** — Solo.hr računi i ponude
+6. **search_gmail** — mailovi vezani uz temu
 
-## GEODETSKO ZNANJE
-Poznaješ: katastarski premjer, elaborat o promjeni, etažni plan, geodetski elaborat, NIPP, DKP (digitalna katastarska mapa), ZK (zemljišna knjiga), GUP/PPUO, UPU, SDGE portal, eNekretnine, OSS portal, čestice, posjedovni list, ZK izvadak, ARKOD, JOPPD, OIB, k.č., k.o.
+### KOMBINIRAJ kad treba:
+Ako nije jasno je li pitanje interno ili opće → koristi I web_search I interne izvore.
+Rezultate grupiraj po izvoru. Ako neki izvor nije dostupan, preskoči ga tiho.
 
-${brainKnowledge ? `\n====== STELLAN BRAIN — MEMORIJA I ZNANJE ======\n${brainKnowledge}\n====== KRAJ MOZGA ======` : ""}`;
+═══════════════════════════════════════════════════════
+## 🤖 SELF-AWARENESS
+═══════════════════════════════════════════════════════
+
+Ti ZNAŠ svoju infrastrukturu i AKTIVNO je koristiš:
+- **db_inspect/db_query** — pregledaj/čitaj bazu podataka
+- **register_tool** — registriraj novi tool za budućnost
+- **save_knowledge** — spremi znanje u bazu
+- **search_knowledge** — pretraži svoju bazu znanja
+
+Kad naučiš nešto novo → save_knowledge.
+Kad napraviš novu mogućnost → register_tool.
+Kad korisnik ispravi tvoju grešku → zapamti kako je izbjeći.
+
+${toolsRegistry ? `### REGISTRIRANI TOOLOVI\n${toolsRegistry}` : ""}
+
+═══════════════════════════════════════════════════════
+## 🎯 ODGOVORI — STIL I FORMAT
+═══════════════════════════════════════════════════════
+
+### Ton:
+- Profesionalan ali opušten — kao iskusan kolega
+- Kratko kad je jednostavno, detaljno kad je kompleksno
+- Konkretno i s akcijom — uvijek predloži sljedeći korak
+
+### Format:
+- Koristi emoji za kategorije (📊 SDGE, 📁 Drive, 📋 Trello, 🧾 Solo, ✉️ Mail)
+- Rezultate pretrage grupiraj po izvoru
+- Za duže odgovore koristi naslove i bullet pointove
+- NIKAD ne izmišljaj podatke
+- NIKAD ne laži da si nešto napravio
+
+### Kad ne znaš odgovor:
+- NIKAD ne govori "ne znam" bez da si probao (search_knowledge, web_search, db_query)
+- Ako nakon pretrage nema rezultata → reci "Nisam pronašao, ali mogu pokušati [alternativa]"
+
+═══════════════════════════════════════════════════════
+## 🌐 PLAYWRIGHT — EFIKASNOST
+═══════════════════════════════════════════════════════
+
+- NE radi screenshot nakon svakog koraka (40K tokena!)
+- Koristi **get_html** ili **extract** za čitanje sadržaja
+- Koristi **evaluate** za JS scraping — najbrže
+- Screenshot SAMO kad korisnik eksplicitno traži ili trebaš vidjeti layout
+- Ulančaj akcije: navigate → fill → click → extract (bez screenshota između)
+
+${knowledgeBase ? `═══════════════════════════════════════════════════════\n## 📚 BAZA ZNANJA\n═══════════════════════════════════════════════════════\n${knowledgeBase}` : ""}
+
+${memoryContext ? `═══════════════════════════════════════════════════════\n## 💾 MEMORIJA\n═══════════════════════════════════════════════════════\n${memoryContext.substring(0, 15000)}` : ""}
+`.substring(0, 200000);
 
     // ── Tools ─────────────────────────────────────────────────
     const tools = buildTools({ enableDriveTools, hasTrello, hasFirecrawl, hasGeoterraDrive, hasAgent });
@@ -2165,22 +4080,43 @@ ${brainKnowledge ? `\n====== STELLAN BRAIN — MEMORIJA I ZNANJE ======\n${brain
     const encoder = new TextEncoder();
     const shared = { fullResponse: "" };
 
+    const toolCtx = {
+      accessToken: brainAccessToken,
+      brainFolderId: brainFolderIdResolved,
+      geoterraToken,
+      enableDriveTools,
+      supabaseAdmin,
+      user_id,
+      openaiApiKey: OPENAI_API_KEY,
+      model: effectiveModel,
+    };
+
     const streamWork = (async () => {
       try {
-        shared.fullResponse = await runOpenAIWithTools(
-          OPENAI_API_KEY,
-          systemPrompt,
-          messages,
-          tools,
-          writer,
-          encoder,
-          { accessToken, brainFolderId, geoterraToken, enableDriveTools },
-        );
+        if (activeProvider === "anthropic") {
+          shared.fullResponse = await runAnthropicWithTools(
+            effectiveApiKey, systemPrompt, messages, tools, writer, encoder, toolCtx,
+          );
+        } else if (activeProvider === "google") {
+          shared.fullResponse = await runGeminiWithTools(
+            effectiveApiKey, systemPrompt, messages, tools, writer, encoder, toolCtx,
+          );
+        } else if (activeProvider === "xai") {
+          shared.fullResponse = await runOpenAICompatibleWithTools(
+            effectiveApiKey, "https://api.x.ai/v1/chat/completions",
+            systemPrompt, messages, tools, writer, encoder, toolCtx,
+          );
+        } else {
+          shared.fullResponse = await runOpenAIWithTools(
+            effectiveApiKey, systemPrompt, messages, tools, writer, encoder, toolCtx,
+          );
+        }
         await writer.write(encoder.encode("data: [DONE]\n\n"));
       } catch (e) {
         console.error("Stream error:", e);
         try {
-          const errMsg = "⚠️ Greška pri obradi. Pokušaj ponovo.";
+          const errDetail = e instanceof Error ? e.message : String(e);
+          const errMsg = `⚠️ Greška: ${errDetail.substring(0, 300)}`;
           await writer.write(
             encoder.encode(`data: ${JSON.stringify({ choices: [{ delta: { content: errMsg } }] })}\n\n`),
           );
@@ -2200,7 +4136,6 @@ ${brainKnowledge ? `\n====== STELLAN BRAIN — MEMORIJA I ZNANJE ======\n${brain
     // ── Post-conversation persistence (background) ────────────
     streamWork
       .then(async () => {
-        // Token logging
         try {
           const inputText = messages.map((m: any) => {
             if (typeof m.content === "string") return m.content;
@@ -2217,19 +4152,16 @@ ${brainKnowledge ? `\n====== STELLAN BRAIN — MEMORIJA I ZNANJE ======\n${brain
               input_tokens: inputTokens,
               output_tokens: outputTokens,
               total_tokens: inputTokens + outputTokens,
-              model: OPENAI_MODEL,
+              model: effectiveModel,
             });
         } catch (e) {
           console.error("Token logging error:", e);
         }
 
-        // Brain persistence
-        if (accessToken && brainFolderId && shared.fullResponse && isBrainOwner) {
-          const allMessages = [...messages, { role: "assistant", content: shared.fullResponse }];
-          await Promise.allSettled([
-            saveConversationToBrain(accessToken, brainFolderId, allMessages, conversation_id || "auto"),
-            updateMemory(accessToken, brainFolderId, allMessages, OPENAI_API_KEY),
-          ]);
+        try {
+          await saveToVectorMemory(supabaseAdmin, user_id, messages, shared.fullResponse || "", OPENAI_API_KEY);
+        } catch (e) {
+          console.error("Vector save error:", e);
         }
       })
       .catch((e) => console.error("Persistence error:", e));
