@@ -1,4 +1,4 @@
-import { ArrowLeft, Brain, Camera, FolderOpen, Maximize2, Minus, Play, Plus, Save, Sparkles, Trash2, Wand2, Square } from "lucide-react";
+import { ArrowLeft, Brain, Camera, FolderOpen, Maximize2, Minus, Play, Plus, Save, Sparkles, Trash2, Wand2, Square, Send } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { CATEGORY_META, LEARNING_NODE_TYPES } from "./learningNodeTypes";
@@ -291,6 +291,9 @@ export default function LearningPanelV2({ onClose }: Props) {
         </button>
         <button onClick={actions.loadPreview} className="px-3 py-2 rounded-xl bg-pink-500/15 text-pink-100 border border-pink-400/20 text-sm">
           <Camera className="w-4 h-4 inline mr-1" /> Preview Node
+        </button>
+        <button onClick={actions.exportFlowToBrain} className="px-3 py-2 rounded-xl bg-purple-500/15 text-purple-100 border border-purple-400/20 text-sm">
+          <Send className="w-4 h-4 inline mr-1" /> Pošalji u Mozak
         </button>
         <button onClick={actions.improveWithAI} className="px-3 py-2 rounded-xl bg-sky-500/15 text-sky-100 border border-sky-400/20 text-sm">✨ AI Improve</button>
       </div>
