@@ -1838,7 +1838,6 @@ const devPanelPreview = {
     return (
       <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-lg">
         <div className="relative h-[98vh] w-[99vw] overflow-hidden rounded-2xl border border-white/[0.06] bg-[hsl(220,15%,7%)] shadow-2xl">
-
           <DevPanel
             title="Dev Studio"
             steps={devPanelSteps}
