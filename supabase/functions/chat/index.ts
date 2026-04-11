@@ -998,6 +998,120 @@ async function findItemInFolder(accessToken: string, parentFolderId: string, ite
   return (await res.json()).files?.[0] || null;
 }
 
+
+function inferTextMimeType(fileName: string): string {
+  const lower = fileName.toLowerCase();
+  if (lower.endsWith(".md")) return "text/markdown";
+  if (lower.endsWith(".json")) return "application/json";
+  if (lower.endsWith(".csv")) return "text/csv";
+  if (lower.endsWith(".html")) return "text/html";
+  if (lower.endsWith(".xml") || lower.endsWith(".gml") || lower.endsWith(".kml")) return "application/xml";
+  if (lower.endsWith(".js")) return "application/javascript";
+  if (lower.endsWith(".ts")) return "application/typescript";
+  if (lower.endsWith(".tsx")) return "text/plain";
+  if (lower.endsWith(".jsx")) return "text/plain";
+  if (lower.endsWith(".py")) return "text/x-python";
+  if (lower.endsWith(".sql")) return "application/sql";
+  if (lower.endsWith(".yaml") || lower.endsWith(".yml")) return "application/yaml";
+  return "text/plain; charset=UTF-8";
+}
+
+async function uploadFileToBrain(
+  accessToken: string,
+  parentFolderId: string,
+  fileName: string,
+  content: string,
+): Promise<boolean> {
+  try {
+    const existing = await findItemInFolder(accessToken, parentFolderId, fileName);
+    const metadata = {
+      name: fileName,
+      parents: [parentFolderId],
+      mimeType: inferTextMimeType(fileName),
+    };
+
+    const boundary = "stellan_upload_" + crypto.randomUUID().replace(/-/g, "");
+    const body =
+      `--${boundary}\r\n` +
+      `Content-Type: application/json; charset=UTF-8\r\n\r\n` +
+      `${JSON.stringify(metadata)}\r\n` +
+      `--${boundary}\r\n` +
+      `Content-Type: ${metadata.mimeType}\r\n\r\n` +
+      `${content}\r\n` +
+      `--${boundary}--`;
+
+    const url = existing?.id
+      ? `https://www.googleapis.com/upload/drive/v3/files/${existing.id}?uploadType=multipart&fields=id,name,webViewLink`
+      : "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink";
+
+    const method = existing?.id ? "PATCH" : "POST";
+    const res = await fetch(url, {
+      method,
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": `multipart/related; boundary=${boundary}`,
+      },
+      body,
+    });
+
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+async function findFileInBrain(
+  accessToken: string,
+  brainFolderId: string,
+  fileName: string,
+  subfolderName?: string,
+): Promise<{ fileId: string; file: any } | null> {
+  try {
+    let parentFolderId = brainFolderId;
+
+    if (subfolderName) {
+      const subfolderId = await getFolderIdByName(accessToken, brainFolderId, subfolderName);
+      if (!subfolderId) return null;
+      parentFolderId = subfolderId;
+    }
+
+    const file = await findItemInFolder(accessToken, parentFolderId, fileName);
+    if (!file?.id) return null;
+
+    return { fileId: file.id, file };
+  } catch {
+    return null;
+  }
+}
+
+async function downloadFileContent(
+  accessToken: string,
+  fileInfo: { id: string; name?: string; mimeType?: string },
+): Promise<string | null> {
+  try {
+    let url = `https://www.googleapis.com/drive/v3/files/${fileInfo.id}?alt=media`;
+
+    if (fileInfo.mimeType === "application/vnd.google-apps.document") {
+      url = `https://www.googleapis.com/drive/v3/files/${fileInfo.id}/export?mimeType=${encodeURIComponent("text/plain")}`;
+    } else if (fileInfo.mimeType === "application/vnd.google-apps.spreadsheet") {
+      url = `https://www.googleapis.com/drive/v3/files/${fileInfo.id}/export?mimeType=${encodeURIComponent("text/csv")}`;
+    } else if (fileInfo.mimeType === "application/vnd.google-apps.presentation") {
+      url = `https://www.googleapis.com/drive/v3/files/${fileInfo.id}/export?mimeType=${encodeURIComponent("text/plain")}`;
+    }
+
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+
+    if (!res.ok) return null;
+    const text = await res.text();
+    return text.length > 300000 ? text.slice(0, 300000) + "\n...[skraćeno]" : text;
+  } catch {
+    return null;
+  }
+}
+
+
 async function executeDriveTool(
   accessToken: string,
   brainFolderId: string,
@@ -3783,8 +3897,7 @@ serve(async (req) => {
     const user_id = claimsData.claims.sub as string;
 
     // ── Dohvati API keys iz Secrets (fallback) ───────────────
-    const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
-    if (!OPENAI_API_KEY) throw new Error("OPENAI_API_KEY nije konfiguriran!");
+    const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY") || "";
     const SECRET_ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY") || "";
     const SECRET_GOOGLE_AI_API_KEY = Deno.env.get("GOOGLE_AI_API_KEY") || "";
     const SECRET_GROK_API_KEY = Deno.env.get("GROK_API_KEY") || "";
@@ -3853,7 +3966,7 @@ serve(async (req) => {
       effectiveModel = "grok-4-1-fast";
     }
 
-    if (activeProvider !== "openai" && !effectiveApiKey) {
+    if (!effectiveApiKey) {
       return new Response(
         JSON.stringify({ error: `API ključ za ${activeProvider} nije postavljen. Postavi ga u postavkama chata.` }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
@@ -3870,7 +3983,7 @@ serve(async (req) => {
     let vectorMemories = "";
     const lastUserMsg = [...(messages || [])].reverse().find((m: any) => m.role === "user");
     const lastUserText = typeof lastUserMsg?.content === "string" ? lastUserMsg.content : "";
-    if (lastUserText.length > 3) {
+    if (OPENAI_API_KEY && lastUserText.length > 3) {
       vectorMemories = await searchVectorMemory(supabaseAdmin, user_id, lastUserText, OPENAI_API_KEY, 10);
     }
 
@@ -4097,7 +4210,7 @@ ${memoryContext ? `════════════════════�
       enableDriveTools,
       supabaseAdmin,
       user_id,
-      openaiApiKey: OPENAI_API_KEY,
+      openaiApiKey: OPENAI_API_KEY || "",
       model: effectiveModel,
     };
 
