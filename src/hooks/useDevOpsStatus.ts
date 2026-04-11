@@ -13,13 +13,16 @@ const DEV_CONTROL_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/dev-c
 export function useDevOpsStatus({
   enabled = true,
   projectRoot,
-  pollMs = 30000,
+  pollMs = 0,
 }: UseDevOpsStatusOptions) {
   const [snapshot, setSnapshot] = useState<DevOpsSnapshot | null>(null);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
   const mountedRef = useRef(true);
+  const inFlightRef = useRef(false);
+  const hasLoadedOnceRef = useRef(false);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -29,11 +32,16 @@ export function useDevOpsStatus({
   }, []);
 
   const refresh = useCallback(async (silent = false) => {
-    if (!enabled) return null;
+    if (!enabled || inFlightRef.current) return null;
 
-    if (!silent) {
-      setLoading(!snapshot);
-      setRefreshing(!!snapshot);
+    inFlightRef.current = true;
+
+    if (!silent && mountedRef.current) {
+      if (!hasLoadedOnceRef.current) {
+        setLoading(true);
+      } else {
+        setRefreshing(true);
+      }
     }
 
     try {
@@ -62,6 +70,7 @@ export function useDevOpsStatus({
       if (mountedRef.current) {
         setSnapshot(data as DevOpsSnapshot);
         setError(null);
+        hasLoadedOnceRef.current = true;
       }
 
       return data as DevOpsSnapshot;
@@ -71,17 +80,21 @@ export function useDevOpsStatus({
       }
       return null;
     } finally {
+      inFlightRef.current = false;
       if (mountedRef.current && !silent) {
         setLoading(false);
         setRefreshing(false);
       }
     }
-  }, [enabled, projectRoot, snapshot]);
+  }, [enabled, projectRoot]);
 
   useEffect(() => {
     if (!enabled) return;
 
-    void refresh();
+    void refresh(false);
+
+    if (!pollMs || pollMs <= 0) return;
+
     const interval = window.setInterval(() => {
       void refresh(true);
     }, pollMs);
