@@ -1,3 +1,4 @@
+
 import { cn } from "@/lib/utils";
 import {
   Globe,
@@ -24,8 +25,13 @@ import {
   WifiOff,
   Copy,
   Check,
+  Search,
+  FolderOpen,
+  FileText,
+  Sparkles,
+  Activity,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback, type ReactNode } from "react";
 
 /* ──────────────────────────── Types ──────────────────────────── */
 
@@ -96,12 +102,13 @@ const quickActions: Array<{
   label: string;
   icon: string;
   placeholder?: string;
+  accent: string;
 }> = [
-  { key: "open", label: "Open", icon: "🌐", placeholder: "https://..." },
-  { key: "click", label: "Click", icon: "👆", placeholder: "tekst, selector, gumb..." },
-  { key: "type", label: "Type", icon: "⌨️", placeholder: "upiši vrijednost..." },
-  { key: "screenshot", label: "Screenshot", icon: "📸" },
-  { key: "learn", label: "Learn", icon: "🧠", placeholder: "naziv flowa..." },
+  { key: "open", label: "Open", icon: "🌐", placeholder: "https://...", accent: "text-cyan-300 border-cyan-500/20 bg-cyan-500/10" },
+  { key: "click", label: "Click", icon: "👆", placeholder: "tekst, selector, gumb...", accent: "text-violet-300 border-violet-500/20 bg-violet-500/10" },
+  { key: "type", label: "Type", icon: "⌨️", placeholder: "upiši vrijednost...", accent: "text-amber-300 border-amber-500/20 bg-amber-500/10" },
+  { key: "screenshot", label: "Screenshot", icon: "📸", accent: "text-pink-300 border-pink-500/20 bg-pink-500/10" },
+  { key: "learn", label: "Learn", icon: "🧠", placeholder: "naziv flowa...", accent: "text-emerald-300 border-emerald-500/20 bg-emerald-500/10" },
 ];
 
 function getActionIcon(action: DevActionType) {
@@ -135,15 +142,42 @@ function getStatusColor(status: StepStatus) {
   }
 }
 
-function formatActionLabel(action: DevActionType) {
-  switch (action) {
-    case "open": return "Open";
-    case "click": return "Click";
-    case "type": return "Type";
-    case "screenshot": return "Screenshot";
-    case "learn": return "Learn";
-    default: return action;
-  }
+function getLogTone(log: ConsoleLog) {
+  if (log.t === "ok") return "text-emerald-300";
+  if (log.t === "warn") return "text-amber-300";
+  if (log.t === "err") return "text-red-300";
+  if (log.t === "info") return "text-cyan-300";
+  return "text-white/35";
+}
+
+function SectionCard({
+  title,
+  subtitle,
+  right,
+  children,
+  className,
+}: {
+  title: string;
+  subtitle?: string;
+  right?: ReactNode;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div
+      className={cn("rounded-2xl border border-white/[0.08] bg-white/[0.03] backdrop-blur-xl", className)}
+      style={{ boxShadow: "0 16px 44px rgba(0,0,0,0.18)" }}
+    >
+      <div className="flex items-center justify-between gap-3 border-b border-white/[0.06] px-4 py-3">
+        <div>
+          <p className="text-xs font-semibold text-white/90">{title}</p>
+          {subtitle && <p className="text-[10px] text-white/30 mt-0.5">{subtitle}</p>}
+        </div>
+        {right}
+      </div>
+      <div className="p-4">{children}</div>
+    </div>
+  );
 }
 
 export default function DevPanel({
@@ -193,6 +227,8 @@ export default function DevPanel({
   const [copied, setCopied] = useState(false);
   const networkEndRef = useRef<HTMLDivElement | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // ─── Project state ──────────────────────────────────────
   const [projectRoot, setProjectRoot] = useState(() => localStorage.getItem("stellan_project_root") || "");
   const [projectFilePath, setProjectFilePath] = useState("");
   const [projectSearchQuery, setProjectSearchQuery] = useState("");
@@ -200,7 +236,9 @@ export default function DevPanel({
   const [projectSearchResults, setProjectSearchResults] = useState<Array<{ path: string; line?: number; text?: string }>>([]);
   const [projectBuildOutput, setProjectBuildOutput] = useState("");
   const [projectBuildOk, setProjectBuildOk] = useState<boolean | null>(null);
-  const [projectPatchJson, setProjectPatchJson] = useState('[\n  {\n    "path": "src/components/chat/Example.tsx",\n    "content": "// full file content here"\n  }\n]');
+  const [projectPatchJson, setProjectPatchJson] = useState(
+    '[\n  {\n    "path": "src/components/chat/Example.tsx",\n    "content": "// full file content here"\n  }\n]'
+  );
   const [projectBusy, setProjectBusy] = useState(false);
   const [projectNotice, setProjectNotice] = useState("");
 
@@ -217,13 +255,18 @@ export default function DevPanel({
     try {
       const res = await fetch(`${agentBaseUrl}${path}`, {
         method,
-        headers: { "Content-Type": "application/json", "X-API-Key": agentApiKey, "ngrok-skip-browser-warning": "true" },
+        headers: {
+          "Content-Type": "application/json",
+          "X-API-Key": agentApiKey,
+          "ngrok-skip-browser-warning": "true",
+        },
         ...(body ? { body: JSON.stringify(body) } : {}),
       });
       return await res.json();
-    } catch { return null; }
+    } catch {
+      return null;
+    }
   }, [agentBaseUrl, agentApiKey]);
-
 
   useEffect(() => {
     localStorage.setItem("stellan_project_root", projectRoot);
@@ -309,7 +352,9 @@ export default function DevPanel({
       timeout: 300,
     });
     if (res) {
-      const out = [res.stdout || "", res.stderr || ""].filter(Boolean).join("\n\n");
+      const out = [res.error ? `ERROR: ${res.error}` : "", res.stdout || "", res.stderr || ""]
+        .filter(Boolean)
+        .join("\n\n");
       setProjectBuildOutput(out || "(nema outputa)");
       setProjectBuildOk(!!res.success);
       markProjectNotice(res.success ? "Build prošao." : "Build pao.");
@@ -388,19 +433,20 @@ export default function DevPanel({
   }, [agentFetch]);
 
   const copyNetworkForStellen = useCallback(() => {
-    const interesting = networkLogs.filter(l => l.status && l.method === "POST");
-    const formatted = interesting.map(l => ({
-      method: l.method, url: l.url, status: l.status,
+    const interesting = networkLogs.filter((l) => l.status && l.method === "POST");
+    const formatted = interesting.map((l) => ({
+      method: l.method,
+      url: l.url,
+      status: l.status,
       request: l.request_body?.substring(0, 3000),
       response: l.response_body?.substring(0, 3000),
     }));
     const text = `Evo network logovi sa SDGE portala. Napiši edge function koja replicira ove korake programski. Koristi login pattern iz sync-sdge.\n\n\`\`\`json\n${JSON.stringify(formatted, null, 2)}\n\`\`\``;
     navigator.clipboard.writeText(text);
     setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    setTimeout(() => setCopied(false), 1800);
   }, [networkLogs]);
 
-  // Poll network logs when capturing
   useEffect(() => {
     if (networkCapturing && rightTab === "network") {
       const poll = async () => {
@@ -410,9 +456,8 @@ export default function DevPanel({
       poll();
       pollRef.current = setInterval(poll, 2000);
       return () => { if (pollRef.current) clearInterval(pollRef.current); };
-    } else {
-      if (pollRef.current) clearInterval(pollRef.current);
     }
+    if (pollRef.current) clearInterval(pollRef.current);
   }, [networkCapturing, rightTab, agentFetch]);
 
   useEffect(() => {
@@ -440,497 +485,696 @@ export default function DevPanel({
   };
 
   return (
-    <div className="flex h-full min-w-0 flex-col bg-[hsl(220,15%,4%)]">
+    <div
+      className="flex h-full min-w-0 flex-col"
+      style={{
+        background:
+          "radial-gradient(ellipse 120% 80% at 50% 35%, rgba(32,23,57,1) 0%, rgba(13,11,26,1) 55%, rgba(8,8,16,1) 100%)",
+      }}
+    >
+      <div className="absolute inset-0 pointer-events-none overflow-hidden">
+        <div className="absolute top-[14%] left-[18%] h-[440px] w-[440px] rounded-full opacity-[0.05]" style={{ background: "radial-gradient(circle, rgba(167,139,250,1), transparent 70%)" }} />
+        <div className="absolute top-[50%] right-[12%] h-[360px] w-[360px] rounded-full opacity-[0.04]" style={{ background: "radial-gradient(circle, rgba(34,211,238,1), transparent 70%)" }} />
+        <div className="absolute bottom-[6%] left-[42%] h-[320px] w-[320px] rounded-full opacity-[0.04]" style={{ background: "radial-gradient(circle, rgba(244,114,182,1), transparent 70%)" }} />
+      </div>
 
-      {/* TOP BAR */}
-      <div className="flex items-center justify-between border-b border-white/[0.06] bg-[hsl(220,15%,5%)] px-3 py-2 shrink-0">
-        <div className="flex items-center gap-2.5">
-          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-600 text-xs font-bold text-white">S</div>
-          <div>
-            <div className="text-[11px] font-semibold text-white/75 leading-tight">{title}</div>
-            <div className="text-[9px] text-white/25 leading-tight">GeoTerra Info</div>
+      {/* Header */}
+      <div className="relative z-10 flex items-center justify-between gap-3 border-b border-white/[0.06] px-5 py-3">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-violet-500/20 border border-violet-400/20">
+            <Sparkles className="h-4 w-4 text-violet-300" />
+          </div>
+          <div className="min-w-0">
+            <div className="text-sm font-semibold text-white/90 truncate">{title}</div>
+            <div className="text-[10px] text-white/30 truncate">Moderni DEV workspace za preview, akcije i projekt</div>
           </div>
         </div>
-        <div className="flex items-center gap-1.5">
+
+        <div className="flex items-center gap-2 shrink-0">
           <div className={cn(
-            "flex items-center gap-1.5 px-2 py-1 rounded-full text-[9px] font-medium border",
-            agentOnline === true ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
-              : agentOnline === false ? "bg-red-500/10 text-red-400 border-red-500/20"
-              : "bg-white/[0.04] text-white/30 border-white/[0.06]"
+            "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-medium",
+            agentOnline === true
+              ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-300"
+              : agentOnline === false
+                ? "border-red-500/20 bg-red-500/10 text-red-300"
+                : "border-white/[0.08] bg-white/[0.04] text-white/35"
           )}>
-            <div className={cn("w-1.5 h-1.5 rounded-full",
+            <div className={cn(
+              "h-1.5 w-1.5 rounded-full",
               agentOnline === true ? "bg-emerald-400 animate-pulse" : agentOnline === false ? "bg-red-400" : "bg-white/20"
             )} />
-            {agentOnline === true ? "Online" : agentOnline === false ? "Offline" : "..."}
+            {agentOnline === true ? "Agent online" : agentOnline === false ? "Agent offline" : "Provjera..."}
           </div>
-          <div className="flex items-center gap-1 text-[9px] text-white/25">
-            <div className="w-1 h-1 rounded-full bg-violet-400" />
+
+          <div className="inline-flex items-center gap-1.5 rounded-full border border-white/[0.08] bg-white/[0.04] px-2.5 py-1 text-[10px] text-white/35">
+            <Activity className="h-3 w-3 text-cyan-300" />
             {modelBadge}
           </div>
+
           {isRecording ? (
-            <div className="flex items-center gap-1">
-              <button onClick={onSaveRecording}
-                className="flex items-center gap-1 px-2 py-1 rounded-md text-[9px] font-semibold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/25 transition-all">
-                <div className="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse" /> Spremi
+            <>
+              <button
+                onClick={onSaveRecording}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/20 bg-emerald-500/10 px-3 py-1.5 text-[10px] font-medium text-emerald-200 hover:bg-emerald-500/20"
+              >
+                <CheckCircle2 className="h-3.5 w-3.5" />
+                Spremi recording
               </button>
-              <button onClick={onCancelRecording} className="px-1.5 py-1 rounded-md text-[9px] text-white/30 border border-white/[0.08] hover:bg-red-500/10 hover:text-red-300 transition-all">✕</button>
-            </div>
+              <button
+                onClick={onCancelRecording}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-1.5 text-[10px] font-medium text-red-200 hover:bg-red-500/20"
+              >
+                <Square className="h-3.5 w-3.5" />
+                Stop
+              </button>
+            </>
           ) : (
-            <button onClick={onStartRecording}
-              className="flex items-center gap-1 px-2 py-1 rounded-md text-[9px] font-medium bg-white/[0.04] text-white/40 border border-white/[0.08] hover:bg-red-500/10 hover:text-red-300 transition-all">
-              <div className="w-1.5 h-1.5 rounded-full bg-white/30" /> Učenje
+            <button
+              onClick={onStartRecording}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-1.5 text-[10px] font-medium text-amber-200 hover:bg-amber-500/20"
+            >
+              <Brain className="h-3.5 w-3.5" />
+              Učenje
             </button>
           )}
-          <button onClick={onStartAgent}
-            className="flex items-center gap-1 px-2 py-1 rounded-md text-[9px] font-medium bg-amber-500/10 text-amber-300 border border-amber-500/20 hover:bg-amber-500/15 transition-all">
-            <Zap className="w-3 h-3" /> Agent
+
+          <button
+            onClick={onStartAgent}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-violet-500/20 bg-violet-500/10 px-3 py-1.5 text-[10px] font-medium text-violet-200 hover:bg-violet-500/20"
+          >
+            <Zap className="h-3.5 w-3.5" />
+            Agent
           </button>
-          <button onClick={onDeploy} disabled={isDeploying}
-            className={cn("flex items-center gap-1 px-2 py-1 rounded-md text-[9px] font-medium border transition-all",
-              isDeploying ? "bg-amber-500/10 text-amber-300 border-amber-500/20 cursor-wait"
-                : deployStatus === "success" ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/20"
-                : deployStatus === "error" ? "bg-red-500/10 text-red-300 border-red-500/20"
-                : "bg-emerald-500/10 text-emerald-300 border-emerald-500/20 hover:bg-emerald-500/15"
-            )}>
-            <Rocket className="w-3 h-3" />
-            {isDeploying ? "Deploy..." : deployStatus === "success" ? "✅" : deployStatus === "error" ? "❌" : "Deploy"}
+
+          <button
+            onClick={onDeploy}
+            disabled={isDeploying}
+            className={cn(
+              "inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-[10px] font-medium transition-all",
+              isDeploying
+                ? "border-amber-500/20 bg-amber-500/10 text-amber-200"
+                : deployStatus === "success"
+                  ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-200"
+                  : deployStatus === "error"
+                    ? "border-red-500/20 bg-red-500/10 text-red-200"
+                    : "border-cyan-500/20 bg-cyan-500/10 text-cyan-200 hover:bg-cyan-500/20"
+            )}
+          >
+            <Rocket className="h-3.5 w-3.5" />
+            {isDeploying ? "Deploy..." : deployStatus === "success" ? "Deploy ✓" : deployStatus === "error" ? "Deploy ✕" : "Deploy"}
           </button>
-          <button onClick={onCheckHealth} title="Provjeri agent status"
-            className="px-1.5 py-1 rounded-md text-white/30 hover:text-white/60 hover:bg-white/[0.05] transition-all">
-            <HardDrive className="w-3.5 h-3.5" />
+
+          <button
+            onClick={onCheckHealth}
+            className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.04] text-white/35 hover:text-white/70 hover:bg-white/[0.08]"
+            title="Provjeri agent"
+          >
+            <HardDrive className="h-3.5 w-3.5" />
           </button>
         </div>
       </div>
 
-      {/* BODY — 2 columns: Preview + Actions */}
-      <div className="flex min-h-0 flex-1">
-
-        {/* Preview */}
-        <div className="flex min-h-0 flex-1 flex-col">
-          <div className="flex items-center gap-2 border-b border-white/[0.06] bg-[hsl(220,15%,5%)] px-3 py-2">
-            <Globe className="h-3.5 w-3.5 text-white/30 shrink-0" />
-            <div className="flex-1 truncate rounded-lg border border-white/[0.06] bg-white/[0.03] px-2.5 py-1 text-[11px] font-mono text-white/40">
-              {preview.url || "Nema aktivnog previewa"}
+      {/* Main layout */}
+      <div className="relative z-10 grid min-h-0 flex-1 grid-cols-[290px_minmax(0,1fr)_360px] gap-4 p-4">
+        {/* Left rail */}
+        <div className="min-h-0 overflow-y-auto space-y-4 pr-1">
+          <SectionCard
+            title="Brze akcije"
+            subtitle="Jedan klik ili unos, bez traženja po menijima."
+            right={
+              isAgentRunning ? (
+                <button
+                  onClick={onStopAgent}
+                  className="inline-flex items-center gap-1 rounded-lg border border-red-500/20 bg-red-500/10 px-2.5 py-1 text-[10px] text-red-200 hover:bg-red-500/20"
+                >
+                  <Square className="h-3 w-3" />
+                  Stop
+                </button>
+              ) : (
+                <span className="inline-flex items-center gap-1 rounded-full border border-white/[0.08] bg-white/[0.04] px-2.5 py-1 text-[10px] text-white/35">
+                  <Play className="h-3 w-3" />
+                  Idle
+                </span>
+              )
+            }
+          >
+            <div className="space-y-2.5">
+              {quickActions.map((action) => {
+                const needsInput = action.key !== "screenshot";
+                return (
+                  <div key={action.key} className="rounded-xl border border-white/[0.06] bg-black/20 p-2.5">
+                    <div className="mb-2 flex items-center gap-2">
+                      <div className={cn("inline-flex items-center gap-1.5 rounded-full border px-2 py-1 text-[10px] font-medium", action.accent)}>
+                        <span>{action.icon}</span>
+                        {action.label}
+                      </div>
+                    </div>
+                    {needsInput ? (
+                      <input
+                        value={actionValues[action.key]}
+                        onChange={(e) => setActionValues((prev) => ({ ...prev, [action.key]: e.target.value }))}
+                        onKeyDown={(e) => { if (e.key === "Enter") runAction(action.key); }}
+                        placeholder={action.placeholder}
+                        className="mb-2 h-9 w-full rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 text-[11px] text-white/70 outline-none placeholder:text-white/18 focus:border-white/[0.14]"
+                      />
+                    ) : (
+                      <div className="mb-2 flex h-9 items-center rounded-xl border border-dashed border-white/[0.08] bg-white/[0.02] px-3 text-[10px] text-white/18">
+                        Napravi screenshot aktualnog previewa
+                      </div>
+                    )}
+                    <button
+                      onClick={() => runAction(action.key)}
+                      className="h-9 w-full rounded-xl border border-white/[0.08] bg-white/[0.06] text-[11px] font-medium text-white/65 hover:bg-white/[0.1] hover:text-white"
+                    >
+                      Pokreni {action.label.toLowerCase()}
+                    </button>
+                  </div>
+                );
+              })}
             </div>
-            <div className="flex items-center gap-1.5">
-              {preview.url && (
-                <a href={preview.url} target="_blank" rel="noreferrer"
-                  className="rounded-lg border border-white/[0.08] px-2 py-1.5 text-[10px] text-white/50 transition hover:bg-white/[0.05]">
-                  <ExternalLink className="h-3.5 w-3.5" />
-                </a>
-              )}
-              <button onClick={onRefreshScreenshot} className="rounded-lg border border-white/[0.08] px-2 py-1.5 text-[10px] text-white/50 transition hover:bg-white/[0.05]">📸</button>
-              <button onClick={onWaitForLoad} className="rounded-lg border border-white/[0.08] px-2 py-1.5 text-[10px] text-white/50 transition hover:bg-white/[0.05]">⏳</button>
-              <button onClick={onDescribePreview} className="rounded-lg border border-white/[0.08] px-2 py-1.5 text-[10px] text-white/50 transition hover:bg-white/[0.05]">👁</button>
+          </SectionCard>
+
+          <SectionCard title="Sažetak" subtitle="Brzi pregled izvršavanja.">
+            <div className="grid grid-cols-2 gap-2">
+              <div className="rounded-2xl border border-white/[0.08] bg-white/[0.03] p-3 text-center">
+                <div className="text-[10px] text-white/25">Ukupno</div>
+                <div className="mt-1 text-xl font-semibold text-white/85">{stats.total}</div>
+              </div>
+              <div className="rounded-2xl border border-blue-500/20 bg-blue-500/10 p-3 text-center">
+                <div className="text-[10px] text-blue-200/70">Run</div>
+                <div className="mt-1 text-xl font-semibold text-blue-200">{stats.running}</div>
+              </div>
+              <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-3 text-center">
+                <div className="text-[10px] text-emerald-200/70">Done</div>
+                <div className="mt-1 text-xl font-semibold text-emerald-200">{stats.done}</div>
+              </div>
+              <div className="rounded-2xl border border-rose-500/20 bg-rose-500/10 p-3 text-center">
+                <div className="text-[10px] text-rose-200/70">Err</div>
+                <div className="mt-1 text-xl font-semibold text-rose-200">{stats.errors}</div>
+              </div>
+            </div>
+
+            {isRecording && (
+              <div className="mt-3 rounded-2xl border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-100">
+                Snimam: <span className="font-semibold">{recordingName}</span>
+              </div>
+            )}
+          </SectionCard>
+
+          <SectionCard
+            title="Spremljene akcije"
+            subtitle="Brzo pokretanje naučenih flowova."
+            right={
+              <button
+                onClick={onRefreshActions}
+                className="inline-flex items-center gap-1 rounded-lg border border-white/[0.08] bg-white/[0.04] px-2 py-1 text-[10px] text-white/40 hover:text-white/70 hover:bg-white/[0.08]"
+              >
+                <RefreshCw className="h-3 w-3" />
+                Osvježi
+              </button>
+            }
+          >
+            {savedActions.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-white/[0.08] px-3 py-5 text-center text-[11px] text-white/25">
+                Još nema spremljenih akcija.
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {savedActions.map((action) => (
+                  <div key={action.file} className="rounded-xl border border-white/[0.06] bg-black/20 p-2.5">
+                    <div className="flex items-start gap-2.5">
+                      <div className="mt-0.5 flex h-8 w-8 items-center justify-center rounded-xl bg-violet-500/10 border border-violet-500/20 text-violet-300">
+                        <Brain className="h-4 w-4" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-[11px] font-medium text-white/80">{action.name}</div>
+                        <div className="truncate text-[9px] text-white/25">{action.file}</div>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => onRunSavedAction?.(action.name)}
+                      className="mt-2 h-8 w-full rounded-xl border border-emerald-500/20 bg-emerald-500/10 text-[10px] font-medium text-emerald-200 hover:bg-emerald-500/20"
+                    >
+                      Pokreni akciju
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </SectionCard>
+        </div>
+
+        {/* Center preview */}
+        <div className="min-h-0 flex flex-col">
+          <SectionCard
+            title="Live Preview"
+            subtitle={preview.title || "Pregled onoga što agent trenutno vidi."}
+            className="flex min-h-0 flex-1 flex-col overflow-hidden"
+            right={
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={onRefreshScreenshot}
+                  className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.04] text-white/35 hover:text-white/75 hover:bg-white/[0.08]"
+                  title="Osvježi preview"
+                >
+                  <Camera className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  onClick={onWaitForLoad}
+                  className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.04] text-white/35 hover:text-white/75 hover:bg-white/[0.08]"
+                  title="Pričekaj učitavanje"
+                >
+                  <Clock3 className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  onClick={onDescribePreview}
+                  className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.04] text-white/35 hover:text-white/75 hover:bg-white/[0.08]"
+                  title="Opiši preview"
+                >
+                  <Sparkles className="h-3.5 w-3.5" />
+                </button>
+                {preview.url && (
+                  <a
+                    href={preview.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.04] text-white/35 hover:text-white/75 hover:bg-white/[0.08]"
+                    title="Otvori preview u novom tabu"
+                  >
+                    <ExternalLink className="h-3.5 w-3.5" />
+                  </a>
+                )}
+              </div>
+            }
+          >
+            <div className="mb-3 flex items-center gap-2">
+              <div className="flex flex-1 items-center gap-2 rounded-xl border border-white/[0.08] bg-black/20 px-3 py-2">
+                <Globe className="h-3.5 w-3.5 text-white/25 shrink-0" />
+                <div className="truncate text-[11px] font-mono text-white/45">{preview.url || "Nema aktivnog previewa"}</div>
+              </div>
               <div className={cn(
-                "rounded-full border px-2 py-0.5 text-[9px] font-medium",
-                preview.isLive ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-300" : "border-white/[0.08] bg-white/[0.05] text-white/35"
+                "rounded-full border px-2.5 py-1 text-[10px] font-medium",
+                preview.isLive
+                  ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-300"
+                  : "border-white/[0.08] bg-white/[0.04] text-white/35"
               )}>
                 {preview.isLive ? "LIVE" : "STATIC"}
               </div>
             </div>
-          </div>
-          <div className="relative min-h-0 flex-1 bg-[#0a0c12] overflow-auto">
-            {preview.screenshotUrl ? (
-              <img src={preview.screenshotUrl} alt="Preview" className="h-full w-full object-contain bg-[#0a0c12]" />
-            ) : (
-              <div className="flex h-full items-center justify-center p-8">
-                <div className="max-w-xs text-center">
-                  <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-white/[0.04]">
-                    <PanelRight className="h-6 w-6 text-white/20" />
+
+            <div className="relative min-h-0 flex-1 overflow-hidden rounded-2xl border border-white/[0.08] bg-[#090b13]">
+              {preview.screenshotUrl ? (
+                <img src={preview.screenshotUrl} alt="Preview" className="h-full w-full object-contain" />
+              ) : (
+                <div className="flex h-full items-center justify-center p-8">
+                  <div className="text-center">
+                    <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl border border-white/[0.08] bg-white/[0.03]">
+                      <PanelRight className="h-7 w-7 text-white/15" />
+                    </div>
+                    <div className="text-sm font-semibold text-white/70">Preview će biti ovdje</div>
+                    <div className="mt-1 text-[11px] text-white/25">Kada agent otvori stranicu, ovdje vidiš screenshot i stanje.</div>
                   </div>
-                  <div className="text-sm font-semibold text-white/70">Preview</div>
-                  <div className="mt-1.5 text-[11px] leading-5 text-white/25">Kada agent otvori stranicu, ovdje se prikazuje stanje.</div>
                 </div>
-              </div>
-            )}
-            {preview.summary && (
-              <div className="absolute bottom-3 left-3 right-3 rounded-xl border border-white/[0.08] bg-black/65 px-3 py-2 text-[11px] text-white/65 backdrop-blur">{preview.summary}</div>
-            )}
-            {isAgentRunning && (
-              <div className="absolute top-3 right-3 rounded-xl border border-white/[0.08] bg-black/65 px-3 py-2 text-[11px] font-medium text-white/65 backdrop-blur">Agent izvršava korake...</div>
-            )}
-          </div>
+              )}
+              {isAgentRunning && (
+                <div className="absolute top-3 right-3 rounded-xl border border-violet-500/20 bg-black/65 px-3 py-2 text-[11px] text-violet-100 backdrop-blur">
+                  Agent izvršava korake...
+                </div>
+              )}
+              {preview.summary && (
+                <div className="absolute bottom-3 left-3 right-3 rounded-2xl border border-white/[0.08] bg-black/65 px-3 py-2.5 text-[11px] leading-5 text-white/70 backdrop-blur">
+                  {preview.summary}
+                </div>
+              )}
+            </div>
+          </SectionCard>
         </div>
 
-        {/* Actions & Steps */}
-        <div className="flex min-h-0 w-[280px] shrink-0 flex-col border-l border-white/[0.06] bg-[hsl(220,15%,5%)]">
-          <div className="flex items-center justify-between border-b border-white/[0.06] px-3 py-2.5">
-            <div>
-              <div className="text-[11px] font-semibold text-white/75">Actions</div>
-              <div className="text-[9px] text-white/25">DEV akcije i koraci</div>
-            </div>
-            <button onClick={isAgentRunning ? onStopAgent : undefined}
-              className={cn("inline-flex items-center gap-1.5 rounded-lg border px-2 py-1.5 text-[10px] font-medium transition",
-                isAgentRunning ? "border-rose-500/20 bg-rose-500/10 text-rose-300 hover:bg-rose-500/15" : "border-white/[0.08] bg-white/[0.04] text-white/35"
-              )}>
-              {isAgentRunning ? <Square className="h-3 w-3" /> : <Play className="h-3 w-3" />}
-              {isAgentRunning ? "Stop" : "Idle"}
-            </button>
-          </div>
-
-          <div className="border-b border-white/[0.06] p-2.5 space-y-1.5">
-            {quickActions.map((action) => {
-              const needsInput = action.key !== "screenshot";
-              return (
-                <div key={action.key} className="flex items-center gap-1.5">
-                  <span className="text-[11px] w-4 text-center shrink-0">{action.icon}</span>
-                  {needsInput ? (
-                    <input value={actionValues[action.key]}
-                      onChange={(e) => setActionValues((prev) => ({ ...prev, [action.key]: e.target.value }))}
-                      onKeyDown={(e) => { if (e.key === "Enter") runAction(action.key); }}
-                      placeholder={action.placeholder}
-                      className="flex-1 h-7 rounded-lg border border-white/[0.08] bg-black/20 px-2 text-[11px] text-white/70 outline-none placeholder:text-white/15" />
-                  ) : (
-                    <div className="flex-1 h-7 rounded-lg border border-dashed border-white/[0.08] bg-black/10 px-2 flex items-center text-[10px] text-white/15">—</div>
+        {/* Right rail */}
+        <div className="min-h-0 flex flex-col">
+          <SectionCard
+            title="Kontrola"
+            subtitle="Koraci, logovi, mreža i projekt u jednom mjestu."
+            className="flex min-h-0 flex-1 flex-col overflow-hidden"
+          >
+            <div className="mb-3 flex rounded-2xl border border-white/[0.08] bg-black/20 p-1">
+              {([
+                ["steps", "Koraci"],
+                ["console", "Log"],
+                ["actions", "Akcije"],
+                ["network", "Mreža"],
+                ["project", "Projekt"],
+              ] as const).map(([tab, label]) => (
+                <button
+                  key={tab}
+                  onClick={() => setRightTab(tab)}
+                  className={cn(
+                    "flex-1 rounded-xl px-2 py-2 text-[10px] font-medium transition-all",
+                    rightTab === tab
+                      ? "bg-violet-500/15 text-violet-200 border border-violet-500/20"
+                      : "text-white/30 hover:text-white/60"
                   )}
-                  <button onClick={() => runAction(action.key)}
-                    className="h-7 px-2.5 rounded-lg bg-white/[0.06] text-[10px] font-medium text-white/50 hover:bg-white/[0.1] hover:text-white/80 transition-all border border-white/[0.08]">
-                    {action.label}
-                  </button>
-                </div>
-              );
-            })}
-          </div>
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
 
-          <div className="grid grid-cols-4 gap-1.5 border-b border-white/[0.06] p-2.5">
-            <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-2 text-center">
-              <div className="text-[9px] text-white/25">Ukupno</div><div className="text-sm font-semibold text-white/75">{stats.total}</div>
-            </div>
-            <div className="rounded-xl border border-blue-500/20 bg-blue-500/10 p-2 text-center">
-              <div className="text-[9px] text-blue-300">Run</div><div className="text-sm font-semibold text-blue-200">{stats.running}</div>
-            </div>
-            <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 p-2 text-center">
-              <div className="text-[9px] text-emerald-300">Done</div><div className="text-sm font-semibold text-emerald-200">{stats.done}</div>
-            </div>
-            <div className="rounded-xl border border-rose-500/20 bg-rose-500/10 p-2 text-center">
-              <div className="text-[9px] text-rose-300">Err</div><div className="text-sm font-semibold text-rose-200">{stats.errors}</div>
-            </div>
-          </div>
-
-          <div className="flex border-b border-white/[0.06] shrink-0">
-            {(["steps", "console", "actions", "network", "project"] as const).map((tab) => (
-              <button key={tab} onClick={() => setRightTab(tab)}
-                className={cn("flex-1 py-2 text-[10px] border-b-[1.5px] transition-all",
-                  rightTab === tab ? "text-indigo-300 border-indigo-500" : "text-white/20 border-transparent hover:text-white/40"
-                )}>
-                {tab === "steps" ? `Koraci (${steps.length})` : tab === "console" ? `Log (${consoleLogs.length})` : tab === "actions" ? `Akcije (${savedActions.length})` : tab === "network" ? `Net (${networkLogs.length})` : "Projekt"}
-              </button>
-            ))}
-          </div>
-
-          <div className="min-h-0 flex-1 overflow-y-auto">
-            {rightTab === "steps" && (
-              <div className="p-2.5 space-y-2">
-                {onClearSteps && steps.length > 0 && (
-                  <button onClick={onClearSteps} className="flex items-center gap-1 text-[10px] text-white/30 hover:text-white/60 transition-colors mb-1">
-                    <Trash2 className="h-3 w-3" /> Očisti
-                  </button>
-                )}
-                {steps.length === 0 ? (
-                  <div className="rounded-xl border border-dashed border-white/[0.1] p-6 text-center text-[11px] text-white/25">Još nema koraka.</div>
-                ) : steps.map((step, index) => {
-                  const ActionIcon = getActionIcon(step.action);
-                  const StatusIcon = getStatusIcon(step.status);
-                  return (
-                    <button key={step.id} type="button" onClick={() => onSelectStep?.(step)}
-                      className="w-full rounded-xl border border-white/[0.08] bg-white/[0.03] p-3 text-left transition hover:border-white/[0.14] hover:bg-white/[0.05]">
-                      <div className="flex items-start gap-2.5">
-                        <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-white/[0.05] text-white/65">
-                          <ActionIcon className="h-4 w-4" />
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center justify-between gap-2">
-                            <div className="truncate text-[11px] font-semibold text-white/80">{index + 1}. {step.label}</div>
-                            <div className="flex items-center gap-1.5">
+            <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+              {rightTab === "steps" && (
+                <div className="space-y-2">
+                  <div className="mb-2 flex items-center justify-between">
+                    <span className="text-[10px] text-white/30">Sve akcije iz trenutnog flowa.</span>
+                    {onClearSteps && steps.length > 0 && (
+                      <button
+                        onClick={onClearSteps}
+                        className="inline-flex items-center gap-1 rounded-lg border border-white/[0.08] bg-white/[0.04] px-2 py-1 text-[10px] text-white/35 hover:text-white/70 hover:bg-white/[0.08]"
+                      >
+                        <Trash2 className="h-3 w-3" />
+                        Očisti
+                      </button>
+                    )}
+                  </div>
+                  {steps.length === 0 ? (
+                    <div className="rounded-2xl border border-dashed border-white/[0.08] px-3 py-6 text-center text-[11px] text-white/25">
+                      Još nema koraka.
+                    </div>
+                  ) : steps.map((step, index) => {
+                    const ActionIcon = getActionIcon(step.action);
+                    const StatusIcon = getStatusIcon(step.status);
+                    return (
+                      <button
+                        key={step.id}
+                        type="button"
+                        onClick={() => onSelectStep?.(step)}
+                        className="w-full rounded-2xl border border-white/[0.08] bg-black/20 p-3 text-left hover:bg-white/[0.04]"
+                      >
+                        <div className="flex items-start gap-2.5">
+                          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.04] text-white/60">
+                            <ActionIcon className="h-4 w-4" />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="truncate text-[11px] font-semibold text-white/80">
+                                {index + 1}. {step.label}
+                              </div>
                               <div className={cn("inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[9px] font-medium", getStatusColor(step.status))}>
                                 <StatusIcon className={cn("h-3 w-3", step.status === "running" && "animate-spin")} />
                                 {step.status}
                               </div>
-                              {onDeleteStep && (
-                                <div onClick={(e) => { e.stopPropagation(); onDeleteStep(step.id); }}
-                                  className="flex h-5 w-5 items-center justify-center rounded-md text-white/15 hover:text-red-400 hover:bg-red-500/10 transition-all cursor-pointer">
-                                  <Trash2 className="h-3 w-3" />
-                                </div>
-                              )}
                             </div>
+                            {step.target && (
+                              <div className="mt-1 truncate text-[10px] text-white/30">{step.target}</div>
+                            )}
+                            {step.detail && (
+                              <div className="mt-2 text-[10px] leading-5 text-white/45">{step.detail}</div>
+                            )}
                           </div>
-                          {step.target && (
-                            <div className="mt-1.5 flex flex-wrap gap-1">
-                              <span className="rounded-full bg-white/[0.05] px-2 py-0.5 text-[9px] font-medium text-white/35">{formatActionLabel(step.action)}</span>
-                              <span className="max-w-full truncate rounded-full bg-white/[0.05] px-2 py-0.5 text-[9px] text-white/35">{step.target}</span>
+                          {onDeleteStep && (
+                            <div
+                              onClick={(e) => { e.stopPropagation(); onDeleteStep(step.id); }}
+                              className="mt-0.5 flex h-7 w-7 items-center justify-center rounded-lg text-white/15 hover:text-red-400 hover:bg-red-500/10"
+                            >
+                              <Trash2 className="h-3 w-3" />
                             </div>
                           )}
-                          {step.detail && <div className="mt-2 text-[11px] leading-5 text-white/40">{step.detail}</div>}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
+              {rightTab === "console" && (
+                <div className="space-y-2 rounded-2xl border border-white/[0.08] bg-black/20 p-3 font-mono text-[10px]">
+                  {consoleLogs.length === 0 ? (
+                    <div className="text-white/20">Nema logova.</div>
+                  ) : consoleLogs.map((l, i) => (
+                    <div key={i} className="flex gap-2">
+                      <span className="shrink-0 text-white/12">{String(i + 1).padStart(2, "0")}</span>
+                      <span className={getLogTone(l)}>{l.msg}</span>
+                    </div>
+                  ))}
+                  <div ref={consoleEndRef} />
+                </div>
+              )}
+
+              {rightTab === "actions" && (
+                <div className="space-y-2">
+                  {savedActions.length === 0 ? (
+                    <div className="rounded-2xl border border-dashed border-white/[0.08] px-3 py-6 text-center text-[11px] text-white/25">
+                      Još nema spremljenih akcija.
+                    </div>
+                  ) : savedActions.map((action) => (
+                    <div key={action.file} className="rounded-2xl border border-white/[0.08] bg-black/20 p-3">
+                      <div className="flex items-start gap-2.5">
+                        <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-violet-500/20 bg-violet-500/10 text-violet-300">
+                          <FolderOpen className="h-4 w-4" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-[11px] font-medium text-white/80">{action.name}</div>
+                          <div className="truncate text-[9px] text-white/25">{action.file}</div>
                         </div>
                       </div>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-
-            {rightTab === "console" && (
-              <div className="p-2 font-mono text-[9px] leading-loose bg-[hsl(220,15%,3%)] min-h-full">
-                {consoleLogs.map((l, i) => (
-                  <div key={i} className="flex gap-2 items-start">
-                    <span className="text-white/10 shrink-0">{String(i + 1).padStart(2, "0")}</span>
-                    <span className={
-                      l.t === "ok" ? "text-emerald-400" : l.t === "info" ? "text-indigo-300" : l.t === "warn" ? "text-amber-300" : l.t === "err" ? "text-red-400" : "text-white/20"
-                    }>{l.msg}</span>
-                  </div>
-                ))}
-                <div ref={consoleEndRef} />
-              </div>
-            )}
-
-            {rightTab === "actions" && (
-              <div className="p-2.5 space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-[9px] text-white/20">Naučene akcije</span>
-                  <button onClick={onRefreshActions} className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] text-white/30 border border-white/[0.08] hover:bg-white/[0.05] transition-all">
-                    <RefreshCw className="h-2.5 w-2.5" /> Osvježi
-                  </button>
-                </div>
-                {savedActions.length === 0 ? (
-                  <div className="text-[10px] text-white/20 px-1 py-4 text-center">Još nema spremljenih akcija.</div>
-                ) : savedActions.map((action) => (
-                  <div key={action.file} className="flex items-center gap-2 px-2.5 py-2 rounded-lg bg-white/[0.03] border border-white/[0.05]">
-                    <span className="text-[11px]">🎬</span>
-                    <div className="flex-1 min-w-0">
-                      <div className="text-[10px] text-white/60 truncate">{action.name}</div>
-                      <div className="text-[8px] text-white/20 truncate">{action.file}</div>
+                      <div className="mt-2 flex gap-2">
+                        <button
+                          onClick={() => onRunSavedAction?.(action.name)}
+                          className="flex-1 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-[10px] font-medium text-emerald-200 hover:bg-emerald-500/20"
+                        >
+                          Pokreni
+                        </button>
+                        <button
+                          onClick={onRefreshActions}
+                          className="rounded-xl border border-white/[0.08] bg-white/[0.04] px-3 py-2 text-[10px] text-white/35 hover:text-white/70 hover:bg-white/[0.08]"
+                        >
+                          <RefreshCw className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
                     </div>
-                    <button onClick={() => onRunSavedAction?.(action.name)}
-                      className="px-2 py-1 rounded text-[9px] text-emerald-300 border border-emerald-500/20 bg-emerald-500/10 hover:bg-emerald-500/20 transition-all">
-                      ▶ Pokreni
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {rightTab === "project" && (
-              <div className="p-2.5 space-y-2">
-                <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-2.5 space-y-2">
-                  <div className="text-[10px] font-semibold text-white/70">Projekt root</div>
-                  <input
-                    value={projectRoot}
-                    onChange={(e) => setProjectRoot(e.target.value)}
-                    placeholder="D:\\1 PROJEKT APLIKACIJA LOKALNO\\..."
-                    className="w-full h-8 rounded-lg border border-white/[0.08] bg-black/20 px-2 text-[11px] text-white/70 outline-none placeholder:text-white/15"
-                  />
-                  <div className="flex gap-1.5">
-                    <button
-                      onClick={runProjectBuild}
-                      disabled={projectBusy}
-                      className="flex-1 h-8 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-[10px] font-medium text-emerald-300 hover:bg-emerald-500/20 disabled:opacity-50"
-                    >
-                      Build
-                    </button>
-                    <button
-                      onClick={runProjectSearch}
-                      disabled={projectBusy}
-                      className="flex-1 h-8 rounded-lg bg-blue-500/10 border border-blue-500/20 text-[10px] font-medium text-blue-300 hover:bg-blue-500/20 disabled:opacity-50"
-                    >
-                      Search
-                    </button>
-                  </div>
+                  ))}
                 </div>
+              )}
 
-                <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-2.5 space-y-2">
-                  <div className="text-[10px] font-semibold text-white/70">Datoteka</div>
-                  <input
-                    value={projectFilePath}
-                    onChange={(e) => setProjectFilePath(e.target.value)}
-                    placeholder="src/components/chat/ChatDialog.tsx"
-                    className="w-full h-8 rounded-lg border border-white/[0.08] bg-black/20 px-2 text-[11px] text-white/70 outline-none placeholder:text-white/15"
-                  />
-                  <div className="flex gap-1.5">
-                    <button
-                      onClick={readProjectFile}
-                      disabled={projectBusy}
-                      className="flex-1 h-8 rounded-lg bg-white/[0.06] border border-white/[0.08] text-[10px] font-medium text-white/60 hover:bg-white/[0.1] disabled:opacity-50"
-                    >
-                      Read
-                    </button>
-                    <button
-                      onClick={writeProjectFile}
-                      disabled={projectBusy}
-                      className="flex-1 h-8 rounded-lg bg-amber-500/10 border border-amber-500/20 text-[10px] font-medium text-amber-300 hover:bg-amber-500/20 disabled:opacity-50"
-                    >
-                      Write
-                    </button>
-                  </div>
-                  <textarea
-                    value={projectFileContent}
-                    onChange={(e) => setProjectFileContent(e.target.value)}
-                    placeholder="Sadržaj filea..."
-                    className="w-full min-h-[150px] rounded-xl border border-white/[0.08] bg-black/20 px-2.5 py-2 text-[10px] font-mono text-white/65 outline-none placeholder:text-white/15"
-                  />
-                </div>
-
-                <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-2.5 space-y-2">
-                  <div className="text-[10px] font-semibold text-white/70">Pretraga projekta</div>
-                  <input
-                    value={projectSearchQuery}
-                    onChange={(e) => setProjectSearchQuery(e.target.value)}
-                    placeholder="npr. BrainPanelTechContext"
-                    className="w-full h-8 rounded-lg border border-white/[0.08] bg-black/20 px-2 text-[11px] text-white/70 outline-none placeholder:text-white/15"
-                  />
-                  <div className="max-h-36 overflow-auto space-y-1">
-                    {projectSearchResults.length === 0 ? (
-                      <div className="text-[10px] text-white/25">Nema rezultata.</div>
-                    ) : projectSearchResults.map((item, idx) => (
+              {rightTab === "network" && (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    {!networkCapturing ? (
                       <button
-                        key={`${item.path}-${item.line}-${idx}`}
-                        onClick={() => { setProjectFilePath(item.path); }}
-                        className="w-full rounded-lg border border-white/[0.06] bg-black/20 px-2 py-1.5 text-left hover:bg-white/[0.04]"
+                        onClick={startNetworkCapture}
+                        className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-[10px] font-medium text-emerald-200 hover:bg-emerald-500/20"
                       >
-                        <div className="text-[9px] font-mono text-blue-300 truncate">{item.path}{item.line ? `:${item.line}` : ""}</div>
-                        <div className="text-[9px] text-white/35 truncate">{item.text || ""}</div>
+                        <Wifi className="h-3.5 w-3.5" />
+                        Snimi promet
                       </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-2.5 space-y-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="text-[10px] font-semibold text-white/70">Safe patch set</div>
+                    ) : (
+                      <button
+                        onClick={stopNetworkCapture}
+                        className="inline-flex items-center gap-1.5 rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2 text-[10px] font-medium text-red-200 hover:bg-red-500/20"
+                      >
+                        <WifiOff className="h-3.5 w-3.5" />
+                        Zaustavi
+                      </button>
+                    )}
                     <button
-                      onClick={applySafePatchSet}
-                      disabled={projectBusy}
-                      className="h-7 px-2.5 rounded-lg bg-purple-500/10 border border-purple-500/20 text-[10px] font-medium text-purple-300 hover:bg-purple-500/20 disabled:opacity-50"
+                      onClick={clearNetworkLogs}
+                      className="inline-flex items-center gap-1.5 rounded-xl border border-white/[0.08] bg-white/[0.04] px-3 py-2 text-[10px] text-white/35 hover:text-white/70 hover:bg-white/[0.08]"
                     >
-                      Apply patch
+                      <Trash2 className="h-3.5 w-3.5" />
+                      Očisti
                     </button>
-                  </div>
-                  <textarea
-                    value={projectPatchJson}
-                    onChange={(e) => setProjectPatchJson(e.target.value)}
-                    placeholder='[{"path":"src/...","content":"full file"}]'
-                    className="w-full min-h-[160px] rounded-xl border border-white/[0.08] bg-black/20 px-2.5 py-2 text-[10px] font-mono text-white/65 outline-none placeholder:text-white/15"
-                  />
-                </div>
-
-                <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-2.5 space-y-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="text-[10px] font-semibold text-white/70">Build output</div>
-                    {projectBuildOk !== null && (
-                      <span className={cn(
-                        "text-[9px] px-2 py-0.5 rounded-full border",
-                        projectBuildOk ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-300" : "border-red-500/20 bg-red-500/10 text-red-300"
-                      )}>
-                        {projectBuildOk ? "OK" : "ERROR"}
-                      </span>
+                    {networkLogs.length > 0 && (
+                      <button
+                        onClick={copyNetworkForStellen}
+                        className="ml-auto inline-flex items-center gap-1.5 rounded-xl border border-blue-500/20 bg-blue-500/10 px-3 py-2 text-[10px] font-medium text-blue-200 hover:bg-blue-500/20"
+                      >
+                        {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                        {copied ? "Kopirano" : "Za Stellana"}
+                      </button>
                     )}
                   </div>
-                  <div className="text-[9px] text-white/30">{projectNotice || "—"}</div>
-                  <pre className="max-h-48 overflow-auto rounded-xl border border-white/[0.06] bg-black/20 p-2 text-[9px] font-mono text-white/55 whitespace-pre-wrap break-all">
-                    {projectBuildOutput || "Još nema build outputa."}
-                  </pre>
-                </div>
-              </div>
-            )}
 
-            {rightTab === "network" && (
-              <div className="p-2.5 space-y-2">
-                {/* Controls */}
-                <div className="flex items-center gap-1.5">
-                  {!networkCapturing ? (
-                    <button onClick={startNetworkCapture}
-                      className="flex items-center gap-1 px-2 py-1 rounded-lg text-[9px] font-medium bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 hover:bg-emerald-500/20 transition-all">
-                      <Wifi className="h-2.5 w-2.5" /> Snimi promet
-                    </button>
+                  {networkLogs.length === 0 ? (
+                    <div className="rounded-2xl border border-dashed border-white/[0.08] px-3 py-6 text-center text-[11px] text-white/25">
+                      Klikni “Snimi promet”, prođi portal i ovdje će se pojaviti requesti.
+                    </div>
                   ) : (
-                    <button onClick={stopNetworkCapture}
-                      className="flex items-center gap-1 px-2 py-1 rounded-lg text-[9px] font-medium bg-red-500/10 text-red-300 border border-red-500/20 hover:bg-red-500/20 transition-all">
-                      <WifiOff className="h-2.5 w-2.5" /> Zaustavi
-                    </button>
-                  )}
-                  <button onClick={clearNetworkLogs}
-                    className="flex items-center gap-1 px-1.5 py-1 rounded-lg text-[9px] text-white/30 border border-white/[0.08] hover:bg-white/[0.05] transition-all">
-                    <Trash2 className="h-2.5 w-2.5" /> Očisti
-                  </button>
-                  {networkLogs.length > 0 && (
-                    <button onClick={copyNetworkForStellen}
-                      className="flex items-center gap-1 px-2 py-1 rounded-lg text-[9px] font-medium bg-blue-500/10 text-blue-300 border border-blue-500/20 hover:bg-blue-500/20 transition-all ml-auto">
-                      {copied ? <Check className="h-2.5 w-2.5" /> : <Copy className="h-2.5 w-2.5" />}
-                      {copied ? "Kopirano!" : "Za Stellana"}
-                    </button>
+                    <div className="space-y-1.5">
+                      {networkLogs.map((log) => {
+                        const isExpanded = expandedLog === log.id;
+                        const statusColor = !log.status ? "text-white/25" : log.status < 300 ? "text-emerald-300" : log.status < 400 ? "text-blue-300" : "text-red-300";
+                        return (
+                          <div key={log.id} className="overflow-hidden rounded-xl border border-white/[0.08] bg-black/20">
+                            <button
+                              onClick={() => setExpandedLog(isExpanded ? null : log.id)}
+                              className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-white/[0.03]"
+                            >
+                              {isExpanded ? <ChevronDown className="h-3 w-3 text-white/25" /> : <ChevronRight className="h-3 w-3 text-white/25" />}
+                              <span className="w-8 shrink-0 text-[10px] font-mono text-violet-300">{log.method}</span>
+                              <span className="min-w-0 flex-1 truncate text-[10px] font-mono text-white/40">{log.url.replace(/https?:\/\/[^/]+/, "")}</span>
+                              <span className={cn("text-[10px] font-mono", statusColor)}>{log.status || "..."}</span>
+                            </button>
+                            {isExpanded && (
+                              <div className="space-y-2 border-t border-white/[0.06] px-3 py-3">
+                                <div>
+                                  <div className="mb-1 text-[9px] uppercase tracking-wider text-white/20">URL</div>
+                                  <div className="break-all text-[10px] font-mono text-white/50">{log.url}</div>
+                                </div>
+                                {log.request_body && (
+                                  <div>
+                                    <div className="mb-1 text-[9px] uppercase tracking-wider text-amber-200/50">Request</div>
+                                    <pre className="max-h-32 overflow-auto rounded-xl border border-white/[0.06] bg-black/30 p-2 text-[9px] font-mono text-white/45 whitespace-pre-wrap break-all">{log.request_body}</pre>
+                                  </div>
+                                )}
+                                {log.response_body && (
+                                  <div>
+                                    <div className="mb-1 text-[9px] uppercase tracking-wider text-emerald-200/50">Response</div>
+                                    <pre className="max-h-32 overflow-auto rounded-xl border border-white/[0.06] bg-black/30 p-2 text-[9px] font-mono text-white/45 whitespace-pre-wrap break-all">{log.response_body}</pre>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                      <div ref={networkEndRef} />
+                    </div>
                   )}
                 </div>
+              )}
 
-                {networkCapturing && (
-                  <div className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg bg-emerald-500/[0.05] border border-emerald-500/15">
-                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                    <span className="text-[9px] text-emerald-300">Snimam mrežni promet... Navigiraj po stranici.</span>
+              {rightTab === "project" && (
+                <div className="space-y-3">
+                  <div className="rounded-2xl border border-white/[0.08] bg-black/20 p-3">
+                    <div className="mb-2 flex items-center gap-2">
+                      <FolderOpen className="h-4 w-4 text-cyan-300" />
+                      <div className="text-[11px] font-semibold text-white/80">Projekt root</div>
+                    </div>
+                    <input
+                      value={projectRoot}
+                      onChange={(e) => setProjectRoot(e.target.value)}
+                      placeholder="D:\\1 PROJEKT APLIKACIJA LOKALNO\\..."
+                      className="mb-2 h-9 w-full rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 text-[11px] text-white/70 outline-none placeholder:text-white/18"
+                    />
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        onClick={runProjectBuild}
+                        disabled={projectBusy}
+                        className="h-9 rounded-xl border border-emerald-500/20 bg-emerald-500/10 text-[10px] font-medium text-emerald-200 hover:bg-emerald-500/20 disabled:opacity-50"
+                      >
+                        Build
+                      </button>
+                      <button
+                        onClick={runProjectSearch}
+                        disabled={projectBusy}
+                        className="h-9 rounded-xl border border-blue-500/20 bg-blue-500/10 text-[10px] font-medium text-blue-200 hover:bg-blue-500/20 disabled:opacity-50"
+                      >
+                        Search
+                      </button>
+                    </div>
                   </div>
-                )}
 
-                {/* Network log entries */}
-                {networkLogs.length === 0 ? (
-                  <div className="rounded-xl border border-dashed border-white/[0.1] p-6 text-center">
-                    <Wifi className="h-5 w-5 text-white/10 mx-auto mb-2" />
-                    <div className="text-[10px] text-white/25">Klikni "Snimi promet", navigiraj SDGE,</div>
-                    <div className="text-[10px] text-white/25">i ovdje će se pojaviti svi requesti.</div>
-                    <div className="text-[9px] text-white/15 mt-2">Zatim klikni "Za Stellana" i zalijepi u chat.</div>
+                  <div className="rounded-2xl border border-white/[0.08] bg-black/20 p-3">
+                    <div className="mb-2 flex items-center gap-2">
+                      <FileText className="h-4 w-4 text-violet-300" />
+                      <div className="text-[11px] font-semibold text-white/80">Datoteka</div>
+                    </div>
+                    <input
+                      value={projectFilePath}
+                      onChange={(e) => setProjectFilePath(e.target.value)}
+                      placeholder="src/components/chat/ChatDialog.tsx"
+                      className="mb-2 h-9 w-full rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 text-[11px] text-white/70 outline-none placeholder:text-white/18"
+                    />
+                    <div className="mb-2 grid grid-cols-2 gap-2">
+                      <button
+                        onClick={readProjectFile}
+                        disabled={projectBusy}
+                        className="h-9 rounded-xl border border-white/[0.08] bg-white/[0.06] text-[10px] font-medium text-white/70 hover:bg-white/[0.1] disabled:opacity-50"
+                      >
+                        Read
+                      </button>
+                      <button
+                        onClick={writeProjectFile}
+                        disabled={projectBusy}
+                        className="h-9 rounded-xl border border-amber-500/20 bg-amber-500/10 text-[10px] font-medium text-amber-200 hover:bg-amber-500/20 disabled:opacity-50"
+                      >
+                        Write
+                      </button>
+                    </div>
+                    <textarea
+                      value={projectFileContent}
+                      onChange={(e) => setProjectFileContent(e.target.value)}
+                      placeholder="Sadržaj filea..."
+                      className="min-h-[140px] w-full rounded-2xl border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-[10px] font-mono text-white/65 outline-none placeholder:text-white/15"
+                    />
                   </div>
-                ) : (
-                  <div className="space-y-1">
-                    {networkLogs.map((log) => {
-                      const isExpanded = expandedLog === log.id;
-                      const methodColor = log.method === "POST" ? "text-amber-300" : log.method === "GET" ? "text-emerald-300" : "text-white/40";
-                      const statusColor = !log.status ? "text-white/20" : log.status < 300 ? "text-emerald-300" : log.status < 400 ? "text-blue-300" : "text-red-300";
-                      const shortUrl = log.url.replace(/https?:\/\/[^/]+/, "").substring(0, 50);
 
-                      return (
-                        <div key={log.id} className="rounded-lg border border-white/[0.06] bg-white/[0.02] overflow-hidden">
-                          <button
-                            onClick={() => setExpandedLog(isExpanded ? null : log.id)}
-                            className="w-full flex items-center gap-1.5 px-2 py-1.5 text-left hover:bg-white/[0.03] transition-all"
-                          >
-                            {isExpanded ? <ChevronDown className="h-2.5 w-2.5 text-white/20 shrink-0" /> : <ChevronRight className="h-2.5 w-2.5 text-white/20 shrink-0" />}
-                            <span className={cn("text-[9px] font-mono font-bold w-7 shrink-0", methodColor)}>{log.method}</span>
-                            <span className="text-[9px] font-mono text-white/40 truncate flex-1">{shortUrl}</span>
-                            <span className={cn("text-[9px] font-mono font-medium shrink-0", statusColor)}>{log.status || "..."}</span>
-                          </button>
-                          {isExpanded && (
-                            <div className="border-t border-white/[0.04] px-2 py-2 space-y-2 bg-black/20">
-                              <div>
-                                <div className="text-[8px] text-white/20 uppercase tracking-wider mb-1">URL</div>
-                                <div className="text-[9px] font-mono text-white/50 break-all">{log.url}</div>
-                              </div>
-                              {log.request_body && (
-                                <div>
-                                  <div className="text-[8px] text-amber-300/40 uppercase tracking-wider mb-1">Request Body</div>
-                                  <pre className="text-[8px] font-mono text-white/35 whitespace-pre-wrap break-all max-h-32 overflow-auto bg-black/30 rounded p-1.5">{log.request_body}</pre>
-                                </div>
-                              )}
-                              {log.response_body && (
-                                <div>
-                                  <div className="text-[8px] text-emerald-300/40 uppercase tracking-wider mb-1">Response ({log.response_type})</div>
-                                  <pre className="text-[8px] font-mono text-white/35 whitespace-pre-wrap break-all max-h-32 overflow-auto bg-black/30 rounded p-1.5">{log.response_body}</pre>
-                                </div>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                    <div ref={networkEndRef} />
+                  <div className="rounded-2xl border border-white/[0.08] bg-black/20 p-3">
+                    <div className="mb-2 flex items-center gap-2">
+                      <Search className="h-4 w-4 text-emerald-300" />
+                      <div className="text-[11px] font-semibold text-white/80">Pretraga projekta</div>
+                    </div>
+                    <input
+                      value={projectSearchQuery}
+                      onChange={(e) => setProjectSearchQuery(e.target.value)}
+                      placeholder="npr. BrainPanelTechContext"
+                      className="mb-2 h-9 w-full rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 text-[11px] text-white/70 outline-none placeholder:text-white/18"
+                    />
+                    <div className="max-h-36 space-y-1 overflow-auto">
+                      {projectSearchResults.length === 0 ? (
+                        <div className="text-[10px] text-white/25">Nema rezultata.</div>
+                      ) : projectSearchResults.map((item, idx) => (
+                        <button
+                          key={`${item.path}-${item.line}-${idx}`}
+                          onClick={() => { setProjectFilePath(item.path); }}
+                          className="w-full rounded-xl border border-white/[0.06] bg-white/[0.03] px-2.5 py-2 text-left hover:bg-white/[0.05]"
+                        >
+                          <div className="truncate text-[9px] font-mono text-cyan-300">{item.path}{item.line ? `:${item.line}` : ""}</div>
+                          <div className="truncate text-[9px] text-white/35">{item.text || ""}</div>
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                )}
-              </div>
-            )}
-          </div>
 
-          {isRecording && (
-            <div className="flex items-center gap-1.5 px-3 py-2 border-t border-white/[0.06] bg-red-500/[0.05] shrink-0">
-              <div className="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse" />
-              <span className="text-[9px] text-red-300">Snimam: {recordingName}</span>
+                  <div className="rounded-2xl border border-white/[0.08] bg-black/20 p-3">
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <div className="text-[11px] font-semibold text-white/80">Safe patch set</div>
+                      <button
+                        onClick={applySafePatchSet}
+                        disabled={projectBusy}
+                        className="h-8 rounded-xl border border-purple-500/20 bg-purple-500/10 px-3 text-[10px] font-medium text-purple-200 hover:bg-purple-500/20 disabled:opacity-50"
+                      >
+                        Apply patch
+                      </button>
+                    </div>
+                    <textarea
+                      value={projectPatchJson}
+                      onChange={(e) => setProjectPatchJson(e.target.value)}
+                      placeholder='[{"path":"src/...","content":"full file"}]'
+                      className="min-h-[150px] w-full rounded-2xl border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-[10px] font-mono text-white/65 outline-none placeholder:text-white/15"
+                    />
+                  </div>
+
+                  <div className="rounded-2xl border border-white/[0.08] bg-black/20 p-3">
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <div className="text-[11px] font-semibold text-white/80">Build output</div>
+                      {projectBuildOk !== null && (
+                        <span className={cn(
+                          "rounded-full border px-2 py-0.5 text-[9px] font-medium",
+                          projectBuildOk ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-300" : "border-red-500/20 bg-red-500/10 text-red-300"
+                        )}>
+                          {projectBuildOk ? "OK" : "ERROR"}
+                        </span>
+                      )}
+                    </div>
+                    <div className="mb-2 text-[9px] text-white/30">{projectNotice || "—"}</div>
+                    <pre className="max-h-48 overflow-auto rounded-2xl border border-white/[0.06] bg-white/[0.03] p-3 text-[9px] font-mono text-white/55 whitespace-pre-wrap break-all">
+                      {projectBuildOutput || "Još nema build outputa."}
+                    </pre>
+                  </div>
+                </div>
+              )}
             </div>
-          )}
+          </SectionCard>
         </div>
       </div>
     </div>
