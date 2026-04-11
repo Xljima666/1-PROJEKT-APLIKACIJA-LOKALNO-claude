@@ -13,7 +13,7 @@ import {
   CANVAS_H,
   getNodeHeight,
 } from "./brain/types";
-import { useBrainPanelTechContext } from "./BrainPanelTechContext";
+import { useBrainPanelTech } from "./BrainPanelTech";
 
 // ─── Animated connection ────────────────────────────────
 const AnimatedConnection = ({ d, color, index, isActive }: { d: string; color: string; index: number; isActive?: boolean }) => (
@@ -64,7 +64,7 @@ const ZoomControls = ({ zoom, onIn, onOut, onFit }: { zoom: number; onIn: () => 
 interface Props { onClose: () => void; activeNodes?: string[]; }
 
 const BrainPanel = ({ onClose, activeNodes = [] }: Props) => {
-  const { state, actions } = useBrainPanelTechContext();
+  const { state, actions } = useBrainPanelTech(activeNodes);
   const selected = state.selectedNodeData;
 
   return (
