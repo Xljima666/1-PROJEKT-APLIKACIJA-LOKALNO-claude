@@ -1840,12 +1840,6 @@ const devPanelPreview = {
         <div className="relative h-[98vh] w-[99vw] overflow-hidden rounded-2xl border border-white/[0.06] bg-[hsl(220,15%,7%)] shadow-2xl">
           <div className="absolute right-4 top-4 z-20 flex items-center gap-2">
             <button
-              onClick={() => setDevStudioMode(false)}
-              className="rounded-xl border border-white/[0.08] bg-white/[0.05] px-3 py-2 text-[11px] font-medium text-white/65 hover:bg-white/[0.08] hover:text-white"
-            >
-              Nazad na chat
-            </button>
-            <button
               onClick={onClose}
               className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.05] text-white/35 hover:bg-white/[0.08] hover:text-white"
             >
@@ -1887,6 +1881,7 @@ const devPanelPreview = {
             onRefreshActions={() => { void handleRefreshActions(); }}
             onCheckHealth={() => { void checkAgentHealth(); }}
             onPortalAction={(cmd) => { void handleDevPortalAction(cmd); }}
+            onBackToStellan={() => setDevStudioMode(false)}
           />
         </div>
       </div>
@@ -2467,6 +2462,7 @@ const devPanelPreview = {
               onRefreshActions={() => { void handleRefreshActions(); }}
               onCheckHealth={() => { void checkAgentHealth(); }}
               onPortalAction={(cmd) => { void handleDevPortalAction(cmd); }}
+              onBackToStellan={() => setDevStudioMode(false)}
             />
           </div>
         )}
