@@ -52,39 +52,39 @@ export interface NodeRunStatus {
 
 // ─── Category config ────────────────────────────────────
 export const CATEGORY_META: Record<CategoryType, { label: string; bg: string; text: string; glow: string; cardBg: string; borderColor: string }> = {
-  input:      { label: "INPUT",      bg: "bg-sky-500/20",     text: "text-sky-400",     glow: "rgba(56,189,248,0.2)",  cardBg: "rgba(56,189,248,0.10)",  borderColor: "rgba(56,189,248,0.18)" },
-  logic:      { label: "LOGIC",      bg: "bg-blue-500/20",    text: "text-blue-400",    glow: "rgba(96,165,250,0.2)",  cardBg: "rgba(96,165,250,0.10)",  borderColor: "rgba(96,165,250,0.18)" },
-  tool:       { label: "TOOL",       bg: "bg-emerald-500/20", text: "text-emerald-400", glow: "rgba(52,211,153,0.18)", cardBg: "rgba(52,211,153,0.08)",  borderColor: "rgba(52,211,153,0.15)" },
-  code:       { label: "CODE",       bg: "bg-orange-500/20",  text: "text-orange-400",  glow: "rgba(251,146,60,0.2)",  cardBg: "rgba(251,146,60,0.10)",  borderColor: "rgba(251,146,60,0.18)" },
-  gen:        { label: "GEN",        bg: "bg-amber-500/20",   text: "text-amber-400",   glow: "rgba(251,191,36,0.2)",  cardBg: "rgba(251,191,36,0.08)",  borderColor: "rgba(251,191,36,0.15)" },
-  mem:        { label: "MEM",        bg: "bg-pink-500/20",    text: "text-pink-400",    glow: "rgba(244,114,182,0.2)", cardBg: "rgba(244,114,182,0.10)", borderColor: "rgba(244,114,182,0.18)" },
-  kb:         { label: "KB",         bg: "bg-purple-500/20",  text: "text-purple-400",  glow: "rgba(167,139,250,0.2)", cardBg: "rgba(167,139,250,0.10)", borderColor: "rgba(167,139,250,0.18)" },
-  merge:      { label: "MERGE",      bg: "bg-yellow-500/20",  text: "text-yellow-400",  glow: "rgba(250,204,21,0.2)",  cardBg: "rgba(250,204,21,0.08)",  borderColor: "rgba(250,204,21,0.15)" },
-  output:     { label: "OUTPUT",     bg: "bg-green-500/20",   text: "text-green-400",   glow: "rgba(52,211,153,0.25)", cardBg: "rgba(52,211,153,0.12)",  borderColor: "rgba(52,211,153,0.2)" },
-  save:       { label: "SAVE",       bg: "bg-teal-500/20",    text: "text-teal-400",    glow: "rgba(45,212,191,0.2)",  cardBg: "rgba(45,212,191,0.10)",  borderColor: "rgba(45,212,191,0.18)" },
-  brain:      { label: "BRAIN",      bg: "bg-red-500/20",     text: "text-red-400",     glow: "rgba(248,113,113,0.2)", cardBg: "rgba(248,113,113,0.10)", borderColor: "rgba(248,113,113,0.18)" },
-  playwright: { label: "PLAYWRIGHT", bg: "bg-violet-500/20",  text: "text-violet-400",  glow: "rgba(139,92,246,0.2)",  cardBg: "rgba(139,92,246,0.10)", borderColor: "rgba(139,92,246,0.18)" },
-  file:       { label: "FILE",       bg: "bg-indigo-500/20",  text: "text-indigo-400",  glow: "rgba(99,102,241,0.2)",  cardBg: "rgba(99,102,241,0.10)", borderColor: "rgba(99,102,241,0.18)" },
-  transform:  { label: "TRANSFORM",  bg: "bg-lime-500/20",    text: "text-lime-400",    glow: "rgba(132,204,22,0.2)",  cardBg: "rgba(132,204,22,0.08)", borderColor: "rgba(132,204,22,0.15)" },
-  trigger:    { label: "TRIGGER",    bg: "bg-rose-500/20",    text: "text-rose-400",    glow: "rgba(244,63,94,0.2)",   cardBg: "rgba(244,63,94,0.10)",  borderColor: "rgba(244,63,94,0.18)" },
-  api:        { label: "API",        bg: "bg-cyan-500/20",    text: "text-cyan-400",    glow: "rgba(6,182,212,0.2)",   cardBg: "rgba(6,182,212,0.10)",  borderColor: "rgba(6,182,212,0.18)" },
-  ai:         { label: "AI",         bg: "bg-fuchsia-500/20", text: "text-fuchsia-400", glow: "rgba(192,38,211,0.2)",  cardBg: "rgba(192,38,211,0.10)", borderColor: "rgba(192,38,211,0.18)" },
+  input:      { label: "INPUT",      bg: "bg-cyan-500/20",    text: "text-cyan-300",    glow: "rgba(34,211,238,0.18)",  cardBg: "rgba(34,211,238,0.08)",  borderColor: "rgba(34,211,238,0.16)" },
+  logic:      { label: "LOGIC",      bg: "bg-sky-500/20",     text: "text-sky-300",     glow: "rgba(56,189,248,0.18)",  cardBg: "rgba(56,189,248,0.08)",  borderColor: "rgba(56,189,248,0.16)" },
+  tool:       { label: "TOOL",       bg: "bg-emerald-500/20", text: "text-emerald-300", glow: "rgba(52,211,153,0.18)", cardBg: "rgba(52,211,153,0.08)", borderColor: "rgba(52,211,153,0.16)" },
+  code:       { label: "CODE",       bg: "bg-amber-500/20",   text: "text-amber-300",   glow: "rgba(251,191,36,0.18)",  cardBg: "rgba(251,191,36,0.08)",  borderColor: "rgba(251,191,36,0.16)" },
+  gen:        { label: "GEN",        bg: "bg-teal-500/20",    text: "text-teal-300",    glow: "rgba(45,212,191,0.18)",  cardBg: "rgba(45,212,191,0.08)",  borderColor: "rgba(45,212,191,0.16)" },
+  mem:        { label: "MEM",        bg: "bg-lime-500/20",    text: "text-lime-300",    glow: "rgba(163,230,53,0.18)",  cardBg: "rgba(163,230,53,0.08)",  borderColor: "rgba(163,230,53,0.16)" },
+  kb:         { label: "KB",         bg: "bg-cyan-500/20",    text: "text-cyan-300",    glow: "rgba(34,211,238,0.18)",  cardBg: "rgba(34,211,238,0.08)",  borderColor: "rgba(34,211,238,0.16)" },
+  merge:      { label: "MERGE",      bg: "bg-yellow-500/20",  text: "text-yellow-300",  glow: "rgba(250,204,21,0.18)",  cardBg: "rgba(250,204,21,0.08)",  borderColor: "rgba(250,204,21,0.16)" },
+  output:     { label: "OUTPUT",     bg: "bg-green-500/20",   text: "text-green-300",   glow: "rgba(74,222,128,0.2)",   cardBg: "rgba(74,222,128,0.09)",   borderColor: "rgba(74,222,128,0.18)" },
+  save:       { label: "SAVE",       bg: "bg-teal-500/20",    text: "text-teal-300",    glow: "rgba(45,212,191,0.18)",  cardBg: "rgba(45,212,191,0.08)",  borderColor: "rgba(45,212,191,0.16)" },
+  brain:      { label: "BRAIN",      bg: "bg-emerald-500/20", text: "text-emerald-300", glow: "rgba(16,185,129,0.22)",  cardBg: "rgba(16,185,129,0.09)",  borderColor: "rgba(16,185,129,0.18)" },
+  playwright: { label: "PLAYWRIGHT", bg: "bg-emerald-500/20", text: "text-emerald-300", glow: "rgba(16,185,129,0.22)",  cardBg: "rgba(16,185,129,0.09)",  borderColor: "rgba(16,185,129,0.18)" },
+  file:       { label: "FILE",       bg: "bg-cyan-500/20",    text: "text-cyan-300",    glow: "rgba(6,182,212,0.18)",   cardBg: "rgba(6,182,212,0.08)",   borderColor: "rgba(6,182,212,0.16)" },
+  transform:  { label: "TRANSFORM",  bg: "bg-lime-500/20",    text: "text-lime-300",    glow: "rgba(132,204,22,0.18)",  cardBg: "rgba(132,204,22,0.08)",  borderColor: "rgba(132,204,22,0.16)" },
+  trigger:    { label: "TRIGGER",    bg: "bg-orange-500/20",  text: "text-orange-300",  glow: "rgba(251,146,60,0.18)",  cardBg: "rgba(251,146,60,0.08)",  borderColor: "rgba(251,146,60,0.16)" },
+  api:        { label: "API",        bg: "bg-cyan-500/20",    text: "text-cyan-300",    glow: "rgba(6,182,212,0.18)",   cardBg: "rgba(6,182,212,0.08)",   borderColor: "rgba(6,182,212,0.16)" },
+  ai:         { label: "AI",         bg: "bg-emerald-500/20", text: "text-emerald-300", glow: "rgba(16,185,129,0.22)",  cardBg: "rgba(16,185,129,0.09)",  borderColor: "rgba(16,185,129,0.18)" },
 };
 
 export const PORT_COLORS: Record<string, string> = {
-  blue: "#60a5fa", green: "#34d399", amber: "#fbbf24", purple: "#a78bfa",
-  pink: "#f472b6", orange: "#fb923c", cyan: "#22d3ee", red: "#f87171",
+  blue: "#38bdf8", green: "#34d399", amber: "#fbbf24", purple: "#2dd4bf",
+  pink: "#22c55e", orange: "#fb923c", cyan: "#22d3ee", red: "#f87171",
   teal: "#2dd4bf", yellow: "#facc15", sky: "#38bdf8", emerald: "#34d399",
-  violet: "#8b5cf6", indigo: "#6366f1", lime: "#84cc16", rose: "#f43e5e",
-  fuchsia: "#d946ef",
+  violet: "#10b981", indigo: "#06b6d4", lime: "#84cc16", rose: "#fb923c",
+  fuchsia: "#10b981",
 };
 
 export const MINIMAP_COLORS: Record<CategoryType, string> = {
-  input: "#38bdf8", logic: "#60a5fa", tool: "#34d399", code: "#fb923c",
-  gen: "#fbbf24", mem: "#f472b6", kb: "#a78bfa", merge: "#facc15",
-  output: "#34d399", save: "#2dd4bf", brain: "#f87171",
-  playwright: "#8b5cf6", file: "#6366f1", transform: "#84cc16",
-  trigger: "#f43e5e", api: "#06b6d4", ai: "#d946ef",
+  input: "#38bdf8", logic: "#60a5fa", tool: "#34d399", code: "#fbbf24",
+  gen: "#2dd4bf", mem: "#84cc16", kb: "#22d3ee", merge: "#facc15",
+  output: "#4ade80", save: "#2dd4bf", brain: "#10b981",
+  playwright: "#10b981", file: "#06b6d4", transform: "#84cc16",
+  trigger: "#fb923c", api: "#22d3ee", ai: "#10b981",
 };
 
 // ─── Node templates catalog ────────────────────────────
