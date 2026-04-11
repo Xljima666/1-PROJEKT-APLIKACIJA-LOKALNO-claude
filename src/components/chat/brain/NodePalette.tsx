@@ -29,16 +29,16 @@ const NodePalette = ({ onAddNode }: Props) => {
 
   return (
     <div className="w-64 border-r border-white/[0.06] flex flex-col shrink-0 overflow-hidden"
-      style={{ background: "rgba(12,10,22,0.9)", backdropFilter: "blur(20px)" }}>
+      style={{ background: "rgba(6,20,17,0.92)", backdropFilter: "blur(20px)" }}>
       {/* Search */}
       <div className="px-3 py-3 border-b border-white/[0.06]">
-        <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-white/[0.04] border border-white/[0.06]">
+        <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-white/[0.035] border border-white/[0.06]">
           <Search className="w-3.5 h-3.5 text-white/30" />
           <input
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder="Pretraži čvorove..."
-            className="bg-transparent text-xs text-white/80 placeholder:text-white/25 outline-none flex-1"
+            className="bg-transparent text-xs text-white/88 placeholder:text-white/25 outline-none flex-1"
           />
         </div>
       </div>
@@ -49,7 +49,7 @@ const NodePalette = ({ onAddNode }: Props) => {
           <div key={group}>
             <button
               onClick={() => setExpandedGroup(expandedGroup === group ? null : group)}
-              className="w-full flex items-center gap-2 px-3 py-2 text-[11px] font-semibold text-white/50 hover:text-white/70 transition-colors"
+              className="w-full flex items-center gap-2 px-3 py-2 text-[11px] font-semibold text-emerald-100/55 hover:text-emerald-50 transition-colors"
             >
               <ChevronRight className={cn("w-3 h-3 transition-transform", expandedGroup === group && "rotate-90")} />
               {group}
@@ -71,17 +71,17 @@ const NodePalette = ({ onAddNode }: Props) => {
                       <button
                         key={i}
                         onClick={() => handleAdd(tmpl)}
-                        className="w-full flex items-center gap-2.5 px-4 py-2 hover:bg-white/[0.04] transition-colors group"
+                        className="w-full flex items-center gap-2.5 px-4 py-2 hover:bg-white/[0.035] transition-colors group"
                       >
                         <div className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0"
                           style={{ background: cat.cardBg, border: `1px solid ${cat.borderColor}` }}>
                           <Icon className={cn("w-3.5 h-3.5", cat.text)} />
                         </div>
                         <div className="flex-1 text-left min-w-0">
-                          <p className="text-[11px] font-medium text-white/80 truncate">{tmpl.label}</p>
+                          <p className="text-[11px] font-medium text-white/88 truncate">{tmpl.label}</p>
                           <p className="text-[9px] text-white/30 truncate">{tmpl.description}</p>
                         </div>
-                        <Plus className="w-3.5 h-3.5 text-white/10 group-hover:text-white/40 transition-colors shrink-0" />
+                        <Plus className="w-3.5 h-3.5 text-white/10 group-hover:text-emerald-200/50 transition-colors shrink-0" />
                       </button>
                     );
                   })}
