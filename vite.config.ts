@@ -4,14 +4,24 @@ import path from "path";
 import { componentTagger } from "lovable-tagger";
 import { VitePWA } from "vite-plugin-pwa";
 
-// https://vitejs.dev/config/
 export default defineConfig(({ mode }) => ({
   server: {
     host: "::",
     port: 8080,
+    strictPort: true,
     hmr: {
       overlay: false,
     },
+  },
+  preview: {
+    host: "0.0.0.0",
+    port: 4173,
+    strictPort: true,
+  },
+  build: {
+    sourcemap: mode !== "production",
+    chunkSizeWarningLimit: 1200,
+    target: "es2020",
   },
   plugins: [
     react(),
@@ -48,7 +58,7 @@ export default defineConfig(({ mode }) => ({
       workbox: {
         navigateFallbackDenylist: [/^\/~oauth/],
         cleanupOutdatedCaches: true,
-        importScripts: ['/sw-push-handler.js'],
+        importScripts: ["/sw-push-handler.js"],
         maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
       },
     }),
