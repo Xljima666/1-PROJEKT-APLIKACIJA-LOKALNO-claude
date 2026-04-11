@@ -889,12 +889,6 @@ export function useBrainPanelTech(activeNodesInput: string[] = []): UseBrainPane
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
   }, [handleDelete]);
-
-  const runFlow = useCallback(async () => {
-    await executeGraph(nodes, connections, flowName);
-  }, [connections, executeGraph, flowName, nodes]);
-
-
   const executeGraph = useCallback(async (
     graphNodes: BrainNode[],
     graphConnections: Connection[],
@@ -1005,6 +999,10 @@ export function useBrainPanelTech(activeNodesInput: string[] = []): UseBrainPane
     setIsRunning(false);
     return outputs;
   }, []);
+
+  const runFlow = useCallback(async () => {
+    await executeGraph(nodes, connections, flowName);
+  }, [connections, executeGraph, flowName, nodes]);
 
   const replaceFlow = useCallback((nextNodes: BrainNode[], nextConnections: Connection[], nextFlowName?: string) => {
     setNodes(nextNodes);
