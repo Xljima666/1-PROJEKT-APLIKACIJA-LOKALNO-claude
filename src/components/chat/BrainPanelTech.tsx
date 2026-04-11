@@ -16,6 +16,7 @@ import {
 const FLOW_STORAGE = "stellan_flows";
 const AGENT_URL = import.meta.env.VITE_AGENT_SERVER_URL || "";
 const AGENT_KEY = import.meta.env.VITE_AGENT_API_KEY || "";
+const LEARNING_TO_BRAIN_BRIDGE_KEY = "stellan_learning_to_brain_bridge_v1";
 
 export interface SavedFlow {
   id: string;
@@ -98,6 +99,7 @@ export interface BrainPanelTechActions {
   setConnections: (connections: Connection[]) => void;
   replaceFlow: (nodes: BrainNode[], connections: Connection[], flowName?: string) => void;
   importLearningSteps: (steps: any[], flowName?: string) => void;
+  importBridgeFromLearning: () => boolean;
 }
 
 export interface UseBrainPanelTechResult {
@@ -1022,6 +1024,19 @@ export function useBrainPanelTech(activeNodesInput: string[] = []): UseBrainPane
     replaceFlow(converted.nodes, converted.connections, nextFlowName || "Learning Flow");
   }, [replaceFlow]);
 
+  const importBridgeFromLearning = useCallback(() => {
+    try {
+      const raw = localStorage.getItem(LEARNING_TO_BRAIN_BRIDGE_KEY);
+      if (!raw) return false;
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed?.steps) || parsed.steps.length === 0) return false;
+      importLearningSteps(parsed.steps, parsed.flowName || "Learning Flow");
+      return true;
+    } catch {
+      return false;
+    }
+  }, [importLearningSteps]);
+
   const runSmartAuto = useCallback(async (prompt: string) => {
     let steps: any[] = [];
     try {
@@ -1154,6 +1169,7 @@ export function useBrainPanelTech(activeNodesInput: string[] = []): UseBrainPane
       setConnections,
       replaceFlow,
       importLearningSteps,
+      importBridgeFromLearning,
     },
   };
 }
