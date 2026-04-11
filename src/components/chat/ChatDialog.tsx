@@ -986,7 +986,6 @@ const devPanelPreview = {
       /^(git status|status)$/i.test(text) ||
       /^(git commit|commit)\b/i.test(text) ||
       /^(git push|push)\b/i.test(text) ||
-      /^(git pull(?:\s+--rebase)?|sync git|git sync)\b/i.test(text) ||
       /^(deploy)\b/i.test(text) ||
       /^(primijeni patch|primjeni patch|apply patch)\b/i.test(text) ||
       /^(spremi file|zapisi file|zapiši file|write file)\s+/i.test(text) ||
@@ -1225,36 +1224,6 @@ const devPanelPreview = {
       return true;
     }
 
-    match = raw.match(/^(?:git pull(?:\s+--rebase)?|sync git|git sync)(?:\s+([a-zA-Z0-9._\/-]+))?$/i);
-    if (match) {
-      const projectRoot = getProjectRoot();
-      if (!projectRoot) {
-        pushAssistantMessage("⚠️ Prvo postavi projekt root prije git pull --rebase.");
-        addLog("warn", "Git pull --rebase bez project roota");
-        return true;
-      }
-      const branch = cleanQuoted(match[1] || "");
-      const result = await callAgentDirect("git_pull_rebase", {
-        repo_path: projectRoot,
-        branch: branch || undefined,
-      });
-      const output = formatCommandResult(result, "Nema git pull --rebase outputa.");
-      if (result?.success) {
-        pushAssistantMessage(`✅ Git pull --rebase je prošao.${branch ? `
-
-**Branch:** \`${branch}\`` : ""}
-
-${makeCodeFence("git-pull-rebase.txt", output)}`);
-        addLog("ok", `Git pull --rebase${branch ? `: ${branch}` : ""}`);
-      } else {
-        pushAssistantMessage(`❌ Git pull --rebase nije uspio.
-
-${makeCodeFence("git-pull-rebase.txt", output)}`);
-        addLog("warn", `Git pull --rebase failed${result?.error ? `: ${result.error}` : ""}`);
-      }
-      return true;
-    }
-
     match = raw.match(/^(?:git push|push)(?:\s+([a-zA-Z0-9._\/-]+))?$/i);
     if (match) {
       const projectRoot = getProjectRoot();
@@ -1273,10 +1242,7 @@ ${makeCodeFence("git-pull-rebase.txt", output)}`);
         pushAssistantMessage(`✅ Git push je prošao.${branch ? `\n\n**Branch:** \`${branch}\`` : ""}\n\n${makeCodeFence("git-push.txt", output)}`);
         addLog("ok", `Git push${branch ? `: ${branch}` : ""}`);
       } else {
-        const hint = /fetch first|non-fast-forward|failed to push some refs/i.test(output)
-          ? "\n\nSavjet: prvo pokreni `git pull --rebase`, pa onda opet `git push`."
-          : "";
-        pushAssistantMessage(`❌ Git push nije uspio.${hint}\n\n${makeCodeFence("git-push.txt", output)}`);
+        pushAssistantMessage(`❌ Git push nije uspio.\n\n${makeCodeFence("git-push.txt", output)}`);
         addLog("warn", `Git push failed${result?.error ? `: ${result.error}` : ""}`);
       }
       return true;
@@ -1310,11 +1276,7 @@ ${makeCodeFence("git-pull-rebase.txt", output)}`);
 
       const pushResult = await callAgentDirect("git_push", { repo_path: projectRoot });
       if (!pushResult?.success) {
-        const pushOutput = formatCommandResult(pushResult, "Nema git push outputa.");
-        const pushHint = /fetch first|non-fast-forward|failed to push some refs/i.test(pushOutput)
-          ? "\n\nSavjet: pokreni `git pull --rebase`, riješi eventualne konflikte, pa onda opet `git push`."
-          : "";
-        pushAssistantMessage(`❌ Build i commit su prošli, ali git push nije uspio.${pushHint}\n\n${makeCodeFence("git-push.txt", pushOutput)}`);
+        pushAssistantMessage(`❌ Build i commit su prošli, ali git push nije uspio.\n\n${makeCodeFence("git-push.txt", formatCommandResult(pushResult, "Nema git push outputa."))}`);
         addLog("warn", "Deploy stopped at git push");
         return true;
       }
@@ -1660,6 +1622,14 @@ ${makeCodeFence("git-pull-rebase.txt", output)}`);
     void executeStudioFlow(cmd);
   };
 
+  const handleDevPortalAction = useCallback(async (cmd: string) => {
+    const handled = await executeProjectCommand(cmd);
+    if (!handled) {
+      await executeStudioFlow(cmd);
+    }
+  }, [executeProjectCommand, executeStudioFlow]);
+
+
   const handleStudioExecute = () => {
     void executeStudioFlow(studioInput);
   };
@@ -1843,7 +1813,63 @@ ${makeCodeFence("git-pull-rebase.txt", output)}`);
     URL.revokeObjectURL(url);
   };
 
+
   if (!open) return null;
+
+  if (devStudioMode && !isMobile) {
+    return (
+      <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-lg">
+        <div className="relative h-[98vh] w-[99vw] overflow-hidden rounded-2xl border border-white/[0.06] bg-[hsl(220,15%,7%)] shadow-2xl">
+          <div className="absolute right-4 top-4 z-20 flex items-center gap-2">
+            <button
+              onClick={() => setDevStudioMode(false)}
+              className="rounded-xl border border-white/[0.08] bg-white/[0.05] px-3 py-2 text-[11px] font-medium text-white/65 hover:bg-white/[0.08] hover:text-white"
+            >
+              Nazad na chat
+            </button>
+            <button
+              onClick={onClose}
+              className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.05] text-white/35 hover:bg-white/[0.08] hover:text-white"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+
+          <DevPanel
+            title="Dev Studio"
+            steps={devPanelSteps}
+            preview={devPanelPreview}
+            consoleLogs={consoleLogs as ConsoleLog[]}
+            isAgentRunning={isAgentActionRunning}
+            agentOnline={agentOnline}
+            modelBadge={PROVIDERS[selectedProvider].models.find(m => m.id === selectedProviderModel)?.badge || MODEL_BADGES[selectedModel]}
+            isRecording={isRecording}
+            recordingName={recordingName}
+            isDeploying={isDeploying}
+            deployStatus={deployStatus}
+            savedActions={savedActions}
+            onRunAction={handleDevPanelAction}
+            onStopAgent={() => abortControllerRef.current?.abort()}
+            onClearSteps={() => setDevSteps([])}
+            onDeleteStep={(stepId) => setDevSteps(prev => prev.filter(step => step.id !== stepId))}
+            onSelectStep={(step) => addLog("info", `Odabran korak: ${step.label}`)}
+            onDescribePreview={handlePreviewDescribe}
+            onWaitForLoad={handlePreviewWait}
+            onRefreshScreenshot={handleStudioScreenshot}
+            onDeploy={handleDeploy}
+            onStartAgent={handleStartAgent}
+            onStartRecording={() => { void handleStartRecording(); }}
+            onSaveRecording={() => { void handleSaveAction(); }}
+            onCancelRecording={handleCancelRecording}
+            onRunSavedAction={(name) => { void handleRunSavedAction(name); }}
+            onRefreshActions={() => { void handleRefreshActions(); }}
+            onCheckHealth={() => { void checkAgentHealth(); }}
+            onPortalAction={(cmd) => { void handleDevPortalAction(cmd); }}
+          />
+        </div>
+      </div>
+    );
+  }
 
   const hasMessages = messages.length > 0;
   const hasCode = codeBlocks.length > 0;
@@ -2414,6 +2440,7 @@ ${makeCodeFence("git-pull-rebase.txt", output)}`);
               onRunSavedAction={(name) => { void handleRunSavedAction(name); }}
               onRefreshActions={() => { void handleRefreshActions(); }}
               onCheckHealth={() => { void checkAgentHealth(); }}
+              onPortalAction={(cmd) => { void handleDevPortalAction(cmd); }}
             />
           </div>
         )}
