@@ -1,6 +1,7 @@
 import { useMemo, useState, type ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
+  ArrowLeft,
   Activity,
   AlertCircle,
   Bot,
@@ -90,6 +91,7 @@ type Props = {
   onRefreshActions?: () => void;
   onCheckHealth?: () => void;
   onPortalAction?: (cmd: string) => void;
+  onBackToStellan?: () => void;
 };
 
 function statusTone(ok: boolean | null | undefined) {
@@ -220,6 +222,7 @@ export default function DevPanel({
   onStopAgent,
   onCheckHealth,
   onPortalAction,
+  onBackToStellan,
 }: Props) {
   const [commitMessage, setCommitMessage] = useState("");
 
