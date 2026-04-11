@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from "react";
-import type { BrainNode, Connection, NodeTemplate, NodeRunStatus } from "./brain/types";
+import { NODE_CATALOG, type BrainNode, type Connection, type NodeTemplate, type NodeRunStatus } from "./brain/types";
 import {
   PORT_COLORS,
   NODE_W,
@@ -89,16 +89,153 @@ export interface BrainPanelTechActions {
   fitToScreen: () => void;
   handleMinimapNav: (wx: number, wy: number) => void;
   runFlow: () => Promise<void>;
+  runSmartAuto: (prompt: string) => Promise<void>;
   stopFlow: () => void;
   resetRun: () => void;
   saveFlow: () => void;
   loadFlow: (flowId: string) => void;
+  setNodes: (nodes: BrainNode[]) => void;
+  setConnections: (connections: Connection[]) => void;
+  replaceFlow: (nodes: BrainNode[], connections: Connection[], flowName?: string) => void;
+  importLearningSteps: (steps: any[], flowName?: string) => void;
 }
 
 export interface UseBrainPanelTechResult {
   state: BrainPanelTechState;
   actions: BrainPanelTechActions;
 }
+
+
+function getTemplateByLabel(label: string): NodeTemplate | undefined {
+  const all = Object.values(NODE_CATALOG).flat();
+  return all.find((t) => t.label.toLowerCase() === label.toLowerCase());
+}
+
+function createBrainNodeFromTemplate(template: NodeTemplate, x: number, y: number, config?: Record<string, any>): BrainNode {
+  return {
+    id: generateId(),
+    label: template.label,
+    icon: template.icon,
+    category: template.category,
+    x,
+    y,
+    ports: template.ports.map((p) => ({ ...p })),
+    config: { ...(template.defaultConfig || {}), ...(config || {}) },
+  };
+}
+
+function convertLearningStepsToBrainFlow(steps: any[]) {
+  const nodes: BrainNode[] = [];
+  const connections: Connection[] = [];
+
+  const labelForStep = (step: any) => {
+    const action = String(step?.action || "").toLowerCase();
+    if (action.includes("goto") || action.includes("open") || step?.url) return "Browser Open";
+    if (action.includes("fill") || action.includes("type")) return "Fill Input";
+    if (action.includes("screenshot")) return "Screenshot";
+    if (action.includes("extract")) return "Extract Text";
+    return "Click";
+  };
+
+  steps.forEach((step, index) => {
+    const label = labelForStep(step);
+    const template = getTemplateByLabel(label);
+    if (!template) return;
+
+    const node = createBrainNodeFromTemplate(
+      template,
+      280 + index * 320,
+      220 + ((index % 2) * 170),
+      {
+        url: step?.url,
+        selector: step?.selector,
+        value: step?.value,
+        text: step?.text,
+        timeout: step?.timeout,
+        full_page: step?.full_page,
+      },
+    );
+    nodes.push(node);
+
+    if (nodes.length > 1) {
+      const fromNode = nodes[nodes.length - 2];
+      const toNode = node;
+      const fromPort = fromNode.ports.find((p) => p.side === "right") || fromNode.ports[0];
+      const toPort = toNode.ports.find((p) => p.side === "left") || toNode.ports[0];
+      if (fromPort && toPort) {
+        connections.push({
+          id: generateConnectionId(),
+          fromNode: fromNode.id,
+          fromPort: fromPort.id,
+          toNode: toNode.id,
+          toPort: toPort.id,
+          color: fromPort.color,
+        });
+      }
+    }
+  });
+
+  return { nodes, connections };
+}
+
+function fallbackStepsFromPrompt(prompt: string) {
+  const steps: any[] = [];
+  const lower = prompt.toLowerCase();
+  const urlMatch = prompt.match(/https?:\/\/[^\s]+/i);
+
+  if (urlMatch) {
+    steps.push({ action: "goto", url: urlMatch[0] });
+  } else if (lower.includes("oss")) {
+    steps.push({ action: "goto", url: "https://oss.uredjenazemlja.hr/" });
+  }
+
+  const clickQuoted = prompt.match(/(?:klikni|pritisni)\s+["“]?(.+?)["”]?$/i);
+  if (clickQuoted) {
+    steps.push({ action: "click", selector: `text=${clickQuoted[1].trim()}` });
+  }
+
+  const fillQuoted = prompt.match(/(?:upiši|upisi|unesi)\s+["“](.+?)["”]\s+u\s+["“](.+?)["”]/i);
+  if (fillQuoted) {
+    steps.push({
+      action: "fill",
+      selector: `input[placeholder*="${fillQuoted[2].trim()}" i], input[name*="${fillQuoted[2].trim()}" i], textarea[placeholder*="${fillQuoted[2].trim()}" i]`,
+      value: fillQuoted[1].trim(),
+    });
+  }
+
+  if (lower.includes("screenshot") || lower.includes("snimi")) {
+    steps.push({ action: "screenshot" });
+  }
+
+  if (!steps.length) {
+    steps.push({ action: "goto", url: "https://oss.uredjenazemlja.hr/" });
+  }
+
+  return steps;
+}
+
+async function callAgentJson(endpoint: string, body: Record<string, unknown>) {
+  if (!AGENT_URL) throw new Error("VITE_AGENT_SERVER_URL nije postavljen.");
+
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "ngrok-skip-browser-warning": "true",
+  };
+  if (AGENT_KEY) headers["X-API-Key"] = AGENT_KEY;
+
+  const response = await fetch(`${AGENT_URL}/${endpoint}`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(body),
+  });
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error((data as any)?.error || `${endpoint} failed (${response.status})`);
+  }
+  return data as any;
+}
+
 
 function loadFlows(): SavedFlow[] {
   try {
@@ -754,14 +891,24 @@ export function useBrainPanelTech(activeNodesInput: string[] = []): UseBrainPane
   }, [handleDelete]);
 
   const runFlow = useCallback(async () => {
+    await executeGraph(nodes, connections, flowName);
+  }, [connections, executeGraph, flowName, nodes]);
+
+
+  const executeGraph = useCallback(async (
+    graphNodes: BrainNode[],
+    graphConnections: Connection[],
+    nextFlowName?: string,
+  ) => {
     stopRequestedRef.current = false;
     setIsRunning(true);
     setActiveNodes([]);
+    if (nextFlowName) setFlowName(nextFlowName);
 
     const statuses: Record<string, NodeRunStatus> = {};
     const outputs: Record<string, FlowExecutionContext> = {};
 
-    nodes.forEach((n) => {
+    graphNodes.forEach((n) => {
       statuses[n.id] = { nodeId: n.id, status: "idle" };
     });
 
@@ -771,21 +918,21 @@ export function useBrainPanelTech(activeNodesInput: string[] = []): UseBrainPane
     const depsMap = new Map<string, string[]>();
     const outgoingMap = new Map<string, string[]>();
 
-    nodes.forEach((n) => {
-      depsMap.set(n.id, connections.filter((c) => c.toNode === n.id).map((c) => c.fromNode));
-      outgoingMap.set(n.id, connections.filter((c) => c.fromNode === n.id).map((c) => c.toNode));
+    graphNodes.forEach((n) => {
+      depsMap.set(n.id, graphConnections.filter((c) => c.toNode === n.id).map((c) => c.fromNode));
+      outgoingMap.set(n.id, graphConnections.filter((c) => c.fromNode === n.id).map((c) => c.toNode));
     });
 
-    const ready = nodes.filter((n) => (depsMap.get(n.id) || []).length === 0).map((n) => n.id);
+    const ready = graphNodes.filter((n) => (depsMap.get(n.id) || []).length === 0).map((n) => n.id);
     const completed = new Set<string>();
     const failed = new Set<string>();
 
     while (ready.length > 0 && !stopRequestedRef.current) {
       const nodeId = ready.shift()!;
-      const node = nodes.find((n) => n.id === nodeId);
+      const node = graphNodes.find((n) => n.id === nodeId);
       if (!node || completed.has(nodeId) || failed.has(nodeId)) continue;
 
-      const input = mergeIncomingPayloads(nodeId, connections, outputs);
+      const input = mergeIncomingPayloads(nodeId, graphConnections, outputs);
 
       statuses[nodeId] = {
         nodeId,
@@ -856,7 +1003,50 @@ export function useBrainPanelTech(activeNodesInput: string[] = []): UseBrainPane
 
     setActiveNodes([]);
     setIsRunning(false);
-  }, [connections, nodes]);
+    return outputs;
+  }, []);
+
+  const replaceFlow = useCallback((nextNodes: BrainNode[], nextConnections: Connection[], nextFlowName?: string) => {
+    setNodes(nextNodes);
+    setConnections(nextConnections);
+    if (nextFlowName) setFlowName(nextFlowName);
+    setRunStatuses({});
+    setLastRunOutputs({});
+    setSelectedNode(nextNodes[0]?.id || null);
+    setSelectedConnection(null);
+    setTimeout(() => {
+      fitToScreen();
+    }, 50);
+  }, [fitToScreen]);
+
+  const importLearningSteps = useCallback((steps: any[], nextFlowName?: string) => {
+    const converted = convertLearningStepsToBrainFlow(steps);
+    replaceFlow(converted.nodes, converted.connections, nextFlowName || "Learning Flow");
+  }, [replaceFlow]);
+
+  const runSmartAuto = useCallback(async (prompt: string) => {
+    let steps: any[] = [];
+    try {
+      const generated = await callAgentJson("ai/generate_flow", { prompt });
+      if (generated?.success && Array.isArray(generated.steps) && generated.steps.length > 0) {
+        steps = generated.steps;
+      }
+    } catch {
+      // fallback below
+    }
+
+    if (!steps.length) {
+      steps = fallbackStepsFromPrompt(prompt);
+    }
+
+    if (!steps.some((s) => String(s?.action || "").toLowerCase().includes("screenshot"))) {
+      steps.push({ action: "screenshot", full_page: true });
+    }
+
+    const converted = convertLearningStepsToBrainFlow(steps);
+    replaceFlow(converted.nodes, converted.connections, "Smart Auto");
+    await executeGraph(converted.nodes, converted.connections, "Smart Auto");
+  }, [executeGraph, replaceFlow]);
 
   const stopFlow = useCallback(() => {
     stopRequestedRef.current = true;
@@ -957,10 +1147,15 @@ export function useBrainPanelTech(activeNodesInput: string[] = []): UseBrainPane
       fitToScreen,
       handleMinimapNav,
       runFlow,
+      runSmartAuto,
       stopFlow,
       resetRun,
       saveFlow,
       loadFlow,
+      setNodes,
+      setConnections,
+      replaceFlow,
+      importLearningSteps,
     },
   };
 }
