@@ -1838,14 +1838,6 @@ const devPanelPreview = {
     return (
       <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-lg">
         <div className="relative h-[98vh] w-[99vw] overflow-hidden rounded-2xl border border-white/[0.06] bg-[hsl(220,15%,7%)] shadow-2xl">
-          <div className="absolute right-4 top-4 z-20 flex items-center gap-2">
-            <button
-              onClick={onClose}
-              className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.05] text-white/35 hover:bg-white/[0.08] hover:text-white"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          </div>
 
           <DevPanel
             title="Dev Studio"
