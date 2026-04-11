@@ -179,7 +179,7 @@ export default function DevPanel({
   const [actionValues, setActionValues] = useState<Record<DevActionType, string>>({
     open: "", click: "", type: "", screenshot: "", learn: "",
   });
-  const [rightTab, setRightTab] = useState<"steps" | "console" | "actions" | "network">("steps");
+  const [rightTab, setRightTab] = useState<"steps" | "console" | "actions" | "network" | "project">("steps");
   const consoleEndRef = useRef<HTMLDivElement | null>(null);
 
   // ─── Network capture state ──────────────────────────────
@@ -193,6 +193,30 @@ export default function DevPanel({
   const [copied, setCopied] = useState(false);
   const networkEndRef = useRef<HTMLDivElement | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // ─── Project ops state ───────────────────────────────
+  const defaultProjectCwd = useMemo(() => {
+    try { return (import.meta as any).env?.VITE_AGENT_PROJECT_CWD || "."; } catch { return "."; }
+  }, []);
+  const [projectCwd, setProjectCwd] = useState(defaultProjectCwd);
+  const [projectRoot, setProjectRoot] = useState("src");
+  const [filePath, setFilePath] = useState("");
+  const [fileContent, setFileContent] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [projectOutput, setProjectOutput] = useState("");
+  const [projectBusy, setProjectBusy] = useState(false);
+  const [patchPayload, setPatchPayload] = useState(`{
+  "cwd": ".",
+  "files": [
+    {
+      "path": "src/components/example.tsx",
+      "content": "// full file content here"
+    }
+  ],
+  "run_build": true,
+  "git_commit": false,
+  "git_push": false
+}`);
 
   // Agent URL from env
   const agentBaseUrl = useMemo(() => {
@@ -244,6 +268,76 @@ export default function DevPanel({
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   }, [networkLogs]);
+
+  const runProjectTask = useCallback(async (runner: () => Promise<any>) => {
+    setProjectBusy(true);
+    try {
+      return await runner();
+    } finally {
+      setProjectBusy(false);
+    }
+  }, []);
+
+  const handleReadFile = useCallback(async () => {
+    if (!filePath.trim()) return;
+    const res = await runProjectTask(() => agentFetch("/read_file", "POST", { path: filePath.trim() }));
+    if (res?.success) {
+      setFileContent(res.content || "");
+      setProjectOutput(`Učitano: ${res.path || filePath}\nVeličina: ${res.size || 0} B`);
+    } else {
+      setProjectOutput(`Greška čitanja: ${res?.error || res?.detail || "agent nedostupan"}`);
+    }
+  }, [filePath, agentFetch, runProjectTask]);
+
+  const handleWriteFile = useCallback(async () => {
+    if (!filePath.trim()) return;
+    const res = await runProjectTask(() => agentFetch("/write_file", "POST", { path: filePath.trim(), content: fileContent, backup_first: true }));
+    if (res?.success) {
+      setProjectOutput(`Spremljeno: ${res.path || filePath}\nBackup: ${res.backup_path || "nije napravljen"}`);
+    } else {
+      setProjectOutput(`Greška pisanja: ${res?.error || res?.detail || "agent nedostupan"}`);
+    }
+  }, [filePath, fileContent, agentFetch, runProjectTask]);
+
+  const handleSearchFiles = useCallback(async () => {
+    if (!searchQuery.trim()) return;
+    const res = await runProjectTask(() => agentFetch("/search_in_files", "POST", {
+      root: projectRoot.trim() || projectCwd.trim() || ".",
+      query: searchQuery.trim(),
+      extensions: [".ts", ".tsx", ".js", ".jsx", ".py", ".json", ".md"],
+      recursive: true,
+    }));
+    if (res?.success) {
+      const lines = (res.matches || []).map((m: any) => `${m.path}:${m.line}\n${m.text}`).join("\n\n");
+      setProjectOutput(lines || "Nema podudaranja.");
+    } else {
+      setProjectOutput(`Greška pretrage: ${res?.error || res?.detail || "agent nedostupan"}`);
+    }
+  }, [searchQuery, projectRoot, projectCwd, agentFetch, runProjectTask]);
+
+  const handleRunBuild = useCallback(async () => {
+    const res = await runProjectTask(() => agentFetch("/run_build", "POST", { cwd: projectCwd.trim() || ".", command: ["npm", "run", "build"], timeout: 300 }));
+    if (res) {
+      setProjectOutput([res.success ? "BUILD OK" : "BUILD FAIL", res.stdout || "", res.stderr || ""].filter(Boolean).join("\n\n"));
+    } else {
+      setProjectOutput("Greška builda: agent nedostupan");
+    }
+  }, [projectCwd, agentFetch, runProjectTask]);
+
+  const handleApplyPatchSet = useCallback(async () => {
+    try {
+      const payload = JSON.parse(patchPayload);
+      if (!payload.cwd) payload.cwd = projectCwd.trim() || ".";
+      const res = await runProjectTask(() => agentFetch("/safe_apply_patch_set", "POST", payload));
+      if (res) {
+        setProjectOutput(JSON.stringify(res, null, 2));
+      } else {
+        setProjectOutput("Greška patch seta: agent nedostupan");
+      }
+    } catch (e: any) {
+      setProjectOutput(`Neispravan JSON: ${e?.message || e}`);
+    }
+  }, [patchPayload, projectCwd, agentFetch, runProjectTask]);
 
   // Poll network logs when capturing
   useEffect(() => {
@@ -454,12 +548,20 @@ export default function DevPanel({
           </div>
 
           <div className="flex border-b border-white/[0.06] shrink-0">
-            {(["steps", "console", "actions", "network"] as const).map((tab) => (
+            {(["steps", "console", "actions", "network", "project"] as const).map((tab) => (
               <button key={tab} onClick={() => setRightTab(tab)}
                 className={cn("flex-1 py-2 text-[10px] border-b-[1.5px] transition-all",
                   rightTab === tab ? "text-indigo-300 border-indigo-500" : "text-white/20 border-transparent hover:text-white/40"
                 )}>
-                {tab === "steps" ? `Koraci (${steps.length})` : tab === "console" ? `Log (${consoleLogs.length})` : tab === "actions" ? `Akcije (${savedActions.length})` : `Net (${networkLogs.length})`}
+                {tab === "steps"
+                  ? `Koraci (${steps.length})`
+                  : tab === "console"
+                  ? `Log (${consoleLogs.length})`
+                  : tab === "actions"
+                  ? `Akcije (${savedActions.length})`
+                  : tab === "network"
+                  ? `Net (${networkLogs.length})`
+                  : "Projekt"}
               </button>
             ))}
           </div>
@@ -552,6 +654,51 @@ export default function DevPanel({
                     </button>
                   </div>
                 ))}
+              </div>
+            )}
+
+            {rightTab === "project" && (
+              <div className="p-2.5 space-y-2">
+                <div className="space-y-1.5">
+                  <div>
+                    <div className="text-[9px] text-white/20 mb-1">Project cwd</div>
+                    <input value={projectCwd} onChange={(e) => setProjectCwd(e.target.value)} className="w-full h-8 rounded-lg border border-white/[0.08] bg-black/20 px-2 text-[10px] text-white/70 outline-none" placeholder="D:/projekt ili ." />
+                  </div>
+                  <div>
+                    <div className="text-[9px] text-white/20 mb-1">Read / write file</div>
+                    <input value={filePath} onChange={(e) => setFilePath(e.target.value)} className="w-full h-8 rounded-lg border border-white/[0.08] bg-black/20 px-2 text-[10px] text-white/70 outline-none" placeholder="src/components/chat/ChatDialog.tsx" />
+                  </div>
+                  <div className="flex gap-1.5">
+                    <button onClick={handleReadFile} disabled={projectBusy} className="flex-1 h-8 rounded-lg border border-emerald-500/20 bg-emerald-500/10 text-[10px] text-emerald-300 disabled:opacity-40">Read file</button>
+                    <button onClick={handleWriteFile} disabled={projectBusy} className="flex-1 h-8 rounded-lg border border-blue-500/20 bg-blue-500/10 text-[10px] text-blue-300 disabled:opacity-40">Write file</button>
+                  </div>
+                  <textarea value={fileContent} onChange={(e) => setFileContent(e.target.value)} className="w-full min-h-[140px] rounded-lg border border-white/[0.08] bg-black/20 px-2 py-2 text-[10px] font-mono text-white/65 outline-none" placeholder="Sadržaj datoteke..." />
+                </div>
+
+                <div className="space-y-1.5 border-t border-white/[0.06] pt-2.5">
+                  <div className="text-[9px] text-white/20">Search in files</div>
+                  <input value={projectRoot} onChange={(e) => setProjectRoot(e.target.value)} className="w-full h-8 rounded-lg border border-white/[0.08] bg-black/20 px-2 text-[10px] text-white/70 outline-none" placeholder="src" />
+                  <div className="flex gap-1.5">
+                    <input value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") handleSearchFiles(); }} className="flex-1 h-8 rounded-lg border border-white/[0.08] bg-black/20 px-2 text-[10px] text-white/70 outline-none" placeholder="BrainPanelTechContext" />
+                    <button onClick={handleSearchFiles} disabled={projectBusy} className="h-8 px-3 rounded-lg border border-violet-500/20 bg-violet-500/10 text-[10px] text-violet-300 disabled:opacity-40">Search</button>
+                  </div>
+                </div>
+
+                <div className="space-y-1.5 border-t border-white/[0.06] pt-2.5">
+                  <div className="flex gap-1.5">
+                    <button onClick={handleRunBuild} disabled={projectBusy} className="flex-1 h-8 rounded-lg border border-amber-500/20 bg-amber-500/10 text-[10px] text-amber-300 disabled:opacity-40">Run build</button>
+                    <button onClick={handleApplyPatchSet} disabled={projectBusy} className="flex-1 h-8 rounded-lg border border-fuchsia-500/20 bg-fuchsia-500/10 text-[10px] text-fuchsia-300 disabled:opacity-40">Apply patch set</button>
+                  </div>
+                  <textarea value={patchPayload} onChange={(e) => setPatchPayload(e.target.value)} className="w-full min-h-[140px] rounded-lg border border-white/[0.08] bg-black/20 px-2 py-2 text-[10px] font-mono text-white/65 outline-none" placeholder='{"files": [...]}' />
+                </div>
+
+                <div className="space-y-1.5 border-t border-white/[0.06] pt-2.5">
+                  <div className="flex items-center justify-between">
+                    <div className="text-[9px] text-white/20">Output</div>
+                    {projectBusy && <div className="text-[9px] text-emerald-300">radim...</div>}
+                  </div>
+                  <pre className="min-h-[140px] max-h-[240px] overflow-auto rounded-lg border border-white/[0.08] bg-black/30 px-2 py-2 text-[9px] font-mono text-white/55 whitespace-pre-wrap break-words">{projectOutput || "Još nema outputa."}</pre>
+                </div>
               </div>
             )}
 
