@@ -9,7 +9,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { zipSync, strToU8 } from "https://esm.sh/fflate@0.8.2";
- 
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
@@ -1008,8 +1008,6 @@ function inferTextMimeType(fileName: string): string {
   if (lower.endsWith(".xml") || lower.endsWith(".gml") || lower.endsWith(".kml")) return "application/xml";
   if (lower.endsWith(".js")) return "application/javascript";
   if (lower.endsWith(".ts")) return "application/typescript";
-  if (lower.endsWith(".tsx")) return "text/plain";
-  if (lower.endsWith(".jsx")) return "text/plain";
   if (lower.endsWith(".py")) return "text/x-python";
   if (lower.endsWith(".sql")) return "application/sql";
   if (lower.endsWith(".yaml") || lower.endsWith(".yml")) return "application/yaml";
@@ -1104,13 +1102,12 @@ async function downloadFileContent(
     });
 
     if (!res.ok) return null;
-    const text = await res.text();
-    return text.length > 300000 ? text.slice(0, 300000) + "\n...[skraćeno]" : text;
+    const body = await res.text();
+    return body.length > 300000 ? body.slice(0, 300000) + "\n...[skraćeno]" : body;
   } catch {
     return null;
   }
 }
-
 
 async function executeDriveTool(
   accessToken: string,
@@ -1183,20 +1180,11 @@ async function executeDriveTool(
       return JSON.stringify({ success: true, files: (await res.json()).files || [] });
     }
     case "read_brain_file": {
-      const found = await findFileInBrain(accessToken, brainFolderId, args.file_name, args.subfolder_name);
+      const found = await findFileInBrain(accessToken, brainFolderId, args.file_name);
       if (!found) return JSON.stringify({ success: false, error: `Datoteka '${args.file_name}' nije pronađena` });
-      const text = await downloadFileContent(accessToken, {
-        id: found.fileId,
-        name: args.file_name,
-        mimeType: found.file?.mimeType,
-      });
+      const text = await downloadFileContent(accessToken, { id: found.fileId, name: args.file_name });
       if (!text) return JSON.stringify({ success: false, error: `Nije moguće pročitati '${args.file_name}'` });
-      return JSON.stringify({
-        success: true,
-        file_name: args.file_name,
-        content: text,
-        chars: text.length,
-      });
+      return JSON.stringify({ success: true, file_name: args.file_name, content: text, chars: text.length });
     }
     case "rename_drive_item": {
       const sourceFolderId = args.source_folder_name
@@ -2785,7 +2773,6 @@ async function runResponsesApiWithTools(
   const responseTools = convertCustomToolsToResponsesTools(tools);
   
   let pendingInput: any[] = convertMessagesToResponsesInput(messages);
-  let previousResponseId: string | null = null;
 
   const streamDelta = async (text: string) => {
     if (!text) return;
@@ -2840,7 +2827,7 @@ async function runResponsesApiWithTools(
     }
 
     const response = await res.json();
-    previousResponseId = response?.id || previousResponseId;
+    
 
     const functionCalls = extractFunctionCallsFromResponse(response);
     const responseText = extractTextFromResponse(response);
@@ -3875,32 +3862,25 @@ serve(async (req) => {
   try {
     // ── JWT auth ──────────────────────────────────────────────
     const authHeader = req.headers.get("Authorization");
-  if (!authHeader?.startsWith("Bearer ")) {
-    return new Response(JSON.stringify({ error: "Unauthorized" }), {
-      status: 401,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
-  }
-
-  const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-  const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
-
-  const supabaseAuth = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-    global: { headers: { Authorization: authHeader } },
-  });
-
-  // ←←← OVO JE NOVO I ISpravno
-  const { data: { user }, error: userError } = await supabaseAuth.auth.getUser();
-
-  if (userError || !user?.id) {
-    console.error("[Auth] getUser failed:", userError?.message || "No user");
-    return new Response(JSON.stringify({ error: "Unauthorized" }), {
-      status: 401,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
-  }
-
-  const user_id = user.id;
+    if (!authHeader?.startsWith("Bearer ")) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+    const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
+    const token = authHeader.replace("Bearer ", "").trim();
+    const supabaseAuth = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    const { data: userData, error: userError } = await supabaseAuth.auth.getUser(token);
+    if (userError || !userData?.user?.id) {
+      console.error("[chat] auth getUser failed:", userError?.message || "no user");
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    const user_id = userData.user.id as string;
 
     // ── Dohvati API keys iz Secrets (fallback) ───────────────
     const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY") || "";
@@ -4216,7 +4196,7 @@ ${memoryContext ? `════════════════════�
       enableDriveTools,
       supabaseAdmin,
       user_id,
-      openaiApiKey: OPENAI_API_KEY || "",
+      openaiApiKey: OPENAI_API_KEY,
       model: effectiveModel,
     };
 
