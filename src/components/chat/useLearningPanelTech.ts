@@ -27,6 +27,7 @@ export interface LearningLog {
 const CANVAS_W = 5200;
 const CANVAS_H = 3200;
 const NODE_W = 240;
+const LEARNING_TO_BRAIN_BRIDGE_KEY = "stellan_learning_to_brain_bridge_v1";
 
 function getNodeHeight(node: LearningNodeData) {
   if (node.kind === "screenshot" && node.config?.image) return 240;
@@ -455,6 +456,29 @@ export function useLearningPanelTech() {
     }).filter(Boolean) as Array<LearningConnection & { d: string }>;
   }, [connections, nodes]);
 
+
+  const exportFlowToBrain = useCallback(() => {
+    const steps = nodes
+      .filter(n => n.kind !== "start" && n.kind !== "ai")
+      .map((n) => {
+        if (n.kind === "goto") return { action: "goto", url: n.config?.url, timeout: n.config?.timeout };
+        if (n.kind === "click") return { action: "click", selector: n.config?.selector, timeout: n.config?.timeout };
+        if (n.kind === "fill") return { action: "fill", selector: n.config?.selector, value: n.config?.value, timeout: n.config?.timeout };
+        if (n.kind === "input") return { action: "input", key: n.config?.key, value: n.config?.value };
+        if (n.kind === "screenshot") return { action: "screenshot", full_page: n.config?.full_page, timeout: n.config?.timeout };
+        if (n.kind === "run") return { action: "run" };
+        return { action: "click", selector: n.config?.selector || "" };
+      });
+
+    localStorage.setItem(LEARNING_TO_BRAIN_BRIDGE_KEY, JSON.stringify({
+      flowName: flowName || "Learning Flow",
+      steps,
+      exportedAt: Date.now(),
+    }));
+    log("✓ Flow poslan u Mozak", "success");
+    return steps;
+  }, [flowName, log, nodes]);
+
   return {
     constants: { CANVAS_W, CANVAS_H, NODE_W, getNodeHeight },
     state: {
@@ -507,6 +531,7 @@ export function useLearningPanelTech() {
       setNodes,
       setConnections,
       convertStepsToNodes,
+      exportFlowToBrain,
     },
   };
 }
