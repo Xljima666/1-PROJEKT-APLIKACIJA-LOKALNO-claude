@@ -44,7 +44,7 @@ function toneFromMessage(msg: string): "info" | "success" | "error" {
   return "info";
 }
 
-export function useLearningPanelTech() {
+export function useLearningPanelTech(options?: { onStepsBuilt?: (steps: any[], flowName?: string) => void }) {
   const AGENT_URL = (import.meta as any).env?.VITE_AGENT_SERVER_URL || "";
   const AGENT_KEY = (import.meta as any).env?.VITE_AGENT_API_KEY || "";
 
@@ -304,8 +304,9 @@ export function useLearningPanelTech() {
     setNodes(mapped);
     connectSequentially(mapped);
     setSelectedNode(mapped[1]?.id || "start_1");
+    options?.onStepsBuilt?.(steps, flowName);
     log(`✓ Flow pretvoren u ${mapped.length - 1} nodeova`, "success");
-  }, [connectSequentially, log]);
+  }, [connectSequentially, flowName, log, options]);
 
   const startRecording = useCallback(async () => {
     const res = await callAgent("record/start", { name: flowName || "learning_flow" });
