@@ -1,6 +1,7 @@
-import { Brain, ArrowLeft, Sparkles, Minus, Plus, Maximize2, Trash2, Save, FolderOpen } from "lucide-react";
+import { Brain, ArrowLeft, Sparkles, Minus, Plus, Maximize2, Trash2, Save, FolderOpen, Wand2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
+import { useState } from "react";
 import NodeCard from "./brain/NodeCard";
 import NodePalette from "./brain/NodePalette";
 import RunPanel from "./brain/RunPanel";
@@ -66,6 +67,7 @@ interface Props { onClose: () => void; activeNodes?: string[]; }
 const BrainPanel = ({ onClose, activeNodes = [] }: Props) => {
   const { state, actions } = useBrainPanelTech(activeNodes);
   const selected = state.selectedNodeData;
+  const [smartPrompt, setSmartPrompt] = useState("");
 
   return (
     <motion.div
@@ -100,6 +102,12 @@ const BrainPanel = ({ onClose, activeNodes = [] }: Props) => {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => actions.importBridgeFromLearning()}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-violet-500/10 hover:bg-violet-500/20 border border-violet-500/20 text-violet-300 transition-all text-xs"
+          >
+            <Brain className="w-3 h-3" /> Uvezi iz Učenja
+          </button>
           <button onClick={actions.saveFlow}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/[0.06] hover:bg-white/[0.1] border border-white/[0.08] text-white/50 hover:text-white transition-all text-xs">
             <Save className="w-3 h-3" /> Spremi
@@ -137,6 +145,24 @@ const BrainPanel = ({ onClose, activeNodes = [] }: Props) => {
             <Sparkles className="w-3 h-3" /> Stellan Workflow Builder
           </div>
         </div>
+      </div>
+
+      <div className="relative z-10 border-b border-white/[0.06] px-5 py-3 flex items-center gap-3">
+        <div className="rounded-xl border border-white/[0.08] bg-white/[0.04] px-3 py-2 flex-1 flex items-center gap-2">
+          <Wand2 className="w-4 h-4 text-violet-300" />
+          <input
+            value={smartPrompt}
+            onChange={(e) => setSmartPrompt(e.target.value)}
+            placeholder="Smart Auto... npr. Odi na OSS i klikni Prijava"
+            className="bg-transparent w-full text-sm text-white/85 outline-none placeholder:text-white/25"
+          />
+        </div>
+        <button
+          onClick={() => smartPrompt.trim() && actions.runSmartAuto(smartPrompt)}
+          className="px-3 py-2 rounded-xl bg-violet-500/15 text-violet-200 border border-violet-400/20 text-sm"
+        >
+          <Wand2 className="w-4 h-4 inline mr-1" /> Smart Auto
+        </button>
       </div>
 
       {/* Body */}
@@ -273,7 +299,7 @@ const BrainPanel = ({ onClose, activeNodes = [] }: Props) => {
         onRun={actions.runFlow}
         onStop={actions.stopFlow}
         onReset={actions.resetRun}
-        onPreview={() => {}}
+        onPreview={actions.importBridgeFromLearning}
       />
     </motion.div>
   );
