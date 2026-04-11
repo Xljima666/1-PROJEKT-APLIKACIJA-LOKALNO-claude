@@ -983,6 +983,10 @@ const devPanelPreview = {
       /^(pretrazi projekt|pretraži projekt|search project)\s+/i.test(text) ||
       /^(trazi u projektu|traži u projektu)\s+/i.test(text) ||
       /^(pokreni build|run build|build)$/i.test(text) ||
+      /^(git status|status)$/i.test(text) ||
+      /^(git commit|commit)\b/i.test(text) ||
+      /^(git push|push)\b/i.test(text) ||
+      /^(deploy)\b/i.test(text) ||
       /^(primijeni patch|primjeni patch|apply patch)\b/i.test(text) ||
       /^(spremi file|zapisi file|zapiši file|write file)\s+/i.test(text) ||
       /^(postavi projekt root|postavi project root|set project root|root)\s+/i.test(text)
@@ -1034,6 +1038,17 @@ const devPanelPreview = {
       if (/^(package|vite|tsconfig|vercel|tailwind|postcss|eslint|prettier|components)\b/i.test(q)) return true;
       return false;
     };
+    const formatCommandResult = (result: any, fallback = "Nema outputa.") => {
+      if (!result) return fallback;
+      const parts = [
+        result.error ? `ERROR: ${result.error}` : "",
+        result.stdout || "",
+        result.stderr || "",
+      ].filter(Boolean);
+      return trimOutput(parts.join("\n\n").trim() || fallback);
+    };
+    const normalizeGitMessage = (value: string) =>
+      cleanQuoted(value.replace(/^(-m|--message)\s+/i, "").trim());
 
     addLog("info", "🗂 " + raw.slice(0, 100));
     setDevStudioMode(true);
@@ -1161,6 +1176,115 @@ const devPanelPreview = {
         pushAssistantMessage(`❌ Build je pao.\n\n${makeCodeFence("build.log", output)}${logHints ? `\n\nLogovi:\n${logHints}` : ""}${extraHint}`);
         addLog("warn", `Build failed${result?.error ? `: ${result.error}` : ""}`);
       }
+      return true;
+    }
+
+    if (/^(?:git status|status)$/i.test(raw)) {
+      const projectRoot = getProjectRoot();
+      if (!projectRoot) {
+        pushAssistantMessage("⚠️ Prvo postavi projekt root prije git status.");
+        addLog("warn", "Git status bez project roota");
+        return true;
+      }
+      const result = await callAgentDirect("git_status", { repo_path: projectRoot });
+      const output = formatCommandResult(result, "Nema git status outputa.");
+      if (result?.success) {
+        pushAssistantMessage(`### Git status\n\n**Repo:** \`${projectRoot}\`\n\n${makeCodeFence("git-status.txt", output)}`);
+        addLog("ok", "Git status OK");
+      } else {
+        pushAssistantMessage(`❌ Git status nije uspio.\n\n${makeCodeFence("git-status.txt", output)}`);
+        addLog("warn", `Git status failed${result?.error ? `: ${result.error}` : ""}`);
+      }
+      return true;
+    }
+
+    match = raw.match(/^(?:git commit|commit)\s+([\s\S]+)$/i);
+    if (match) {
+      const projectRoot = getProjectRoot();
+      if (!projectRoot) {
+        pushAssistantMessage("⚠️ Prvo postavi projekt root prije git commita.");
+        addLog("warn", "Git commit bez project roota");
+        return true;
+      }
+      const message = normalizeGitMessage(match[1]);
+      if (!message) {
+        pushAssistantMessage("⚠️ Pošalji commit poruku. Primjer:\n\n`git commit \"brain panel fix\"`");
+        addLog("warn", "Git commit bez poruke");
+        return true;
+      }
+      const result = await callAgentDirect("git_commit", { repo_path: projectRoot, message });
+      const output = formatCommandResult(result, "Nema git commit outputa.");
+      if (result?.success) {
+        pushAssistantMessage(`✅ Git commit je prošao.\n\n**Poruka:** \`${message}\`\n\n${makeCodeFence("git-commit.txt", output)}`);
+        addLog("ok", `Git commit: ${message}`);
+      } else {
+        pushAssistantMessage(`❌ Git commit nije uspio.\n\n${makeCodeFence("git-commit.txt", output)}`);
+        addLog("warn", `Git commit failed${result?.error ? `: ${result.error}` : ""}`);
+      }
+      return true;
+    }
+
+    match = raw.match(/^(?:git push|push)(?:\s+([a-zA-Z0-9._\/-]+))?$/i);
+    if (match) {
+      const projectRoot = getProjectRoot();
+      if (!projectRoot) {
+        pushAssistantMessage("⚠️ Prvo postavi projekt root prije git pusha.");
+        addLog("warn", "Git push bez project roota");
+        return true;
+      }
+      const branch = cleanQuoted(match[1] || "");
+      const result = await callAgentDirect("git_push", {
+        repo_path: projectRoot,
+        branch: branch || undefined,
+      });
+      const output = formatCommandResult(result, "Nema git push outputa.");
+      if (result?.success) {
+        pushAssistantMessage(`✅ Git push je prošao.${branch ? `\n\n**Branch:** \`${branch}\`` : ""}\n\n${makeCodeFence("git-push.txt", output)}`);
+        addLog("ok", `Git push${branch ? `: ${branch}` : ""}`);
+      } else {
+        pushAssistantMessage(`❌ Git push nije uspio.\n\n${makeCodeFence("git-push.txt", output)}`);
+        addLog("warn", `Git push failed${result?.error ? `: ${result.error}` : ""}`);
+      }
+      return true;
+    }
+
+    match = raw.match(/^(?:deploy)(?:\s+([\s\S]+))?$/i);
+    if (match) {
+      const projectRoot = getProjectRoot();
+      if (!projectRoot) {
+        pushAssistantMessage("⚠️ Prvo postavi projekt root prije deploya.");
+        addLog("warn", "Deploy bez project roota");
+        return true;
+      }
+
+      const message = normalizeGitMessage(match[1] || "") || `deploy ${new Date().toISOString().slice(0, 16).replace("T", " ")}`;
+      pushAssistantMessage(`### Deploy\n\nPokrećem build → git commit → git push...`);
+
+      const buildResult = await callAgentDirect("run_build", { cwd: projectRoot });
+      if (!buildResult?.success) {
+        pushAssistantMessage(`❌ Deploy zaustavljen na buildu.\n\n${makeCodeFence("build.log", formatCommandResult(buildResult, "Nema build outputa."))}`);
+        addLog("warn", "Deploy stopped at build");
+        return true;
+      }
+
+      const commitResult = await callAgentDirect("git_commit", { repo_path: projectRoot, message });
+      if (!commitResult?.success) {
+        pushAssistantMessage(`❌ Build je prošao, ali git commit nije uspio.\n\n${makeCodeFence("git-commit.txt", formatCommandResult(commitResult, "Nema git commit outputa."))}`);
+        addLog("warn", "Deploy stopped at git commit");
+        return true;
+      }
+
+      const pushResult = await callAgentDirect("git_push", { repo_path: projectRoot });
+      if (!pushResult?.success) {
+        pushAssistantMessage(`❌ Build i commit su prošli, ali git push nije uspio.\n\n${makeCodeFence("git-push.txt", formatCommandResult(pushResult, "Nema git push outputa."))}`);
+        addLog("warn", "Deploy stopped at git push");
+        return true;
+      }
+
+      pushAssistantMessage(
+        `✅ Deploy je prošao.\n\n**Commit:** \`${message}\`\n\n${makeCodeFence("build.log", formatCommandResult(buildResult, "Nema build outputa."))}`
+      );
+      addLog("ok", "Deploy completed");
       return true;
     }
 
