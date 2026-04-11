@@ -1,4 +1,3 @@
-
 import { cn } from "@/lib/utils";
 import {
   Globe,
@@ -30,6 +29,10 @@ import {
   FileText,
   Sparkles,
   Activity,
+  TerminalSquare,
+  Bug,
+  Eye,
+  LayoutPanelTop,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, useCallback, type ReactNode } from "react";
 
@@ -100,15 +103,14 @@ type Props = {
 const quickActions: Array<{
   key: DevActionType;
   label: string;
-  icon: string;
-  placeholder?: string;
+  hint: string;
   accent: string;
 }> = [
-  { key: "open", label: "Open", icon: "🌐", placeholder: "https://...", accent: "text-cyan-300 border-cyan-500/20 bg-cyan-500/10" },
-  { key: "click", label: "Click", icon: "👆", placeholder: "tekst, selector, gumb...", accent: "text-violet-300 border-violet-500/20 bg-violet-500/10" },
-  { key: "type", label: "Type", icon: "⌨️", placeholder: "upiši vrijednost...", accent: "text-amber-300 border-amber-500/20 bg-amber-500/10" },
-  { key: "screenshot", label: "Screenshot", icon: "📸", accent: "text-pink-300 border-pink-500/20 bg-pink-500/10" },
-  { key: "learn", label: "Learn", icon: "🧠", placeholder: "naziv flowa...", accent: "text-emerald-300 border-emerald-500/20 bg-emerald-500/10" },
+  { key: "open", label: "Open URL", hint: "https://...", accent: "text-cyan-300 border-cyan-500/20 bg-cyan-500/10" },
+  { key: "click", label: "Click element", hint: "tekst, selector, gumb...", accent: "text-violet-300 border-violet-500/20 bg-violet-500/10" },
+  { key: "type", label: "Type value", hint: "upiši vrijednost...", accent: "text-amber-300 border-amber-500/20 bg-amber-500/10" },
+  { key: "screenshot", label: "Capture preview", hint: "snimi aktivni preview", accent: "text-pink-300 border-pink-500/20 bg-pink-500/10" },
+  { key: "learn", label: "Save flow", hint: "naziv flowa...", accent: "text-emerald-300 border-emerald-500/20 bg-emerald-500/10" },
 ];
 
 function getActionIcon(action: DevActionType) {
@@ -165,7 +167,7 @@ function SectionCard({
 }) {
   return (
     <div
-      className={cn("rounded-2xl border border-white/[0.08] bg-white/[0.03] backdrop-blur-xl", className)}
+      className={cn("rounded-3xl border border-white/[0.08] bg-white/[0.03] backdrop-blur-xl", className)}
       style={{ boxShadow: "0 16px 44px rgba(0,0,0,0.18)" }}
     >
       <div className="flex items-center justify-between gap-3 border-b border-white/[0.06] px-4 py-3">
@@ -180,8 +182,26 @@ function SectionCard({
   );
 }
 
+function StatusBadge({
+  tone,
+  children,
+}: {
+  tone: "neutral" | "success" | "warning" | "error" | "info";
+  children: ReactNode;
+}) {
+  const styles = {
+    neutral: "border-white/[0.08] bg-white/[0.04] text-white/45",
+    success: "border-emerald-500/20 bg-emerald-500/10 text-emerald-300",
+    warning: "border-amber-500/20 bg-amber-500/10 text-amber-300",
+    error: "border-rose-500/20 bg-rose-500/10 text-rose-300",
+    info: "border-cyan-500/20 bg-cyan-500/10 text-cyan-300",
+  }[tone];
+
+  return <span className={cn("inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-medium", styles)}>{children}</span>;
+}
+
 export default function DevPanel({
-  title = "Dev Studio",
+  title = "DEV Workspace",
   steps,
   preview,
   consoleLogs = [],
@@ -214,6 +234,7 @@ export default function DevPanel({
     open: "", click: "", type: "", screenshot: "", learn: "",
   });
   const [rightTab, setRightTab] = useState<"steps" | "console" | "actions" | "network" | "project">("steps");
+  const [centerTab, setCenterTab] = useState<"preview" | "errors" | "deploy">("preview");
   const consoleEndRef = useRef<HTMLDivElement | null>(null);
 
   // ─── Network capture state ──────────────────────────────
@@ -241,6 +262,7 @@ export default function DevPanel({
   );
   const [projectBusy, setProjectBusy] = useState(false);
   const [projectNotice, setProjectNotice] = useState("");
+  const [deployHistory, setDeployHistory] = useState<Array<{ at: string; status: "success" | "error" | "running"; detail: string }>>([]);
 
   // Agent URL from env
   const agentBaseUrl = useMemo(() => {
@@ -271,6 +293,31 @@ export default function DevPanel({
   useEffect(() => {
     localStorage.setItem("stellan_project_root", projectRoot);
   }, [projectRoot]);
+
+  useEffect(() => {
+    if (isDeploying) {
+      setCenterTab("deploy");
+      setDeployHistory((prev) => [
+        { at: new Date().toLocaleString("hr-HR"), status: "running", detail: "Deploy pokrenut..." },
+        ...prev.slice(0, 9),
+      ]);
+    }
+  }, [isDeploying]);
+
+  useEffect(() => {
+    if (deployStatus === "success") {
+      setDeployHistory((prev) => [
+        { at: new Date().toLocaleString("hr-HR"), status: "success", detail: "Deploy uspješan." },
+        ...prev.slice(0, 9),
+      ]);
+    } else if (deployStatus === "error") {
+      setDeployHistory((prev) => [
+        { at: new Date().toLocaleString("hr-HR"), status: "error", detail: "Deploy nije uspio." },
+        ...prev.slice(0, 9),
+      ]);
+      setCenterTab("errors");
+    }
+  }, [deployStatus]);
 
   const markProjectNotice = useCallback((message: string) => {
     setProjectNotice(message);
@@ -333,6 +380,7 @@ export default function DevPanel({
       markProjectNotice(`Spremljeno: ${projectFilePath.trim()}`);
     } else {
       markProjectNotice(`Write greška: ${res?.error || "agent nedostupan"}`);
+      setCenterTab("errors");
     }
     setProjectBusy(false);
   }, [agentFetch, markProjectNotice, projectFileContent, projectFilePath]);
@@ -357,10 +405,12 @@ export default function DevPanel({
         .join("\n\n");
       setProjectBuildOutput(out || "(nema outputa)");
       setProjectBuildOk(!!res.success);
+      setCenterTab(res.success ? "deploy" : "errors");
       markProjectNotice(res.success ? "Build prošao." : "Build pao.");
     } else {
       setProjectBuildOutput("Agent nedostupan");
       setProjectBuildOk(false);
+      setCenterTab("errors");
       markProjectNotice("Agent nedostupan.");
     }
     setProjectBusy(false);
@@ -400,16 +450,19 @@ export default function DevPanel({
         const buildOut = res.build ? [res.build.stdout || "", res.build.stderr || ""].filter(Boolean).join("\n\n") : "";
         setProjectBuildOutput(buildOut || JSON.stringify(res, null, 2));
         setProjectBuildOk(res.build ? !!res.build.success : true);
+        setCenterTab("deploy");
         markProjectNotice(`Patch primijenjen. Fileova: ${res.written_files?.length ?? payload.files.length}`);
       } else {
         const buildOut = res?.build ? [res.build.stdout || "", res.build.stderr || ""].filter(Boolean).join("\n\n") : "";
         setProjectBuildOutput(buildOut || JSON.stringify(res || { error: "agent nedostupan" }, null, 2));
         setProjectBuildOk(false);
+        setCenterTab("errors");
         markProjectNotice(`Patch greška: ${res?.error || res?.stopped_at || "agent nedostupan"}`);
       }
     } catch (e: any) {
       markProjectNotice(`JSON greška: ${e.message}`);
       setProjectBuildOk(false);
+      setCenterTab("errors");
     }
     setProjectBusy(false);
   }, [agentFetch, markProjectNotice, projectPatchJson, projectRoot]);
@@ -419,6 +472,7 @@ export default function DevPanel({
     if (res?.success) {
       setNetworkCapturing(true);
       setNetworkLogs([]);
+      setRightTab("network");
     }
   }, [agentFetch]);
 
@@ -475,6 +529,28 @@ export default function DevPanel({
     errors: steps.filter((s) => s.status === "error").length,
   }), [steps]);
 
+  const errorMessages = useMemo(() => {
+    const stepErrors = steps
+      .filter((s) => s.status === "error")
+      .map((s) => `${s.label}${s.detail ? ` — ${s.detail}` : ""}`);
+
+    const consoleErrors = consoleLogs
+      .filter((l) => l.t === "err" || l.t == "warn")
+      .map((l) => l.msg);
+
+    const buildErrors = projectBuildOk === false and projectBuildOutput.strip() and [projectBuildOutput] || []
+    return [...stepErrors, ...consoleErrors, *buildErrors][-20:];
+  }, [steps, consoleLogs, projectBuildOk, projectBuildOutput]);
+
+  const recentEvents = useMemo(() => {
+    const fromLogs = consoleLogs
+      .filter((l) => /deploy|build|push|pull|commit|error|warning/i.test(l.msg))
+      .slice(-8)
+      .map((l) => ({ at: "sada", status: l.t === "err" ? "error" : l.t === "warn" ? "error" : "success", detail: l.msg }));
+
+    return [...deployHistory, ...fromLogs].slice(0, 10);
+  }, [consoleLogs, deployHistory]);
+
   const runAction = (action: DevActionType) => {
     const raw = actionValues[action]?.trim();
     if (action === "open") onRunAction?.("open", { url: raw });
@@ -493,56 +569,54 @@ export default function DevPanel({
       }}
     >
       <div className="absolute inset-0 pointer-events-none overflow-hidden">
-        <div className="absolute top-[14%] left-[18%] h-[440px] w-[440px] rounded-full opacity-[0.05]" style={{ background: "radial-gradient(circle, rgba(167,139,250,1), transparent 70%)" }} />
-        <div className="absolute top-[50%] right-[12%] h-[360px] w-[360px] rounded-full opacity-[0.04]" style={{ background: "radial-gradient(circle, rgba(34,211,238,1), transparent 70%)" }} />
-        <div className="absolute bottom-[6%] left-[42%] h-[320px] w-[320px] rounded-full opacity-[0.04]" style={{ background: "radial-gradient(circle, rgba(244,114,182,1), transparent 70%)" }} />
+        <div className="absolute top-[10%] left-[18%] h-[480px] w-[480px] rounded-full opacity-[0.05]" style={{ background: "radial-gradient(circle, rgba(167,139,250,1), transparent 70%)" }} />
+        <div className="absolute top-[48%] right-[10%] h-[380px] w-[380px] rounded-full opacity-[0.04]" style={{ background: "radial-gradient(circle, rgba(34,211,238,1), transparent 70%)" }} />
+        <div className="absolute bottom-[4%] left-[38%] h-[340px] w-[340px] rounded-full opacity-[0.04]" style={{ background: "radial-gradient(circle, rgba(244,114,182,1), transparent 70%)" }} />
       </div>
 
       {/* Header */}
-      <div className="relative z-10 flex items-center justify-between gap-3 border-b border-white/[0.06] px-5 py-3">
+      <div className="relative z-10 flex items-center justify-between gap-3 border-b border-white/[0.06] px-5 py-4">
         <div className="flex items-center gap-3 min-w-0">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-violet-500/20 border border-violet-400/20">
-            <Sparkles className="h-4 w-4 text-violet-300" />
+          <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-violet-500/20 border border-violet-400/20">
+            <LayoutPanelTop className="h-5 w-5 text-violet-300" />
           </div>
           <div className="min-w-0">
-            <div className="text-sm font-semibold text-white/90 truncate">{title}</div>
-            <div className="text-[10px] text-white/30 truncate">Moderni DEV workspace za preview, akcije i projekt</div>
+            <div className="text-base font-semibold text-white/92 truncate">{title}</div>
+            <div className="text-[11px] text-white/32 truncate">Profesionalni DEV workspace za preview, automatizaciju, greške i deploy status</div>
           </div>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
-          <div className={cn(
-            "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-medium",
-            agentOnline === true
-              ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-300"
-              : agentOnline === false
-                ? "border-red-500/20 bg-red-500/10 text-red-300"
-                : "border-white/[0.08] bg-white/[0.04] text-white/35"
-          )}>
+        <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
+          <StatusBadge tone={agentOnline === true ? "success" : agentOnline === false ? "error" : "neutral"}>
             <div className={cn(
               "h-1.5 w-1.5 rounded-full",
               agentOnline === true ? "bg-emerald-400 animate-pulse" : agentOnline === false ? "bg-red-400" : "bg-white/20"
             )} />
             {agentOnline === true ? "Agent online" : agentOnline === false ? "Agent offline" : "Provjera..."}
-          </div>
+          </StatusBadge>
 
-          <div className="inline-flex items-center gap-1.5 rounded-full border border-white/[0.08] bg-white/[0.04] px-2.5 py-1 text-[10px] text-white/35">
-            <Activity className="h-3 w-3 text-cyan-300" />
+          <StatusBadge tone="info">
+            <Activity className="h-3 w-3" />
             {modelBadge}
-          </div>
+          </StatusBadge>
+
+          <StatusBadge tone={deployStatus === "success" ? "success" : deployStatus === "error" ? "error" : isDeploying ? "warning" : "neutral"}>
+            <Rocket className="h-3 w-3" />
+            {isDeploying ? "Deploy u tijeku" : deployStatus === "success" ? "Zadnji deploy OK" : deployStatus === "error" ? "Deploy error" : "Deploy idle"}
+          </StatusBadge>
 
           {isRecording ? (
             <>
               <button
                 onClick={onSaveRecording}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/20 bg-emerald-500/10 px-3 py-1.5 text-[10px] font-medium text-emerald-200 hover:bg-emerald-500/20"
+                className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-[11px] font-medium text-emerald-200 hover:bg-emerald-500/20"
               >
                 <CheckCircle2 className="h-3.5 w-3.5" />
                 Spremi recording
               </button>
               <button
                 onClick={onCancelRecording}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-1.5 text-[10px] font-medium text-red-200 hover:bg-red-500/20"
+                className="inline-flex items-center gap-1.5 rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2 text-[11px] font-medium text-red-200 hover:bg-red-500/20"
               >
                 <Square className="h-3.5 w-3.5" />
                 Stop
@@ -551,26 +625,26 @@ export default function DevPanel({
           ) : (
             <button
               onClick={onStartRecording}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-1.5 text-[10px] font-medium text-amber-200 hover:bg-amber-500/20"
+              className="inline-flex items-center gap-1.5 rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-[11px] font-medium text-amber-200 hover:bg-amber-500/20"
             >
               <Brain className="h-3.5 w-3.5" />
-              Učenje
+              Record / Učenje
             </button>
           )}
 
           <button
             onClick={onStartAgent}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-violet-500/20 bg-violet-500/10 px-3 py-1.5 text-[10px] font-medium text-violet-200 hover:bg-violet-500/20"
+            className="inline-flex items-center gap-1.5 rounded-xl border border-violet-500/20 bg-violet-500/10 px-3 py-2 text-[11px] font-medium text-violet-200 hover:bg-violet-500/20"
           >
             <Zap className="h-3.5 w-3.5" />
-            Agent
+            Pokreni agenta
           </button>
 
           <button
             onClick={onDeploy}
             disabled={isDeploying}
             className={cn(
-              "inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-[10px] font-medium transition-all",
+              "inline-flex items-center gap-1.5 rounded-xl border px-3 py-2 text-[11px] font-medium transition-all",
               isDeploying
                 ? "border-amber-500/20 bg-amber-500/10 text-amber-200"
                 : deployStatus === "success"
@@ -581,51 +655,33 @@ export default function DevPanel({
             )}
           >
             <Rocket className="h-3.5 w-3.5" />
-            {isDeploying ? "Deploy..." : deployStatus === "success" ? "Deploy ✓" : deployStatus === "error" ? "Deploy ✕" : "Deploy"}
+            {isDeploying ? "Deploy..." : "Deploy"}
           </button>
 
           <button
             onClick={onCheckHealth}
-            className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.04] text-white/35 hover:text-white/70 hover:bg-white/[0.08]"
+            className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.04] text-white/35 hover:text-white/70 hover:bg-white/[0.08]"
             title="Provjeri agent"
           >
-            <HardDrive className="h-3.5 w-3.5" />
+            <HardDrive className="h-4 w-4" />
           </button>
         </div>
       </div>
 
       {/* Main layout */}
-      <div className="relative z-10 grid min-h-0 flex-1 grid-cols-[290px_minmax(0,1fr)_360px] gap-4 p-4">
+      <div className="relative z-10 grid min-h-0 flex-1 grid-cols-[320px_minmax(0,1fr)_390px] gap-4 p-4">
         {/* Left rail */}
         <div className="min-h-0 overflow-y-auto space-y-4 pr-1">
-          <SectionCard
-            title="Brze akcije"
-            subtitle="Jedan klik ili unos, bez traženja po menijima."
-            right={
-              isAgentRunning ? (
-                <button
-                  onClick={onStopAgent}
-                  className="inline-flex items-center gap-1 rounded-lg border border-red-500/20 bg-red-500/10 px-2.5 py-1 text-[10px] text-red-200 hover:bg-red-500/20"
-                >
-                  <Square className="h-3 w-3" />
-                  Stop
-                </button>
-              ) : (
-                <span className="inline-flex items-center gap-1 rounded-full border border-white/[0.08] bg-white/[0.04] px-2.5 py-1 text-[10px] text-white/35">
-                  <Play className="h-3 w-3" />
-                  Idle
-                </span>
-              )
-            }
-          >
+          <SectionCard title="Command Center" subtitle="Tipke za najčešće akcije bez Stellan chat dojma.">
             <div className="space-y-2.5">
               {quickActions.map((action) => {
+                const ActionIcon = getActionIcon(action.key);
                 const needsInput = action.key !== "screenshot";
                 return (
-                  <div key={action.key} className="rounded-xl border border-white/[0.06] bg-black/20 p-2.5">
+                  <div key={action.key} className="rounded-2xl border border-white/[0.06] bg-black/20 p-3">
                     <div className="mb-2 flex items-center gap-2">
                       <div className={cn("inline-flex items-center gap-1.5 rounded-full border px-2 py-1 text-[10px] font-medium", action.accent)}>
-                        <span>{action.icon}</span>
+                        <ActionIcon className="h-3.5 w-3.5" />
                         {action.label}
                       </div>
                     </div>
@@ -634,19 +690,19 @@ export default function DevPanel({
                         value={actionValues[action.key]}
                         onChange={(e) => setActionValues((prev) => ({ ...prev, [action.key]: e.target.value }))}
                         onKeyDown={(e) => { if (e.key === "Enter") runAction(action.key); }}
-                        placeholder={action.placeholder}
-                        className="mb-2 h-9 w-full rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 text-[11px] text-white/70 outline-none placeholder:text-white/18 focus:border-white/[0.14]"
+                        placeholder={action.hint}
+                        className="mb-2 h-10 w-full rounded-2xl border border-white/[0.08] bg-white/[0.03] px-3 text-[11px] text-white/70 outline-none placeholder:text-white/18 focus:border-white/[0.14]"
                       />
                     ) : (
-                      <div className="mb-2 flex h-9 items-center rounded-xl border border-dashed border-white/[0.08] bg-white/[0.02] px-3 text-[10px] text-white/18">
-                        Napravi screenshot aktualnog previewa
+                      <div className="mb-2 flex h-10 items-center rounded-2xl border border-dashed border-white/[0.08] bg-white/[0.02] px-3 text-[10px] text-white/18">
+                        {action.hint}
                       </div>
                     )}
                     <button
                       onClick={() => runAction(action.key)}
-                      className="h-9 w-full rounded-xl border border-white/[0.08] bg-white/[0.06] text-[11px] font-medium text-white/65 hover:bg-white/[0.1] hover:text-white"
+                      className="h-10 w-full rounded-2xl border border-white/[0.08] bg-white/[0.06] text-[11px] font-medium text-white/65 hover:bg-white/[0.1] hover:text-white"
                     >
-                      Pokreni {action.label.toLowerCase()}
+                      Pokreni
                     </button>
                   </div>
                 );
@@ -654,31 +710,39 @@ export default function DevPanel({
             </div>
           </SectionCard>
 
-          <SectionCard title="Sažetak" subtitle="Brzi pregled izvršavanja.">
+          <SectionCard title="Sistem" subtitle="Brzi pregled rada agenta i deploy stanja.">
             <div className="grid grid-cols-2 gap-2">
-              <div className="rounded-2xl border border-white/[0.08] bg-white/[0.03] p-3 text-center">
-                <div className="text-[10px] text-white/25">Ukupno</div>
+              <div className="rounded-2xl border border-white/[0.08] bg-white/[0.03] p-3">
+                <div className="text-[10px] text-white/25">Koraci</div>
                 <div className="mt-1 text-xl font-semibold text-white/85">{stats.total}</div>
               </div>
-              <div className="rounded-2xl border border-blue-500/20 bg-blue-500/10 p-3 text-center">
-                <div className="text-[10px] text-blue-200/70">Run</div>
+              <div className="rounded-2xl border border-blue-500/20 bg-blue-500/10 p-3">
+                <div className="text-[10px] text-blue-200/70">Active</div>
                 <div className="mt-1 text-xl font-semibold text-blue-200">{stats.running}</div>
               </div>
-              <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-3 text-center">
+              <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-3">
                 <div className="text-[10px] text-emerald-200/70">Done</div>
                 <div className="mt-1 text-xl font-semibold text-emerald-200">{stats.done}</div>
               </div>
-              <div className="rounded-2xl border border-rose-500/20 bg-rose-500/10 p-3 text-center">
-                <div className="text-[10px] text-rose-200/70">Err</div>
+              <div className="rounded-2xl border border-rose-500/20 bg-rose-500/10 p-3">
+                <div className="text-[10px] text-rose-200/70">Errors</div>
                 <div className="mt-1 text-xl font-semibold text-rose-200">{stats.errors}</div>
               </div>
             </div>
 
-            {isRecording && (
-              <div className="mt-3 rounded-2xl border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-100">
-                Snimam: <span className="font-semibold">{recordingName}</span>
+            <div className="mt-3 space-y-2">
+              <div className="rounded-2xl border border-white/[0.08] bg-black/20 px-3 py-2.5 text-[11px] text-white/60">
+                Agent: <span className="text-white/85">{agentOnline === true ? "online" : agentOnline === false ? "offline" : "provjera..."}</span>
               </div>
-            )}
+              <div className="rounded-2xl border border-white/[0.08] bg-black/20 px-3 py-2.5 text-[11px] text-white/60">
+                Deploy: <span className="text-white/85">{isDeploying ? "u tijeku" : deployStatus === "success" ? "zadnji uspješan" : deployStatus === "error" ? "zadnji neuspješan" : "nema novog statusa"}</span>
+              </div>
+              {isRecording && (
+                <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 px-3 py-2.5 text-[11px] text-amber-100">
+                  Snimam: <span className="font-semibold">{recordingName || "novi flow"}</span>
+                </div>
+              )}
+            </div>
           </SectionCard>
 
           <SectionCard
@@ -695,15 +759,15 @@ export default function DevPanel({
             }
           >
             {savedActions.length === 0 ? (
-              <div className="rounded-xl border border-dashed border-white/[0.08] px-3 py-5 text-center text-[11px] text-white/25">
+              <div className="rounded-2xl border border-dashed border-white/[0.08] px-3 py-5 text-center text-[11px] text-white/25">
                 Još nema spremljenih akcija.
               </div>
             ) : (
               <div className="space-y-2">
                 {savedActions.map((action) => (
-                  <div key={action.file} className="rounded-xl border border-white/[0.06] bg-black/20 p-2.5">
+                  <div key={action.file} className="rounded-2xl border border-white/[0.06] bg-black/20 p-3">
                     <div className="flex items-start gap-2.5">
-                      <div className="mt-0.5 flex h-8 w-8 items-center justify-center rounded-xl bg-violet-500/10 border border-violet-500/20 text-violet-300">
+                      <div className="mt-0.5 flex h-9 w-9 items-center justify-center rounded-xl bg-violet-500/10 border border-violet-500/20 text-violet-300">
                         <Brain className="h-4 w-4" />
                       </div>
                       <div className="min-w-0 flex-1">
@@ -713,7 +777,7 @@ export default function DevPanel({
                     </div>
                     <button
                       onClick={() => onRunSavedAction?.(action.name)}
-                      className="mt-2 h-8 w-full rounded-xl border border-emerald-500/20 bg-emerald-500/10 text-[10px] font-medium text-emerald-200 hover:bg-emerald-500/20"
+                      className="mt-2 h-9 w-full rounded-2xl border border-emerald-500/20 bg-emerald-500/10 text-[10px] font-medium text-emerald-200 hover:bg-emerald-500/20"
                     >
                       Pokreni akciju
                     </button>
@@ -724,96 +788,252 @@ export default function DevPanel({
           </SectionCard>
         </div>
 
-        {/* Center preview */}
-        <div className="min-h-0 flex flex-col">
-          <SectionCard
-            title="Live Preview"
-            subtitle={preview.title || "Pregled onoga što agent trenutno vidi."}
-            className="flex min-h-0 flex-1 flex-col overflow-hidden"
-            right={
-              <div className="flex items-center gap-1.5">
-                <button
-                  onClick={onRefreshScreenshot}
-                  className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.04] text-white/35 hover:text-white/75 hover:bg-white/[0.08]"
-                  title="Osvježi preview"
-                >
-                  <Camera className="h-3.5 w-3.5" />
-                </button>
-                <button
-                  onClick={onWaitForLoad}
-                  className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.04] text-white/35 hover:text-white/75 hover:bg-white/[0.08]"
-                  title="Pričekaj učitavanje"
-                >
-                  <Clock3 className="h-3.5 w-3.5" />
-                </button>
-                <button
-                  onClick={onDescribePreview}
-                  className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.04] text-white/35 hover:text-white/75 hover:bg-white/[0.08]"
-                  title="Opiši preview"
-                >
-                  <Sparkles className="h-3.5 w-3.5" />
-                </button>
-                {preview.url && (
-                  <a
-                    href={preview.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.04] text-white/35 hover:text-white/75 hover:bg-white/[0.08]"
-                    title="Otvori preview u novom tabu"
+        {/* Center */}
+        <div className="min-h-0 flex flex-col gap-4">
+          <div className="grid grid-cols-3 gap-3">
+            <button
+              onClick={() => setCenterTab("preview")}
+              className={cn(
+                "rounded-2xl border px-4 py-3 text-left",
+                centerTab === "preview" ? "border-violet-500/20 bg-violet-500/10" : "border-white/[0.08] bg-white/[0.03]"
+              )}
+            >
+              <div className="flex items-center gap-2 text-white/85 text-sm font-medium">
+                <Eye className="h-4 w-4 text-violet-300" />
+                Browser Preview
+              </div>
+              <div className="mt-1 text-[10px] text-white/30">Što agent trenutno vidi</div>
+            </button>
+
+            <button
+              onClick={() => setCenterTab("errors")}
+              className={cn(
+                "rounded-2xl border px-4 py-3 text-left",
+                centerTab === "errors" ? "border-rose-500/20 bg-rose-500/10" : "border-white/[0.08] bg-white/[0.03]"
+              )}
+            >
+              <div className="flex items-center gap-2 text-white/85 text-sm font-medium">
+                <Bug className="h-4 w-4 text-rose-300" />
+                Errors & Warnings
+              </div>
+              <div className="mt-1 text-[10px] text-white/30">Greške iz koraka, loga i builda</div>
+            </button>
+
+            <button
+              onClick={() => setCenterTab("deploy")}
+              className={cn(
+                "rounded-2xl border px-4 py-3 text-left",
+                centerTab === "deploy" ? "border-cyan-500/20 bg-cyan-500/10" : "border-white/[0.08] bg-white/[0.03]"
+              )}
+            >
+              <div className="flex items-center gap-2 text-white/85 text-sm font-medium">
+                <Rocket className="h-4 w-4 text-cyan-300" />
+                Build & Deploy
+              </div>
+              <div className="mt-1 text-[10px] text-white/30">Build output, status i zadnji događaji</div>
+            </button>
+          </div>
+
+          {centerTab === "preview" && (
+            <SectionCard
+              title="Live Preview"
+              subtitle={preview.title || "Pregled onoga što agent trenutno vidi."}
+              className="flex min-h-0 flex-1 flex-col overflow-hidden"
+              right={
+                <div className="flex items-center gap-1.5">
+                  <button
+                    onClick={onRefreshScreenshot}
+                    className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.04] text-white/35 hover:text-white/75 hover:bg-white/[0.08]"
+                    title="Osvježi preview"
                   >
-                    <ExternalLink className="h-3.5 w-3.5" />
-                  </a>
+                    <Camera className="h-4 w-4" />
+                  </button>
+                  <button
+                    onClick={onWaitForLoad}
+                    className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.04] text-white/35 hover:text-white/75 hover:bg-white/[0.08]"
+                    title="Pričekaj učitavanje"
+                  >
+                    <Clock3 className="h-4 w-4" />
+                  </button>
+                  <button
+                    onClick={onDescribePreview}
+                    className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.04] text-white/35 hover:text-white/75 hover:bg-white/[0.08]"
+                    title="Opiši preview"
+                  >
+                    <Sparkles className="h-4 w-4" />
+                  </button>
+                  {preview.url && (
+                    <a
+                      href={preview.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.04] text-white/35 hover:text-white/75 hover:bg-white/[0.08]"
+                      title="Otvori preview u novom tabu"
+                    >
+                      <ExternalLink className="h-4 w-4" />
+                    </a>
+                  )}
+                </div>
+              }
+            >
+              <div className="mb-3 grid grid-cols-[1fr_auto_auto] gap-2">
+                <div className="flex items-center gap-2 rounded-2xl border border-white/[0.08] bg-black/20 px-3 py-2.5 min-w-0">
+                  <Globe className="h-4 w-4 text-white/25 shrink-0" />
+                  <div className="truncate text-[11px] font-mono text-white/45">{preview.url || "Nema aktivnog previewa"}</div>
+                </div>
+                <StatusBadge tone={preview.isLive ? "success" : "neutral"}>{preview.isLive ? "LIVE" : "STATIC"}</StatusBadge>
+                <StatusBadge tone={isAgentRunning ? "info" : "neutral"}>{isAgentRunning ? "Agent radi" : "Idle"}</StatusBadge>
+              </div>
+
+              <div className="relative min-h-0 flex-1 overflow-hidden rounded-3xl border border-white/[0.08] bg-[#090b13]">
+                {preview.screenshotUrl ? (
+                  <img src={preview.screenshotUrl} alt="Preview" className="h-full w-full object-contain" />
+                ) : (
+                  <div className="flex h-full items-center justify-center p-8">
+                    <div className="text-center">
+                      <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl border border-white/[0.08] bg-white/[0.03]">
+                        <PanelRight className="h-7 w-7 text-white/15" />
+                      </div>
+                      <div className="text-sm font-semibold text-white/70">Preview će biti ovdje</div>
+                      <div className="mt-1 text-[11px] text-white/25">Kada agent otvori stranicu, ovdje vidiš screenshot i stanje.</div>
+                    </div>
+                  </div>
+                )}
+                {isAgentRunning && (
+                  <div className="absolute top-3 right-3 rounded-2xl border border-violet-500/20 bg-black/65 px-3 py-2 text-[11px] text-violet-100 backdrop-blur">
+                    Agent izvršava korake...
+                  </div>
                 )}
               </div>
-            }
-          >
-            <div className="mb-3 flex items-center gap-2">
-              <div className="flex flex-1 items-center gap-2 rounded-xl border border-white/[0.08] bg-black/20 px-3 py-2">
-                <Globe className="h-3.5 w-3.5 text-white/25 shrink-0" />
-                <div className="truncate text-[11px] font-mono text-white/45">{preview.url || "Nema aktivnog previewa"}</div>
-              </div>
-              <div className={cn(
-                "rounded-full border px-2.5 py-1 text-[10px] font-medium",
-                preview.isLive
-                  ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-300"
-                  : "border-white/[0.08] bg-white/[0.04] text-white/35"
-              )}>
-                {preview.isLive ? "LIVE" : "STATIC"}
-              </div>
-            </div>
 
-            <div className="relative min-h-0 flex-1 overflow-hidden rounded-2xl border border-white/[0.08] bg-[#090b13]">
-              {preview.screenshotUrl ? (
-                <img src={preview.screenshotUrl} alt="Preview" className="h-full w-full object-contain" />
+              <div className="mt-3 grid grid-cols-2 gap-3">
+                <div className="rounded-2xl border border-white/[0.08] bg-black/20 p-3">
+                  <div className="text-[10px] uppercase tracking-wider text-white/25">Naslov</div>
+                  <div className="mt-1 text-sm text-white/80">{preview.title || "—"}</div>
+                </div>
+                <div className="rounded-2xl border border-white/[0.08] bg-black/20 p-3">
+                  <div className="text-[10px] uppercase tracking-wider text-white/25">Sažetak</div>
+                  <div className="mt-1 text-sm text-white/80">{preview.summary || "Još nema AI opisa previewa."}</div>
+                </div>
+              </div>
+            </SectionCard>
+          )}
+
+          {centerTab === "errors" && (
+            <SectionCard
+              title="Errors & Warnings"
+              subtitle="Jedno mjesto za build greške, step greške i warninge."
+              className="flex min-h-0 flex-1 flex-col overflow-hidden"
+              right={<StatusBadge tone={errorMessages.length > 0 ? "error" : "success"}>{errorMessages.length > 0 ? `${errorMessages.length} problema` : "Nema aktivnih grešaka"}</StatusBadge>}
+            >
+              {errorMessages.length === 0 ? (
+                <div className="flex min-h-[280px] items-center justify-center rounded-3xl border border-dashed border-white/[0.08] bg-black/20 text-sm text-white/25">
+                  Trenutno nema aktivnih grešaka ni warninga.
+                </div>
               ) : (
-                <div className="flex h-full items-center justify-center p-8">
-                  <div className="text-center">
-                    <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl border border-white/[0.08] bg-white/[0.03]">
-                      <PanelRight className="h-7 w-7 text-white/15" />
+                <div className="space-y-2 overflow-auto">
+                  {errorMessages.map((msg, idx) => (
+                    <div key={idx} className="rounded-2xl border border-rose-500/15 bg-rose-500/[0.06] px-3 py-3 text-[11px] leading-6 text-rose-100/90">
+                      {msg}
                     </div>
-                    <div className="text-sm font-semibold text-white/70">Preview će biti ovdje</div>
-                    <div className="mt-1 text-[11px] text-white/25">Kada agent otvori stranicu, ovdje vidiš screenshot i stanje.</div>
+                  ))}
+                </div>
+              )}
+
+              <div className="mt-4 rounded-3xl border border-white/[0.08] bg-black/20 p-3">
+                <div className="mb-2 flex items-center gap-2 text-sm text-white/82">
+                  <TerminalSquare className="h-4 w-4 text-white/45" />
+                  Build / diagnostic output
+                </div>
+                <pre className="max-h-52 overflow-auto rounded-2xl border border-white/[0.06] bg-white/[0.03] p-3 text-[10px] font-mono text-white/60 whitespace-pre-wrap break-all">
+                  {projectBuildOutput || "Još nema build ili diagnostic outputa."}
+                </pre>
+              </div>
+            </SectionCard>
+          )}
+
+          {centerTab === "deploy" && (
+            <SectionCard
+              title="Build & Deploy Center"
+              subtitle="Status deploya, zadnji eventi i build output."
+              className="flex min-h-0 flex-1 flex-col overflow-hidden"
+              right={
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={runProjectBuild}
+                    disabled={projectBusy}
+                    className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-[11px] font-medium text-emerald-200 hover:bg-emerald-500/20 disabled:opacity-50"
+                  >
+                    Build now
+                  </button>
+                  <button
+                    onClick={onDeploy}
+                    disabled={isDeploying}
+                    className="rounded-xl border border-cyan-500/20 bg-cyan-500/10 px-3 py-2 text-[11px] font-medium text-cyan-200 hover:bg-cyan-500/20 disabled:opacity-50"
+                  >
+                    Deploy
+                  </button>
+                </div>
+              }
+            >
+              <div className="grid grid-cols-3 gap-3">
+                <div className="rounded-2xl border border-white/[0.08] bg-black/20 p-3">
+                  <div className="text-[10px] uppercase tracking-wider text-white/25">Deploy status</div>
+                  <div className="mt-2">
+                    <StatusBadge tone={isDeploying ? "warning" : deployStatus === "success" ? "success" : deployStatus == "error" ? "error" : "neutral"}>
+                      {isDeploying ? "U tijeku" : deployStatus === "success" ? "Uspješan" : deployStatus === "error" ? "Neuspješan" : "Idle"}
+                    </StatusBadge>
                   </div>
                 </div>
-              )}
-              {isAgentRunning && (
-                <div className="absolute top-3 right-3 rounded-xl border border-violet-500/20 bg-black/65 px-3 py-2 text-[11px] text-violet-100 backdrop-blur">
-                  Agent izvršava korake...
+                <div className="rounded-2xl border border-white/[0.08] bg-black/20 p-3">
+                  <div className="text-[10px] uppercase tracking-wider text-white/25">Build</div>
+                  <div className="mt-2">
+                    <StatusBadge tone={projectBuildOk === true ? "success" : projectBuildOk === false ? "error" : "neutral"}>
+                      {projectBuildOk === true ? "Build OK" : projectBuildOk === false ? "Build error" : "Nije pokrenut"}
+                    </StatusBadge>
+                  </div>
                 </div>
-              )}
-              {preview.summary && (
-                <div className="absolute bottom-3 left-3 right-3 rounded-2xl border border-white/[0.08] bg-black/65 px-3 py-2.5 text-[11px] leading-5 text-white/70 backdrop-blur">
-                  {preview.summary}
+                <div className="rounded-2xl border border-white/[0.08] bg-black/20 p-3">
+                  <div className="text-[10px] uppercase tracking-wider text-white/25">Projekt root</div>
+                  <div className="mt-2 truncate text-[11px] text-white/72">{projectRoot || "nije postavljen"}</div>
                 </div>
-              )}
-            </div>
-          </SectionCard>
+              </div>
+
+              <div className="mt-4 grid min-h-0 flex-1 grid-cols-[1fr_1.1fr] gap-4">
+                <div className="rounded-3xl border border-white/[0.08] bg-black/20 p-3 min-h-0">
+                  <div className="mb-2 text-sm text-white/82">Zadnji događaji</div>
+                  <div className="space-y-2 overflow-auto max-h-[340px]">
+                    {recentEvents.length === 0 ? (
+                      <div className="rounded-2xl border border-dashed border-white/[0.08] px-3 py-6 text-center text-[11px] text-white/25">
+                        Još nema deploy događaja.
+                      </div>
+                    ) : recentEvents.map((item, idx) => (
+                      <div key={idx} className="rounded-2xl border border-white/[0.06] bg-white/[0.03] px-3 py-2.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="text-[11px] text-white/80">{item.detail}</div>
+                          <StatusBadge tone={item.status === "success" ? "success" : item.status === "error" ? "error" : "warning"}>{item.status}</StatusBadge>
+                        </div>
+                        <div className="mt-1 text-[10px] text-white/25">{item.at}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="rounded-3xl border border-white/[0.08] bg-black/20 p-3 min-h-0">
+                  <div className="mb-2 text-sm text-white/82">Build / deploy output</div>
+                  <pre className="max-h-[340px] overflow-auto rounded-2xl border border-white/[0.06] bg-white/[0.03] p-3 text-[10px] font-mono text-white/60 whitespace-pre-wrap break-all">
+                    {projectBuildOutput || "Još nema build ili deploy outputa."}
+                  </pre>
+                </div>
+              </div>
+            </SectionCard>
+          )}
         </div>
 
         {/* Right rail */}
         <div className="min-h-0 flex flex-col">
           <SectionCard
-            title="Kontrola"
+            title="Diagnostics"
             subtitle="Koraci, logovi, mreža i projekt u jednom mjestu."
             className="flex min-h-0 flex-1 flex-col overflow-hidden"
           >
@@ -988,7 +1208,7 @@ export default function DevPanel({
                         className="ml-auto inline-flex items-center gap-1.5 rounded-xl border border-blue-500/20 bg-blue-500/10 px-3 py-2 text-[10px] font-medium text-blue-200 hover:bg-blue-500/20"
                       >
                         {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-                        {copied ? "Kopirano" : "Za Stellana"}
+                        {copied ? "Kopirano" : "Za analizu"}
                       </button>
                     )}
                   </div>
@@ -1053,20 +1273,20 @@ export default function DevPanel({
                       value={projectRoot}
                       onChange={(e) => setProjectRoot(e.target.value)}
                       placeholder="D:\\1 PROJEKT APLIKACIJA LOKALNO\\..."
-                      className="mb-2 h-9 w-full rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 text-[11px] text-white/70 outline-none placeholder:text-white/18"
+                      className="mb-2 h-10 w-full rounded-2xl border border-white/[0.08] bg-white/[0.03] px-3 text-[11px] text-white/70 outline-none placeholder:text-white/18"
                     />
                     <div className="grid grid-cols-2 gap-2">
                       <button
                         onClick={runProjectBuild}
                         disabled={projectBusy}
-                        className="h-9 rounded-xl border border-emerald-500/20 bg-emerald-500/10 text-[10px] font-medium text-emerald-200 hover:bg-emerald-500/20 disabled:opacity-50"
+                        className="h-10 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 text-[10px] font-medium text-emerald-200 hover:bg-emerald-500/20 disabled:opacity-50"
                       >
                         Build
                       </button>
                       <button
                         onClick={runProjectSearch}
                         disabled={projectBusy}
-                        className="h-9 rounded-xl border border-blue-500/20 bg-blue-500/10 text-[10px] font-medium text-blue-200 hover:bg-blue-500/20 disabled:opacity-50"
+                        className="h-10 rounded-2xl border border-blue-500/20 bg-blue-500/10 text-[10px] font-medium text-blue-200 hover:bg-blue-500/20 disabled:opacity-50"
                       >
                         Search
                       </button>
@@ -1082,20 +1302,20 @@ export default function DevPanel({
                       value={projectFilePath}
                       onChange={(e) => setProjectFilePath(e.target.value)}
                       placeholder="src/components/chat/ChatDialog.tsx"
-                      className="mb-2 h-9 w-full rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 text-[11px] text-white/70 outline-none placeholder:text-white/18"
+                      className="mb-2 h-10 w-full rounded-2xl border border-white/[0.08] bg-white/[0.03] px-3 text-[11px] text-white/70 outline-none placeholder:text-white/18"
                     />
                     <div className="mb-2 grid grid-cols-2 gap-2">
                       <button
                         onClick={readProjectFile}
                         disabled={projectBusy}
-                        className="h-9 rounded-xl border border-white/[0.08] bg-white/[0.06] text-[10px] font-medium text-white/70 hover:bg-white/[0.1] disabled:opacity-50"
+                        className="h-10 rounded-2xl border border-white/[0.08] bg-white/[0.06] text-[10px] font-medium text-white/70 hover:bg-white/[0.1] disabled:opacity-50"
                       >
                         Read
                       </button>
                       <button
                         onClick={writeProjectFile}
                         disabled={projectBusy}
-                        className="h-9 rounded-xl border border-amber-500/20 bg-amber-500/10 text-[10px] font-medium text-amber-200 hover:bg-amber-500/20 disabled:opacity-50"
+                        className="h-10 rounded-2xl border border-amber-500/20 bg-amber-500/10 text-[10px] font-medium text-amber-200 hover:bg-amber-500/20 disabled:opacity-50"
                       >
                         Write
                       </button>
@@ -1117,7 +1337,7 @@ export default function DevPanel({
                       value={projectSearchQuery}
                       onChange={(e) => setProjectSearchQuery(e.target.value)}
                       placeholder="npr. BrainPanelTechContext"
-                      className="mb-2 h-9 w-full rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 text-[11px] text-white/70 outline-none placeholder:text-white/18"
+                      className="mb-2 h-10 w-full rounded-2xl border border-white/[0.08] bg-white/[0.03] px-3 text-[11px] text-white/70 outline-none placeholder:text-white/18"
                     />
                     <div className="max-h-36 space-y-1 overflow-auto">
                       {projectSearchResults.length === 0 ? (
@@ -1152,24 +1372,6 @@ export default function DevPanel({
                       placeholder='[{"path":"src/...","content":"full file"}]'
                       className="min-h-[150px] w-full rounded-2xl border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-[10px] font-mono text-white/65 outline-none placeholder:text-white/15"
                     />
-                  </div>
-
-                  <div className="rounded-2xl border border-white/[0.08] bg-black/20 p-3">
-                    <div className="mb-2 flex items-center justify-between gap-2">
-                      <div className="text-[11px] font-semibold text-white/80">Build output</div>
-                      {projectBuildOk !== null && (
-                        <span className={cn(
-                          "rounded-full border px-2 py-0.5 text-[9px] font-medium",
-                          projectBuildOk ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-300" : "border-red-500/20 bg-red-500/10 text-red-300"
-                        )}>
-                          {projectBuildOk ? "OK" : "ERROR"}
-                        </span>
-                      )}
-                    </div>
-                    <div className="mb-2 text-[9px] text-white/30">{projectNotice || "—"}</div>
-                    <pre className="max-h-48 overflow-auto rounded-2xl border border-white/[0.06] bg-white/[0.03] p-3 text-[9px] font-mono text-white/55 whitespace-pre-wrap break-all">
-                      {projectBuildOutput || "Još nema build outputa."}
-                    </pre>
                   </div>
                 </div>
               )}
