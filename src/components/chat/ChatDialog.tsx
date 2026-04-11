@@ -2470,7 +2470,7 @@ const devPanelPreview = {
             />
           </div>
         )}
-
+ 
 
         {/* STELLAN UČENJE — Browser Use automation panel */}
         {devMode && !isMobile && (
