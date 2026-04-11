@@ -39,7 +39,7 @@ const Minimap = ({ nodes, connectionPaths, zoom, panX, panY, vpW, vpH, onNav }: 
   const vw = (vpW / zoom) * scale, vh = (vpH / zoom) * scale;
   return (
     <div className="absolute bottom-4 right-4 z-30 rounded-xl overflow-hidden border border-white/[0.08]"
-      style={{ background: "rgba(8,18,16,0.86)", backdropFilter: "blur(12px)" }}>
+      style={{ background: "rgba(7,22,19,0.88)", backdropFilter: "blur(12px)" }}>
       <svg width={mmW} height={mmH} className="cursor-pointer"
         onClick={e => { const r = e.currentTarget.getBoundingClientRect(); onNav((e.clientX - r.left) / scale, (e.clientY - r.top) / scale); }}>
         {connectionPaths.map((cp, i) => <path key={i} d={cp.d} fill="none" stroke={cp.color} strokeWidth={0.5} strokeOpacity={0.3} transform={`scale(${scale})`} />)}
@@ -53,7 +53,7 @@ const Minimap = ({ nodes, connectionPaths, zoom, panX, panY, vpW, vpH, onNav }: 
 // ─── Zoom controls ──────────────────────────────────────
 const ZoomControls = ({ zoom, onIn, onOut, onFit }: { zoom: number; onIn: () => void; onOut: () => void; onFit: () => void }) => (
   <div className="absolute bottom-20 left-4 z-30 flex flex-col gap-1 rounded-xl overflow-hidden border border-white/[0.08]"
-    style={{ background: "rgba(8,18,16,0.86)", backdropFilter: "blur(12px)" }}>
+    style={{ background: "rgba(7,22,19,0.88)", backdropFilter: "blur(12px)" }}>
     <button onClick={onIn} className="w-9 h-9 flex items-center justify-center text-white/50 hover:text-white hover:bg-white/[0.06] transition-colors"><Plus className="w-4 h-4" /></button>
     <div className="text-[9px] text-white/30 text-center py-0.5 border-y border-white/[0.06]">{Math.round(zoom * 100)}%</div>
     <button onClick={onOut} className="w-9 h-9 flex items-center justify-center text-white/50 hover:text-white hover:bg-white/[0.06] transition-colors"><Minus className="w-4 h-4" /></button>
@@ -73,7 +73,7 @@ const BrainPanel = ({ onClose, activeNodes = [] }: Props) => {
     <motion.div
       initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.3 }}
       className="fixed inset-0 z-50 flex flex-col"
-      style={{ background: "radial-gradient(ellipse 120% 80% at 50% 40%, rgba(12,38,30,1) 0%, rgba(8,20,18,1) 52%, rgba(5,12,12,1) 100%)" }}
+      style={{ background: "radial-gradient(ellipse 125% 82% at 50% 38%, rgba(10,42,34,1) 0%, rgba(6,24,20,1) 52%, rgba(4,14,14,1) 100%)" }}
     >
       {/* Ambient glows */}
       <div className="absolute inset-0 pointer-events-none overflow-hidden">
@@ -121,7 +121,7 @@ const BrainPanel = ({ onClose, activeNodes = [] }: Props) => {
               <>
                 <div className="fixed inset-0 z-40" onClick={() => actions.setShowFlowMenu(false)} />
                 <div className="absolute right-0 top-full mt-1 z-50 w-56 rounded-xl border border-white/[0.08] overflow-hidden"
-                  style={{ background: "rgba(8,20,18,0.96)", backdropFilter: "blur(20px)" }}>
+                  style={{ background: "rgba(7,22,19,0.96)", backdropFilter: "blur(20px)" }}>
                   {state.savedFlows.length === 0 ? (
                     <p className="text-xs text-white/30 px-4 py-3">Nema spremljenih flowova</p>
                   ) : state.savedFlows.map(flow => (
@@ -238,7 +238,7 @@ const BrainPanel = ({ onClose, activeNodes = [] }: Props) => {
             <motion.div initial={{ x: 60, opacity: 0 }} animate={{ x: 0, opacity: 1 }} exit={{ x: 60, opacity: 0 }}
               transition={{ type: "spring", stiffness: 300, damping: 30 }}
               className="w-60 border-l border-white/[0.06] p-4 space-y-4 overflow-y-auto shrink-0"
-              style={{ background: "rgba(8,18,16,0.88)", backdropFilter: "blur(20px)" }}>
+              style={{ background: "rgba(7,22,19,0.9)", backdropFilter: "blur(20px)" }}>
               <div className="flex items-center gap-2.5">
                 <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: CATEGORY_META[selected.category].glow }}>
                   <selected.icon className={cn("w-4 h-4", CATEGORY_META[selected.category].text)} />
