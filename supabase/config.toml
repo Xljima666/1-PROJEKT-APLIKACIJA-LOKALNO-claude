@@ -44,4 +44,5 @@ verify_jwt = false
 
 [functions.agent-health]
 verify_jwt = false
-
+[functions.dev-control]
+verify_jwt = false
