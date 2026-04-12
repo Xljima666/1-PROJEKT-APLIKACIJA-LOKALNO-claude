@@ -100,6 +100,10 @@ export interface BrainPanelTechActions {
   replaceFlow: (nodes: BrainNode[], connections: Connection[], flowName?: string) => void;
   importLearningSteps: (steps: any[], flowName?: string) => void;
   importBridgeFromLearning: () => boolean;
+  startRecording: () => Promise<void>;
+  stopRecording: () => Promise<void>;
+  isRecording: boolean;
+  recordStepCount: number;
 }
 
 export interface UseBrainPanelTechResult {
@@ -483,6 +487,68 @@ async function executeNodeWithAgent(
     };
   }
 
+
+  // navigate alias
+  if (label === "navigate") {
+    const url = String(getNodeConfigValue(node, "url") ?? input.url ?? input.value ?? "https://example.com");
+    const timeout = Number(getNodeConfigValue(node, "timeout") ?? 45000);
+    const data = await callAgentPlaywright({ action: "navigate", url, timeout });
+    return {
+      ...input,
+      url,
+      page: { url: data?.url || url, title: data?.title || "Opened page", lastAction: "navigate", fields: {} },
+      output: data?.url || url,
+    };
+  }
+
+  if (label === "wait") {
+    const selector = getNodeConfigValue(node, "selector", "target");
+    const ms = Number(getNodeConfigValue(node, "ms", "timeout") ?? 1000);
+    if (selector) {
+      await callAgentPlaywright({ action: "wait", selector: String(selector), timeout: ms }).catch(() => {});
+    } else {
+      await sleep(ms);
+    }
+    return { ...input, output: selector ? `waited: ${selector}` : `waited ${ms}ms` };
+  }
+
+  if (label === "select") {
+    const selector = String(getNodeConfigValue(node, "selector", "target") ?? input.selector ?? "select");
+    const value = String(getNodeConfigValue(node, "value") ?? input.value ?? "");
+    await callAgentPlaywright({ action: "select", selector, value }).catch(() => {});
+    return { ...input, selector, value, output: value };
+  }
+
+  if (label === "scroll") {
+    const direction = String(getNodeConfigValue(node, "direction") ?? "down");
+    const selector = getNodeConfigValue(node, "selector");
+    await callAgentPlaywright({ action: "scroll", direction, ...(selector ? { selector: String(selector) } : {}) }).catch(() => {});
+    return { ...input, output: `scrolled ${direction}` };
+  }
+
+  if (label === "press key") {
+    const key = String(getNodeConfigValue(node, "key") ?? input.value ?? "Enter");
+    await callAgentPlaywright({ action: "press", key }).catch(() => {});
+    return { ...input, output: `pressed ${key}` };
+  }
+
+  if (label === "condition") {
+    const left = String(getNodeConfigValue(node, "left") ?? input.value ?? input.text ?? "");
+    const right = String(getNodeConfigValue(node, "right") ?? "");
+    const op = String(getNodeConfigValue(node, "operator") ?? "equals");
+    let result = false;
+    if (op === "equals") result = left === right;
+    else if (op === "contains") result = left.includes(right);
+    else if (op === "not_empty") result = left.trim() !== "";
+    return { ...input, output: result, value: result };
+  }
+
+  if (label === "log") {
+    const msg = String(input.output ?? input.value ?? input.text ?? "");
+    console.log("[Flow Log]", msg);
+    return { ...input, output: msg };
+  }
+
   if (label === "output") {
     const finalOutput =
       input.output ??
@@ -536,6 +602,10 @@ export function useBrainPanelTech(activeNodesInput: string[] = []): UseBrainPane
   const [showFlowMenu, setShowFlowMenu] = useState(false);
   const [flowName, setFlowName] = useState("Untitled Flow");
   const [savedFlows, setSavedFlows] = useState<SavedFlow[]>([]);
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordStepCount, setRecordStepCount] = useState(0);
+  const recordingRef = useRef(false);
+  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const selectedNodeData = useMemo(() => nodes.find((n) => n.id === selectedNode), [nodes, selectedNode]);
 
@@ -1040,6 +1110,154 @@ export function useBrainPanelTech(activeNodesInput: string[] = []): UseBrainPane
     }
   }, [importLearningSteps]);
 
+  // ─── Inline Recording ────────────────────────────────────────────────────
+  const appendRecordedStep = useCallback((step: any) => {
+    const labelForStep = (s: any): string => {
+      const action = String(s?.action || "").toLowerCase();
+      if (action === "navigate" || action === "goto" || s?.url) return "Browser Open";
+      if (action === "fill" || action === "type") return "Fill Input";
+      if (action === "screenshot") return "Screenshot";
+      if (action === "extract") return "Extract Text";
+      if (action === "wait") return "Wait";
+      if (action === "select") return "Select";
+      if (action === "scroll") return "Scroll";
+      if (action === "press") return "Press Key";
+      return "Click";
+    };
+
+    const all = Object.values(NODE_CATALOG).flat();
+    const label = labelForStep(step);
+    const template = all.find((t) => t.label.toLowerCase() === label.toLowerCase());
+    if (!template) return;
+
+    setNodes((prev) => {
+      const x = 120 + prev.length * 300;
+      const y = 220 + (prev.length % 3) * 160;
+      const newNode: BrainNode = {
+        id: generateId(),
+        label: template.label,
+        icon: template.icon,
+        category: template.category,
+        x,
+        y,
+        ports: template.ports.map((p) => ({ ...p })),
+        config: {
+          ...(template.defaultConfig || {}),
+          ...(step.url ? { url: step.url } : {}),
+          ...(step.selector ? { selector: step.selector } : {}),
+          ...(step.value !== undefined ? { value: step.value } : {}),
+          ...(step.text !== undefined ? { value: step.text } : {}),
+          ...(step.key ? { key: step.key } : {}),
+          ...(step.ms ? { ms: step.ms } : {}),
+        },
+      };
+
+      // Auto-connect to previous node
+      if (prev.length > 0) {
+        const fromNode = prev[prev.length - 1];
+        const fromPort = fromNode.ports.find((p) => p.side === "right") || fromNode.ports[0];
+        const toPort = newNode.ports.find((p) => p.side === "left") || newNode.ports[0];
+        if (fromPort && toPort) {
+          setConnections((prevConns) => [
+            ...prevConns,
+            {
+              id: generateConnectionId(),
+              fromNode: fromNode.id,
+              fromPort: fromPort.id,
+              toNode: newNode.id,
+              toPort: toPort.id,
+              color: fromPort.color,
+            },
+          ]);
+        }
+      }
+
+      return [...prev, newNode];
+    });
+
+    setRecordStepCount((c) => c + 1);
+  }, []);
+
+  const startRecording = useCallback(async () => {
+    if (!AGENT_URL) { alert("VITE_AGENT_SERVER_URL nije postavljen!"); return; }
+    const name = prompt("Ime recording sesije (npr. oss_prijava):");
+    if (!name) return;
+
+    setNodes([]);
+    setConnections([]);
+    setRunStatuses({});
+    setLastRunOutputs({});
+    setRecordStepCount(0);
+    setFlowName(name);
+
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      "ngrok-skip-browser-warning": "true",
+    };
+    if (AGENT_KEY) headers["X-API-Key"] = AGENT_KEY;
+
+    await fetch(`${AGENT_URL}/record/start`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ name }),
+    }).catch(() => {});
+
+    setIsRecording(true);
+    recordingRef.current = true;
+
+    pollIntervalRef.current = setInterval(async () => {
+      if (!recordingRef.current) return;
+      try {
+        const res = await fetch(`${AGENT_URL}/record/poll`, { headers });
+        const data = await res.json().catch(() => ({}));
+        if (data?.new_events?.length > 0) {
+          for (const evt of data.new_events) {
+            appendRecordedStep(evt);
+          }
+        }
+      } catch {}
+    }, 1500);
+  }, [appendRecordedStep]);
+
+  const stopRecording = useCallback(async () => {
+    recordingRef.current = false;
+    setIsRecording(false);
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current);
+      pollIntervalRef.current = null;
+    }
+
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      "ngrok-skip-browser-warning": "true",
+    };
+    if (AGENT_KEY) headers["X-API-Key"] = AGENT_KEY;
+
+    // Final poll
+    try {
+      const res = await fetch(`${AGENT_URL}/record/poll`, { headers });
+      const data = await res.json().catch(() => ({}));
+      if (data?.new_events?.length > 0) {
+        for (const evt of data.new_events) appendRecordedStep(evt);
+      }
+    } catch {}
+
+    await fetch(`${AGENT_URL}/record/stop`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({}),
+    }).catch(() => {});
+
+    setTimeout(() => fitToScreen(), 100);
+  }, [appendRecordedStep, fitToScreen]);
+
+  useEffect(() => {
+    return () => {
+      recordingRef.current = false;
+      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+    };
+  }, []);
+
   const runSmartAuto = useCallback(async (prompt: string) => {
     let steps: any[] = [];
     try {
@@ -1173,6 +1391,10 @@ export function useBrainPanelTech(activeNodesInput: string[] = []): UseBrainPane
       replaceFlow,
       importLearningSteps,
       importBridgeFromLearning,
+      startRecording,
+      stopRecording,
+      isRecording,
+      recordStepCount,
     },
   };
 }
