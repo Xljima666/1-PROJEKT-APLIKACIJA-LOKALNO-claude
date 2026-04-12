@@ -199,6 +199,13 @@ const ChatDialog = ({ open, onClose, initialView = "chat" }: ChatDialogProps) =>
     enabled: open && devStudioMode && !isMobile,
     projectRoot: projectRootState,
   });
+
+  const toggleWorkspacePanel = useCallback((panel: "dev" | "learning" | "brain") => {
+    setDevStudioMode((prev) => panel === "dev" ? !prev : false);
+    setDevMode((prev) => panel === "learning" ? !prev : false);
+    setBrainMode((prev) => panel === "brain" ? !prev : false);
+  }, []);
+
 const handleDevPanelAction = async (
   action: "open" | "click" | "type" | "screenshot" | "learn",
   payload?: { url?: string; target?: string; value?: string }
@@ -262,8 +269,6 @@ useEffect(() => {
     setDevStudioMode(true);
     setDevMode(false);
     setBrainMode(false);
-  } else if (initialView === "chat") {
-    setDevStudioMode(false);
   }
 }, [open, initialView, isMobile]);
 
@@ -1834,60 +1839,12 @@ const devPanelPreview = {
 
   if (!open) return null;
 
-  if (devStudioMode && !isMobile) {
-    return (
-      <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-lg">
-        <div className="relative h-[98vh] w-[99vw] overflow-hidden rounded-2xl border border-white/[0.06] bg-[hsl(220,15%,7%)] shadow-2xl">
-          <DevPanel
-            title="Dev Studio"
-            steps={devPanelSteps}
-            preview={devPanelPreview}
-            consoleLogs={consoleLogs as ConsoleLog[]}
-            isAgentRunning={isAgentActionRunning}
-            agentOnline={agentOnline}
-            modelBadge={PROVIDERS[selectedProvider].models.find(m => m.id === selectedProviderModel)?.badge || MODEL_BADGES[selectedModel]}
-            isRecording={isRecording}
-            recordingName={recordingName}
-            isDeploying={isDeploying}
-            deployStatus={deployStatus}
-            savedActions={savedActions}
-            projectRoot={projectRootState}
-            devOps={devOpsSnapshot}
-            devOpsLoading={devOpsLoading || devOpsRefreshing}
-            onRunAction={handleDevPanelAction}
-            onStopAgent={() => abortControllerRef.current?.abort()}
-            onClearSteps={() => setDevSteps([])}
-            onDeleteStep={(stepId) => setDevSteps(prev => prev.filter(step => step.id !== stepId))}
-            onSelectStep={(step) => addLog("info", `Odabran korak: ${step.label}`)}
-            onDescribePreview={handlePreviewDescribe}
-            onWaitForLoad={handlePreviewWait}
-            onRefreshScreenshot={handleStudioScreenshot}
-            onRefreshDevOps={() => { void refreshDevOps(); }}
-            onDeploy={handleDeploy}
-            onStartAgent={handleStartAgent}
-            onStartRecording={() => { void handleStartRecording(); }}
-            onSaveRecording={() => { void handleSaveAction(); }}
-            onCancelRecording={handleCancelRecording}
-            onRunSavedAction={(name) => { void handleRunSavedAction(name); }}
-            onRefreshActions={() => { void handleRefreshActions(); }}
-            onCheckHealth={() => { void checkAgentHealth(); }}
-            onPortalAction={(cmd) => { void handleDevPortalAction(cmd); }}
-            onBackToStellan={() => setDevStudioMode(false)}
-          />
-        </div>
-      </div>
-    );
-  }
-
   const hasMessages = messages.length > 0;
   const hasCode = codeBlocks.length > 0;
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-lg">
-      <div className={cn(
-        "relative bg-[hsl(220,15%,7%)] border border-white/[0.06] rounded-2xl flex shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200",
-        devMode ? "w-[99vw] h-[98vh]" : "w-[96vw] h-[94vh]"
-      )}>
+      <div className="relative bg-[hsl(220,15%,7%)] border border-white/[0.06] rounded-2xl flex shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200 w-[96vw] h-[94vh]">
 
         {/* Left sidebar - conversations */}
         {showSidebar && (
@@ -1945,7 +1902,7 @@ const devPanelPreview = {
         )}
 
         {/* Main chat area */}
-        <div className={cn("flex flex-col min-w-0 relative", devMode ? "w-[35%] shrink-0" : "flex-1")}>
+        <div className="flex flex-col min-w-0 relative flex-1">
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/[0.06]">
             <div className="flex items-center gap-2">
@@ -1968,7 +1925,7 @@ const devPanelPreview = {
             <div className="flex items-center gap-1.5">
 
               <button
-                onClick={() => { setDevStudioMode(!devStudioMode); if (!devStudioMode) { setDevMode(false); setBrainMode(false); } }}
+                onClick={() => toggleWorkspacePanel("dev")}
                 title="DEV Studio — agent preview, actions, build, patch i project komande iz chata"
                 className={cn(
                   "h-7 px-2.5 rounded-lg flex items-center gap-1.5 text-[10px] transition-colors",
@@ -1981,7 +1938,7 @@ const devPanelPreview = {
                 DEV
               </button>
               <button
-                onClick={() => { setDevMode(!devMode); if (!devMode) { setDevStudioMode(false); setBrainMode(false); } }}
+                onClick={() => toggleWorkspacePanel("learning")}
                 title="Učenje — Browser Use automation"
                 className={cn(
                   "h-7 px-2.5 rounded-lg flex items-center gap-1.5 text-[10px] transition-colors",
@@ -1994,7 +1951,7 @@ const devPanelPreview = {
                 Učenje
               </button>
               <button
-                onClick={() => { setBrainMode(!brainMode); if(!brainMode) { setDevMode(false); setDevStudioMode(false); } }}
+                onClick={() => toggleWorkspacePanel("brain")}
                 title="Mozak — Vizualni pregled Stellanovih toolova, znanja i workflowa"
                 className={cn(
                   "h-7 px-2.5 rounded-lg flex items-center gap-1.5 text-[10px] transition-colors",
@@ -2416,9 +2373,10 @@ const devPanelPreview = {
         </div>
 
 
-        {/* DEV Studio */}
+        {/* DEV Studio overlay */}
         {devStudioMode && !isMobile && (
-          <div className="flex-1 border-l border-white/[0.06] min-w-0 overflow-hidden">
+          <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/80 backdrop-blur-lg">
+            <div className="relative h-[98vh] w-[99vw] overflow-hidden rounded-2xl border border-white/[0.06] bg-[hsl(220,15%,7%)] shadow-2xl">
             <DevPanel
               title="Dev Studio"
               steps={devPanelSteps}
@@ -2455,21 +2413,17 @@ const devPanelPreview = {
               onPortalAction={(cmd) => { void handleDevPortalAction(cmd); }}
               onBackToStellan={() => setDevStudioMode(false)}
             />
+            </div>
           </div>
         )}
  
 
-        {/* STELLAN UČENJE — Browser Use automation panel */}
+        {/* STELLAN UČENJE overlay */}
         {devMode && !isMobile && (
-          <div className="flex-1 border-l border-white/[0.06] min-w-0 overflow-hidden">
-            <LearningPanel
-              onClose={() => setDevMode(false)}
-              agentServerUrl={import.meta.env.VITE_AGENT_SERVER_URL || ""}
-            />
-          </div>
+          <LearningPanel onClose={() => setDevMode(false)} />
         )}
 
-        {/* STELLAN MOZAK — Visual brain panel (fullscreen overlay) */}
+        {/* STELLAN MOZAK overlay */}
         {brainMode && !isMobile && (
           <div className="fixed inset-0 z-50">
             <BrainPanel onClose={() => setBrainMode(false)} />
