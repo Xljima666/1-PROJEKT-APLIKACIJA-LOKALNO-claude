@@ -1,3 +1,4 @@
+import React from "react";
 import { ArrowLeft, Brain, Camera, FolderOpen, Maximize2, Minus, Play, Plus, Save, Sparkles, Trash2, Wand2, Square, Send } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
@@ -301,6 +302,7 @@ export default function LearningPanelV2({ onClose }: Props) {
   const { constants, state, actions } = useLearningPanelTech();
   const selected = state.selectedNodeData;
   const nodeMap = new Map(state.nodes.map((node: any) => [node.id, node]));
+  const [showFlowMenu, setShowFlowMenu] = React.useState(false);
 
   return (
     <motion.div
@@ -350,25 +352,30 @@ export default function LearningPanelV2({ onClose }: Props) {
 
         <div className="flex items-center gap-2">
           <button onClick={actions.exportFlowToBrain} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-emerald-100 text-xs" style={{ background: "rgba(16,185,129,0.12)", borderColor: "rgba(16,185,129,0.18)" }}>
-            <Brain className="w-3 h-3" /> Uvezi iz Učenja
+            <Brain className="w-3 h-3" /> Izvezi u Mozak
           </button>
           <button onClick={actions.saveFlow} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-white/70 hover:text-white text-xs" style={{ background: "rgba(255,255,255,0.04)", borderColor: borderSoft }}>
             <Save className="w-3 h-3" /> Spremi
           </button>
 
           <div className="relative">
-            <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-white/70 hover:text-white text-xs" style={{ background: "rgba(255,255,255,0.04)", borderColor: borderSoft }}>
+            <button onClick={() => setShowFlowMenu(v => !v)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-white/70 hover:text-white text-xs" style={{ background: "rgba(255,255,255,0.04)", borderColor: borderSoft }}>
               <FolderOpen className="w-3 h-3" /> Učitaj
             </button>
-            {state.savedFlows.length > 0 && (
-              <div className="absolute right-0 top-full mt-1 z-50 w-56 rounded-xl border overflow-hidden" style={{ background: "rgba(5,22,21,0.96)", borderColor: borderSoft, backdropFilter: "blur(20px)" }}>
-                {state.savedFlows.slice(0, 8).map((flow: any) => (
-                  <button key={flow.id} onClick={() => actions.loadFlow(flow.id)} className="w-full text-left px-4 py-2.5 hover:bg-white/[0.05] border-b last:border-0" style={{ borderColor: borderSoft }}>
-                    <p className="text-xs text-white/70">{flow.name}</p>
-                    <p className="text-[9px] text-emerald-100/25">{new Date(flow.savedAt).toLocaleString("hr-HR")}</p>
-                  </button>
-                ))}
-              </div>
+            {showFlowMenu && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setShowFlowMenu(false)} />
+                <div className="absolute right-0 top-full mt-1 z-50 w-56 rounded-xl border overflow-hidden" style={{ background: "rgba(5,22,21,0.96)", borderColor: borderSoft, backdropFilter: "blur(20px)" }}>
+                  {state.savedFlows.length === 0 ? (
+                    <p className="text-xs text-emerald-100/30 px-4 py-3">Nema spremljenih flowova</p>
+                  ) : state.savedFlows.slice(0, 8).map((flow: any) => (
+                    <button key={flow.id} onClick={() => { actions.loadFlow(flow.id); setShowFlowMenu(false); }} className="w-full text-left px-4 py-2.5 hover:bg-white/[0.05] border-b last:border-0" style={{ borderColor: borderSoft }}>
+                      <p className="text-xs text-white/70">{flow.name}</p>
+                      <p className="text-[9px] text-emerald-100/25">{new Date(flow.savedAt).toLocaleString("hr-HR")}</p>
+                    </button>
+                  ))}
+                </div>
+              </>
             )}
           </div>
 
