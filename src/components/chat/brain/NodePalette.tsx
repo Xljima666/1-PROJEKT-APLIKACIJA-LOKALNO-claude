@@ -8,7 +8,7 @@ interface Props {
   onAddNode: (template: NodeTemplate, x: number, y: number) => void;
   catalog?: Record<string, NodeTemplate[]>;
 }
-
+ 
 const NodePalette = ({ onAddNode, catalog = NODE_CATALOG }: Props) => {
   const [search, setSearch] = useState("");
   const [expandedGroup, setExpandedGroup] = useState<string | null>("Playwright");
