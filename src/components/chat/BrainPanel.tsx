@@ -1,4 +1,4 @@
-import { Brain, ArrowLeft, Sparkles, Minus, Plus, Maximize2, Trash2, Save, FolderOpen, Wand2 } from "lucide-react";
+import { Brain, ArrowLeft, Sparkles, Minus, Plus, Maximize2, Trash2, Save, FolderOpen, Wand2, Circle, StopCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
 import { useState } from "react";
@@ -97,7 +97,7 @@ const BrainPanel = ({ onClose, activeNodes = [] }: Props) => {
             <input value={state.flowName} onChange={e => actions.setFlowName(e.target.value)}
               className="bg-transparent text-sm font-semibold text-white/90 outline-none border-b border-transparent hover:border-white/10 focus:border-white/20 transition-colors w-40" />
             <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/[0.05] text-white/40 border border-white/[0.06]">
-              {state.nodes.length} čvorova · {state.connections.length} veza
+              {state.nodes.length} čvorova · {state.connections.length} veza{actions.isRecording ? " · 🔴 REC" : ""}
             </span>
           </div>
         </div>
@@ -108,6 +108,21 @@ const BrainPanel = ({ onClose, activeNodes = [] }: Props) => {
           >
             <Brain className="w-3 h-3" /> Uvezi iz Učenja
           </button>
+          {!actions.isRecording ? (
+            <button
+              onClick={actions.startRecording}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 text-red-300 transition-all text-xs"
+            >
+              <Circle className="w-3 h-3 fill-red-400 text-red-400" /> Snimi
+            </button>
+          ) : (
+            <button
+              onClick={actions.stopRecording}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-500/20 hover:bg-red-500/30 border border-red-500/40 text-red-200 transition-all text-xs animate-pulse"
+            >
+              <StopCircle className="w-3 h-3" /> Stop · {actions.recordStepCount} koraka
+            </button>
+          )}
           <button onClick={actions.saveFlow}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/[0.06] hover:bg-white/[0.1] border border-white/[0.08] text-white/50 hover:text-white transition-all text-xs">
             <Save className="w-3 h-3" /> Spremi
