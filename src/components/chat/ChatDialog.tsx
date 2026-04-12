@@ -16,7 +16,7 @@ import { motion } from "framer-motion";
 import { useAuth } from "@/hooks/useAuth";
 import ProviderSelector, { PROVIDERS, type Provider } from "./ProviderSelector";
 import { useDevOpsStatus } from "@/hooks/useDevOpsStatus";
-  
+
 interface Message {
   role: "user" | "assistant";
   content: string;
@@ -31,7 +31,6 @@ interface Conversation {
 
 // CodeBlock type imported from ChatMessage
 const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/chat`;
-const DEV_CONTROL_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/dev-control`;
 
 const MODEL_LABELS: Record<"flash" | "pro" | "flash3" | "pro3", string> = {
   flash: "GPT-5.4-mini",
@@ -987,28 +986,6 @@ const devPanelPreview = {
     }
   };
 
-  const callDevControl = useCallback(async (action: string, payload: Record<string, unknown> = {}) => {
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const res = await fetch(DEV_CONTROL_URL, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
-          apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
-        },
-        body: JSON.stringify({ action, projectRoot: projectRootState.trim() || null, ...payload }),
-      });
-      const data = await res.json().catch(() => null);
-      if (!res.ok) throw new Error(data?.error || data?.message || `DEV action failed (${res.status})`);
-      return data;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "DEV action failed";
-      addLog("warn", message);
-      return null;
-    }
-  }, [projectRootState]);
-
   const checkAgentHealth = async () => {
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -1039,7 +1016,6 @@ const devPanelPreview = {
       /^(git commit|commit)\b/i.test(text) ||
       /^(git push|push)\b/i.test(text) ||
       /^(deploy)\b/i.test(text) ||
-      /^(backup project|backup repo|napravi backup|project backup)$/i.test(text) ||
       /^(primijeni patch|primjeni patch|apply patch)\b/i.test(text) ||
       /^(spremi file|zapisi file|zapiši file|write file)\s+/i.test(text) ||
       /^(postavi projekt root|postavi project root|set project root|root)\s+/i.test(text)
@@ -1677,72 +1653,12 @@ const devPanelPreview = {
   };
 
   const handleDevPortalAction = useCallback(async (cmd: string) => {
-    const raw = cmd.trim();
-    const root = projectRootState.trim();
-    if (!root) {
-      addLog("warn", "Project root nije postavljen");
-      return;
+    const handled = await executeProjectCommand(cmd);
+    if (!handled) {
+      await executeStudioFlow(cmd);
     }
-
-    const commitMatch = raw.match(/^(?:git commit|commit)\s+([\s\S]+)$/i);
-    const deployMatch = raw.match(/^(?:deploy)(?:\s+([\s\S]+))?$/i);
-
-    let action = "";
-    let payload: Record<string, unknown> = {};
-    let successMessage = "";
-
-    if (/^(?:git status|status)$/i.test(raw)) {
-      action = "git_status";
-      successMessage = "Git status osvježen";
-    } else if (/^(?:pokreni build|run build|build)$/i.test(raw)) {
-      action = "build";
-      successMessage = "Build završen";
-    } else if (/^(?:backup project|backup repo|napravi backup|project backup)$/i.test(raw)) {
-      action = "backup_project";
-      successMessage = "Backup projekta završen";
-    } else if (/^(?:git push|push)$/i.test(raw)) {
-      action = "git_push";
-      successMessage = "Git push završen";
-    } else if (/^(?:git pull --rebase|pull rebase|git pull rebase)$/i.test(raw)) {
-      action = "git_pull_rebase";
-      successMessage = "Git pull --rebase završen";
-    } else if (commitMatch) {
-      action = "git_commit";
-      payload.message = commitMatch[1].trim().replace(/^['"`]|['"`]$/g, "");
-      successMessage = `Commit: ${payload.message}`;
-    } else if (deployMatch) {
-      action = "deploy";
-      const msg = (deployMatch[1] || "").trim().replace(/^['"`]|['"`]$/g, "");
-      if (msg) payload.message = msg;
-      successMessage = "Deploy flow završen";
-    } else {
-      addLog("warn", `Nepoznata DEV akcija: ${raw}`);
-      return;
-    }
-
-    addLog("info", `▶ ${raw}`);
-    if (action === "deploy") {
-      setIsDeploying(true);
-      setDeployStatus("idle");
-    }
-
-    const result = await callDevControl(action, payload);
-    if (result?.success) {
-      addLog("ok", result.message || successMessage);
-      if (result.summary) addLog("dim", String(result.summary).slice(0, 500));
-      if (action === "deploy") setDeployStatus("success");
-    } else {
-      addLog("warn", result?.error || `Greška u akciji: ${raw}`);
-      if (action === "deploy") setDeployStatus("error");
-    }
-
-    if (action === "deploy") {
-      window.setTimeout(() => setDeployStatus("idle"), 4000);
-      setIsDeploying(false);
-    }
-
     window.setTimeout(() => { void refreshDevOps(); }, 250);
-  }, [callDevControl, projectRootState, refreshDevOps]);
+  }, [executeProjectCommand, executeStudioFlow, refreshDevOps]);
 
 
   const handleStudioExecute = () => {
@@ -1874,17 +1790,22 @@ const devPanelPreview = {
   };
 
   const handleDeploy = async () => {
-    await handleDevPortalAction("deploy");
+    setIsDeploying(true);
+    setDeployStatus("idle");
+    try {
+      await handleDevPortalAction("deploy");
+      setDeployStatus("success");
+    } catch {
+      setDeployStatus("error");
+    } finally {
+      setIsDeploying(false);
+      setTimeout(() => setDeployStatus("idle"), 4000);
+    }
   };
 
-  const handleStartAgent = async () => {
-    const command = `cd /d "D:\\1 PROJEKT APLIKACIJA LOKALNO\\1 PROJEKT APLIKACIJA LOKALNO claude\\docs\\agent-server" && start_agent.bat`;
-    try {
-      await navigator.clipboard.writeText(command);
-      addLog("ok", "Start agent komanda kopirana u clipboard");
-    } catch {
-      addLog("info", "Pokreni agent lokalno iz docs\\agent-server\\start_agent.bat");
-    }
+  const handleStartAgent = () => {
+    setInput("Pokreni agent server naredbom: cd 'D:\\1 PROJEKT APLIKACIJA LOKALNO\\1 PROJEKT APLIKACIJA LOKALNO claude\\docs\\agent-server' i pokreni start_agent.bat");
+    setTimeout(() => inputRef.current?.focus(), 100);
   };
 
   const handleReaction = (index: number, reaction: "up" | "down") => {
@@ -1951,12 +1872,6 @@ const devPanelPreview = {
             onRefreshActions={() => { void handleRefreshActions(); }}
             onCheckHealth={() => { void checkAgentHealth(); }}
             onPortalAction={(cmd) => { void handleDevPortalAction(cmd); }}
-            onSaveProjectRoot={(value) => {
-              localStorage.setItem("stellan_project_root", value);
-              setProjectRootState(value);
-              addLog("ok", `Project root spremljen: ${value}`);
-              void refreshDevOps();
-            }}
             onBackToStellan={() => setDevStudioMode(false)}
           />
         </div>
@@ -2538,12 +2453,6 @@ const devPanelPreview = {
               onRefreshActions={() => { void handleRefreshActions(); }}
               onCheckHealth={() => { void checkAgentHealth(); }}
               onPortalAction={(cmd) => { void handleDevPortalAction(cmd); }}
-              onSaveProjectRoot={(value) => {
-                localStorage.setItem("stellan_project_root", value);
-                setProjectRootState(value);
-                addLog("ok", `Project root spremljen: ${value}`);
-                void refreshDevOps();
-              }}
               onBackToStellan={() => setDevStudioMode(false)}
             />
           </div>
