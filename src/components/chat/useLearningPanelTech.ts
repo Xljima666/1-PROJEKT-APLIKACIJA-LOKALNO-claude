@@ -80,6 +80,8 @@ export function useLearningPanelTech() {
   const [draggingNodeId, setDraggingNodeId] = useState<string | null>(null);
   const [savedFlows, setSavedFlows] = useState<{ id: string; name: string; savedAt: number }[]>([]);
   const dragRef = useRef<{ type: "pan" | "node"; startX: number; startY: number; nodeId?: string; originX?: number; originY?: number; panX?: number; panY?: number } | null>(null);
+  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const isRecordingRef = useRef(false);
 
   const log = useCallback((msg: string, tone?: "info" | "success" | "error") => {
     const time = new Date().toLocaleTimeString("hr-HR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
@@ -309,27 +311,122 @@ export function useLearningPanelTech() {
   }, [connectSequentially, log]);
 
   const startRecording = useCallback(async () => {
+    if (isRecordingRef.current) return;
     const res = await callAgent("record/start", { name: flowName || "learning_flow" });
     if (res?.success) {
       setRecording(true);
+      isRecordingRef.current = true;
       log("✓ Učenje pokrenuto. Klikaj u browseru.", "success");
+
+      // Poll every 1.2s for new browser events → real-time nodes
+      pollIntervalRef.current = setInterval(async () => {
+        if (!isRecordingRef.current) return;
+        try {
+          const poll = await callAgent("record/poll", {}, "GET");
+          if (poll?.new_events?.length > 0) {
+            for (const evt of poll.new_events) {
+              const action = String(evt.action || "").toLowerCase();
+              let kind: LearningNodeKind = "click";
+              if (action === "navigate" || action === "goto" || evt.url) kind = "goto";
+              else if (action === "fill" || action === "type") kind = "fill";
+              else if (action === "screenshot") kind = "screenshot";
+
+              const template = LEARNING_NODE_TYPES[kind];
+              const newNode: LearningNodeData = {
+                id: uid("rec"),
+                kind,
+                label: template.label,
+                category: template.category,
+                x: 0,
+                y: 0,
+                config: { ...template.defaults, ...evt },
+              };
+
+              setNodes(prev => {
+                const x = 520 + prev.length * 300;
+                const y = 220 + ((prev.length % 2) * 170);
+                const positioned = { ...newNode, x, y };
+
+                if (prev.length > 0) {
+                  const fromNode = prev[prev.length - 1];
+                  setConnections(prevConns => [
+                    ...prevConns,
+                    {
+                      id: `conn_${fromNode.id}_${positioned.id}`,
+                      fromNode: fromNode.id,
+                      toNode: positioned.id,
+                      color: template.color,
+                    },
+                  ]);
+                }
+
+                return [...prev, positioned];
+              });
+              log(`🔴 ${kind.toUpperCase()}: ${evt.selector || evt.url || ""}`, "info");
+            }
+          }
+        } catch {}
+      }, 1200);
     } else {
       log(`Greška: ${res?.error || "ne mogu pokrenuti učenje"}`, "error");
     }
   }, [callAgent, flowName, log]);
 
   const stopRecording = useCallback(async () => {
-    const res = await callAgent("record/stop", {});
+    isRecordingRef.current = false;
     setRecording(false);
-    if (res?.success && Array.isArray(res.steps)) {
-      convertStepsToNodes(res.steps);
-      log(`✓ Snimanje završeno. Koraka: ${res.steps.length}`, "success");
-    } else if (res?.success) {
-      log(`✓ Snimanje završeno. Koraka: ${res.steps ?? 0}`, "success");
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current);
+      pollIntervalRef.current = null;
+    }
+
+    // Final poll to grab last events
+    try {
+      const poll = await callAgent("record/poll", {}, "GET");
+      if (poll?.new_events?.length > 0) {
+        for (const evt of poll.new_events) {
+          const action = String(evt.action || "").toLowerCase();
+          let kind: LearningNodeKind = "click";
+          if (action === "navigate" || action === "goto" || evt.url) kind = "goto";
+          else if (action === "fill" || action === "type") kind = "fill";
+          else if (action === "screenshot") kind = "screenshot";
+          const template = LEARNING_NODE_TYPES[kind];
+          const newNode: LearningNodeData = {
+            id: uid("rec"),
+            kind,
+            label: template.label,
+            category: template.category,
+            x: 0, y: 0,
+            config: { ...template.defaults, ...evt },
+          };
+          setNodes(prev => {
+            const x = 520 + prev.length * 300;
+            const y = 220 + ((prev.length % 2) * 170);
+            const positioned = { ...newNode, x, y };
+            if (prev.length > 0) {
+              const fromNode = prev[prev.length - 1];
+              setConnections(prevConns => [...prevConns, {
+                id: `conn_${fromNode.id}_${positioned.id}`,
+                fromNode: fromNode.id,
+                toNode: positioned.id,
+                color: template.color,
+              }]);
+            }
+            return [...prev, positioned];
+          });
+        }
+      }
+    } catch {}
+
+    const res = await callAgent("record/stop", {});
+    if (res?.success) {
+      // Save as .py so Run Flow works
+      await callAgent("record/save", { name: flowName || "learning_flow" });
+      log(`✓ Snimanje završeno i spremljeno. Koraka: ${res.steps ?? 0}`, "success");
     } else {
       log(`Greška: ${res?.error || "ne mogu zaustaviti učenje"}`, "error");
     }
-  }, [callAgent, convertStepsToNodes, log]);
+  }, [callAgent, convertStepsToNodes, flowName, log]);
 
   const loadPreview = useCallback(async () => {
     const res = await callAgent("preview/current", {}, "GET");
@@ -391,6 +488,8 @@ export function useLearningPanelTech() {
       await new Promise(r => setTimeout(r, 500));
     }
     setActiveNodes([]);
+    // Ensure flow is saved as .py before running
+    await callAgent("record/save", { name: flowName || "learning_flow" });
     const res = await callAgent("record/run", { name: flowName || "learning_flow" });
     if (res?.success) {
       log("✓ Flow izvršen", "success");
@@ -437,6 +536,14 @@ export function useLearningPanelTech() {
   useEffect(() => {
     const items = JSON.parse(localStorage.getItem("stellan_learning_flows_v2") || "[]");
     setSavedFlows(items.map((x: any) => ({ id: x.id, name: x.name, savedAt: x.savedAt })));
+  }, []);
+
+  // Cleanup polling on unmount
+  useEffect(() => {
+    return () => {
+      isRecordingRef.current = false;
+      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+    };
   }, []);
 
   const selectedNodeData = useMemo(() => nodes.find(n => n.id === selectedNode) || null, [nodes, selectedNode]);
