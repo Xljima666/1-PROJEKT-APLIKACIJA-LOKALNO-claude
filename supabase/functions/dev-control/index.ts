@@ -92,6 +92,41 @@ const fetchText = async (url: string, init?: RequestInit) => {
   return text;
 };
 
+
+const getAgentHeaders = (agentApiKey: string) => ({
+  "Content-Type": "application/json",
+  "X-API-Key": agentApiKey,
+  "ngrok-skip-browser-warning": "true",
+  "User-Agent": "GeoTerra-Dev-Control/1.0",
+});
+
+const callAgentJson = async (
+  agentBaseUrl: string,
+  agentApiKey: string,
+  endpoint: string,
+  body?: Record<string, unknown>,
+  method: "GET" | "POST" = "POST",
+) => {
+  const url = new URL(endpoint.replace(/^\/+/, ""), `${agentBaseUrl}/`).toString();
+  const res = await fetch(url, {
+    method,
+    headers: getAgentHeaders(agentApiKey),
+    body: method === "GET" ? undefined : JSON.stringify(body || {}),
+  });
+  const data = await res.json().catch(async () => ({ success: false, error: await res.text().catch(() => `HTTP ${res.status}`) }));
+  if (!res.ok) {
+    throw new Error((data as any)?.error || `HTTP ${res.status}`);
+  }
+  return data as any;
+};
+
+const resolveProjectRoot = (body: any) => {
+  if (typeof body?.projectRoot === "string" && body.projectRoot.trim()) return body.projectRoot.trim();
+  if (typeof body?.repo_path === "string" && body.repo_path.trim()) return body.repo_path.trim();
+  if (typeof body?.cwd === "string" && body.cwd.trim()) return body.cwd.trim();
+  return "";
+};
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
@@ -110,6 +145,86 @@ serve(async (req) => {
     const vercelToken = Deno.env.get("VERCEL_TOKEN") || "";
     const vercelProjectId = Deno.env.get("VERCEL_PROJECT_ID") || "";
     const vercelTeamId = Deno.env.get("VERCEL_TEAM_ID") || "";
+    const action = typeof body?.action === "string" ? body.action.trim().toLowerCase() : "status";
+    const actionProjectRoot = resolveProjectRoot(body);
+
+    if (action !== "status") {
+      if (!agentBaseUrl || !agentApiKey) {
+        return json({ success: false, error: "AGENT_SERVER_URL ili AGENT_API_KEY nisu konfigurirani." }, 500);
+      }
+
+      try {
+        if (action === "check_agent") {
+          const health = await callAgentJson(agentBaseUrl, agentApiKey, "/health", undefined, "GET");
+          return json({ success: true, online: true, ...(health || {}) });
+        }
+
+        if (!actionProjectRoot) {
+          return json({ success: false, error: "projectRoot je obavezan za ovu DEV akciju." }, 400);
+        }
+
+        if (action === "git_status") {
+          const result = await callAgentJson(agentBaseUrl, agentApiKey, "/git_status", { repo_path: actionProjectRoot });
+          return json(result);
+        }
+
+        if (action === "git_commit") {
+          const message = typeof body?.message === "string" ? body.message.trim() : "";
+          if (!message) return json({ success: false, error: "Commit poruka je obavezna." }, 400);
+          const result = await callAgentJson(agentBaseUrl, agentApiKey, "/git_commit", {
+            repo_path: actionProjectRoot,
+            message,
+          });
+          return json(result);
+        }
+
+        if (action === "git_push") {
+          const branch = typeof body?.branch === "string" && body.branch.trim() ? body.branch.trim() : undefined;
+          const result = await callAgentJson(agentBaseUrl, agentApiKey, "/git_push", {
+            repo_path: actionProjectRoot,
+            branch,
+          });
+          return json(result);
+        }
+
+        if (action === "run_build") {
+          const result = await callAgentJson(agentBaseUrl, agentApiKey, "/run_build", { cwd: actionProjectRoot });
+          return json(result);
+        }
+
+        if (action === "deploy") {
+          const message = typeof body?.message === "string" && body.message.trim()
+            ? body.message.trim()
+            : `deploy ${new Date().toISOString().slice(0, 16).replace("T", " ")}`;
+
+          const build = await callAgentJson(agentBaseUrl, agentApiKey, "/run_build", { cwd: actionProjectRoot });
+          if (!build?.success) {
+            return json({ success: false, stage: "build", build });
+          }
+
+          const commit = await callAgentJson(agentBaseUrl, agentApiKey, "/git_commit", {
+            repo_path: actionProjectRoot,
+            message,
+          });
+          if (!commit?.success) {
+            return json({ success: false, stage: "git_commit", build, commit });
+          }
+
+          const push = await callAgentJson(agentBaseUrl, agentApiKey, "/git_push", {
+            repo_path: actionProjectRoot,
+          });
+          if (!push?.success) {
+            return json({ success: false, stage: "git_push", build, commit, push });
+          }
+
+          return json({ success: true, stage: "done", message, build, commit, push });
+        }
+
+        return json({ success: false, error: `Nepoznata DEV akcija: ${action}` }, 400);
+      } catch (error) {
+        return json({ success: false, error: error instanceof Error ? error.message : "DEV akcija nije uspjela." }, 500);
+      }
+    }
 
     const logs: DevOpsLogEntry[] = [];
     const errors: string[] = [];
