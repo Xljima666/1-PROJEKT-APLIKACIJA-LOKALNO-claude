@@ -1039,6 +1039,7 @@ const devPanelPreview = {
       /^(git commit|commit)\b/i.test(text) ||
       /^(git push|push)\b/i.test(text) ||
       /^(deploy)\b/i.test(text) ||
+      /^(backup project|backup repo|napravi backup|project backup)$/i.test(text) ||
       /^(primijeni patch|primjeni patch|apply patch)\b/i.test(text) ||
       /^(spremi file|zapisi file|zapiši file|write file)\s+/i.test(text) ||
       /^(postavi projekt root|postavi project root|set project root|root)\s+/i.test(text)
@@ -1696,6 +1697,9 @@ const devPanelPreview = {
     } else if (/^(?:pokreni build|run build|build)$/i.test(raw)) {
       action = "build";
       successMessage = "Build završen";
+    } else if (/^(?:backup project|backup repo|napravi backup|project backup)$/i.test(raw)) {
+      action = "backup_project";
+      successMessage = "Backup projekta završen";
     } else if (/^(?:git push|push)$/i.test(raw)) {
       action = "git_push";
       successMessage = "Git push završen";
