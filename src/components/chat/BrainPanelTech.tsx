@@ -1178,17 +1178,9 @@ export function useBrainPanelTech(activeNodesInput: string[] = []): UseBrainPane
     setRecordStepCount((c) => c + 1);
   }, []);
 
-  const startRecording = useCallback(async () => {
-    if (!AGENT_URL) { alert("VITE_AGENT_SERVER_URL nije postavljen!"); return; }
-    const name = prompt("Ime recording sesije (npr. oss_prijava):");
-    if (!name) return;
-
-    setNodes([]);
-    setConnections([]);
-    setRunStatuses({});
-    setLastRunOutputs({});
-    setRecordStepCount(0);
-    setFlowName(name);
+  const startRecording = useCallback(async (name?: string) => {
+    if (!AGENT_URL) return;
+    if (recordingRef.current) return; // already recording
 
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
@@ -1196,10 +1188,11 @@ export function useBrainPanelTech(activeNodesInput: string[] = []): UseBrainPane
     };
     if (AGENT_KEY) headers["X-API-Key"] = AGENT_KEY;
 
+    // Start on agent (silent - no canvas clear, no prompt)
     await fetch(`${AGENT_URL}/record/start`, {
       method: "POST",
       headers,
-      body: JSON.stringify({ name }),
+      body: JSON.stringify({ name: name || flowName || "flow" }),
     }).catch(() => {});
 
     setIsRecording(true);
@@ -1216,8 +1209,8 @@ export function useBrainPanelTech(activeNodesInput: string[] = []): UseBrainPane
           }
         }
       } catch {}
-    }, 1500);
-  }, [appendRecordedStep]);
+    }, 1200);
+  }, [appendRecordedStep, flowName]);
 
   const stopRecording = useCallback(async () => {
     recordingRef.current = false;
