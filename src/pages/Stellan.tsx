@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import ChatDialog from "@/components/chat/ChatDialog";
 import DashboardLayout from "@/components/layout/DashboardLayout";
-
+ 
 const Stellan = () => {
   const [chatOpen, setChatOpen] = useState(false);
   const [initialView, setInitialView] = useState<"chat" | "dev">("chat");
