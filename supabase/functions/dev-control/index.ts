@@ -525,7 +525,7 @@ serve(async (req) => {
         });
       }
     }
-
+ 
     snapshot.ok = errors.length === 0;
     logs.sort((a, b) => {
       const left = a.at ? new Date(a.at).getTime() : 0;
