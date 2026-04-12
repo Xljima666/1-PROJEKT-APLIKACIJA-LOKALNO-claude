@@ -47,6 +47,13 @@ export interface DevOpsDeploymentItem {
   url?: string;
 }
 
+export interface DevOpsBackupItem {
+  name: string;
+  path?: string;
+  size?: number;
+  modifiedAt?: string;
+}
+
 export interface DevOpsAgentSnapshot {
   configured: boolean;
   online: boolean;
@@ -58,6 +65,8 @@ export interface DevOpsSnapshot {
   git: DevOpsGitSnapshot;
   build?: DevOpsBuildSnapshot;
   deployments?: DevOpsDeploymentItem[];
+  backups?: DevOpsBackupItem[];
   logs?: DevOpsLogEntry[];
   errors?: string[];
+  projectRoot?: string | null;
 }
