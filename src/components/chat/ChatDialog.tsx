@@ -200,13 +200,6 @@ const ChatDialog = ({ open, onClose, initialView = "chat" }: ChatDialogProps) =>
     enabled: open && devStudioMode && !isMobile,
     projectRoot: projectRootState,
   });
-
-  const toggleWorkspacePanel = useCallback((panel: "dev" | "learning" | "brain") => {
-    setDevStudioMode((prev) => panel === "dev" ? !prev : false);
-    setDevMode((prev) => panel === "learning" ? !prev : false);
-    setBrainMode((prev) => panel === "brain" ? !prev : false);
-  }, []);
-
 const handleDevPanelAction = async (
   action: "open" | "click" | "type" | "screenshot" | "learn",
   payload?: { url?: string; target?: string; value?: string }
@@ -270,6 +263,8 @@ useEffect(() => {
     setDevStudioMode(true);
     setDevMode(false);
     setBrainMode(false);
+  } else if (initialView === "chat") {
+    setDevStudioMode(false);
   }
 }, [open, initialView, isMobile]);
 
@@ -992,7 +987,7 @@ const devPanelPreview = {
     }
   };
 
-  const callDevControlAction = async (action: string, payload: Record<string, unknown> = {}) => {
+  const callDevControl = useCallback(async (action: string, payload: Record<string, unknown> = {}) => {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       const res = await fetch(DEV_CONTROL_URL, {
@@ -1002,17 +997,17 @@ const devPanelPreview = {
           ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
           apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
         },
-        body: JSON.stringify({ action, ...payload }),
+        body: JSON.stringify({ action, projectRoot: projectRootState.trim() || null, ...payload }),
       });
       const data = await res.json().catch(() => null);
-      if (!res.ok) {
-        return { success: false, error: data?.error || `DEV control error (${res.status})`, ...(data || {}) };
-      }
+      if (!res.ok) throw new Error(data?.error || data?.message || `DEV action failed (${res.status})`);
       return data;
     } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : "DEV control request failed" };
+      const message = error instanceof Error ? error.message : "DEV action failed";
+      addLog("warn", message);
+      return null;
     }
-  };
+  }, [projectRootState]);
 
   const checkAgentHealth = async () => {
     try {
@@ -1216,7 +1211,7 @@ const devPanelPreview = {
         addLog("warn", "Build bez project roota");
         return true;
       }
-      const result = await callDevControlAction("run_build", { projectRoot });
+      const result = await callAgentDirect("run_build", { cwd: projectRoot });
       const outputParts = [
         result?.error ? `ERROR: ${result.error}` : "",
         result?.stdout || "",
@@ -1230,11 +1225,9 @@ const devPanelPreview = {
       if (result?.success) {
         pushAssistantMessage(`✅ Build je prošao.\n\n${makeCodeFence("build.log", output)}${logHints ? `\n\nLogovi:\n${logHints}` : ""}`);
         addLog("ok", "Build OK");
-        window.setTimeout(() => { void refreshDevOps(); }, 250);
       } else {
         pushAssistantMessage(`❌ Build je pao.\n\n${makeCodeFence("build.log", output)}${logHints ? `\n\nLogovi:\n${logHints}` : ""}${extraHint}`);
         addLog("warn", `Build failed${result?.error ? `: ${result.error}` : ""}`);
-        window.setTimeout(() => { void refreshDevOps(); }, 250);
       }
       return true;
     }
@@ -1246,16 +1239,14 @@ const devPanelPreview = {
         addLog("warn", "Git status bez project roota");
         return true;
       }
-      const result = await callDevControlAction("git_status", { projectRoot });
+      const result = await callAgentDirect("git_status", { repo_path: projectRoot });
       const output = formatCommandResult(result, "Nema git status outputa.");
       if (result?.success) {
         pushAssistantMessage(`### Git status\n\n**Repo:** \`${projectRoot}\`\n\n${makeCodeFence("git-status.txt", output)}`);
         addLog("ok", "Git status OK");
-        window.setTimeout(() => { void refreshDevOps(); }, 250);
       } else {
         pushAssistantMessage(`❌ Git status nije uspio.\n\n${makeCodeFence("git-status.txt", output)}`);
         addLog("warn", `Git status failed${result?.error ? `: ${result.error}` : ""}`);
-        window.setTimeout(() => { void refreshDevOps(); }, 250);
       }
       return true;
     }
@@ -1274,16 +1265,14 @@ const devPanelPreview = {
         addLog("warn", "Git commit bez poruke");
         return true;
       }
-      const result = await callDevControlAction("git_commit", { projectRoot, message });
+      const result = await callAgentDirect("git_commit", { repo_path: projectRoot, message });
       const output = formatCommandResult(result, "Nema git commit outputa.");
       if (result?.success) {
         pushAssistantMessage(`✅ Git commit je prošao.\n\n**Poruka:** \`${message}\`\n\n${makeCodeFence("git-commit.txt", output)}`);
         addLog("ok", `Git commit: ${message}`);
-        window.setTimeout(() => { void refreshDevOps(); }, 250);
       } else {
         pushAssistantMessage(`❌ Git commit nije uspio.\n\n${makeCodeFence("git-commit.txt", output)}`);
         addLog("warn", `Git commit failed${result?.error ? `: ${result.error}` : ""}`);
-        window.setTimeout(() => { void refreshDevOps(); }, 250);
       }
       return true;
     }
@@ -1297,19 +1286,17 @@ const devPanelPreview = {
         return true;
       }
       const branch = cleanQuoted(match[1] || "");
-      const result = await callDevControlAction("git_push", {
-        projectRoot,
+      const result = await callAgentDirect("git_push", {
+        repo_path: projectRoot,
         branch: branch || undefined,
       });
       const output = formatCommandResult(result, "Nema git push outputa.");
       if (result?.success) {
         pushAssistantMessage(`✅ Git push je prošao.${branch ? `\n\n**Branch:** \`${branch}\`` : ""}\n\n${makeCodeFence("git-push.txt", output)}`);
         addLog("ok", `Git push${branch ? `: ${branch}` : ""}`);
-        window.setTimeout(() => { void refreshDevOps(); }, 250);
       } else {
         pushAssistantMessage(`❌ Git push nije uspio.\n\n${makeCodeFence("git-push.txt", output)}`);
         addLog("warn", `Git push failed${result?.error ? `: ${result.error}` : ""}`);
-        window.setTimeout(() => { void refreshDevOps(); }, 250);
       }
       return true;
     }
@@ -1326,27 +1313,24 @@ const devPanelPreview = {
       const message = normalizeGitMessage(match[1] || "") || `deploy ${new Date().toISOString().slice(0, 16).replace("T", " ")}`;
       pushAssistantMessage(`### Deploy\n\nPokrećem build → git commit → git push...`);
 
-      const buildResult = await callDevControlAction("run_build", { projectRoot });
+      const buildResult = await callAgentDirect("run_build", { cwd: projectRoot });
       if (!buildResult?.success) {
         pushAssistantMessage(`❌ Deploy zaustavljen na buildu.\n\n${makeCodeFence("build.log", formatCommandResult(buildResult, "Nema build outputa."))}`);
         addLog("warn", "Deploy stopped at build");
-        window.setTimeout(() => { void refreshDevOps(); }, 250);
         return true;
       }
 
-      const commitResult = await callDevControlAction("git_commit", { projectRoot, message });
+      const commitResult = await callAgentDirect("git_commit", { repo_path: projectRoot, message });
       if (!commitResult?.success) {
         pushAssistantMessage(`❌ Build je prošao, ali git commit nije uspio.\n\n${makeCodeFence("git-commit.txt", formatCommandResult(commitResult, "Nema git commit outputa."))}`);
         addLog("warn", "Deploy stopped at git commit");
-        window.setTimeout(() => { void refreshDevOps(); }, 250);
         return true;
       }
 
-      const pushResult = await callDevControlAction("git_push", { projectRoot });
+      const pushResult = await callAgentDirect("git_push", { repo_path: projectRoot });
       if (!pushResult?.success) {
         pushAssistantMessage(`❌ Build i commit su prošli, ali git push nije uspio.\n\n${makeCodeFence("git-push.txt", formatCommandResult(pushResult, "Nema git push outputa."))}`);
         addLog("warn", "Deploy stopped at git push");
-        window.setTimeout(() => { void refreshDevOps(); }, 250);
         return true;
       }
 
@@ -1354,7 +1338,6 @@ const devPanelPreview = {
         `✅ Deploy je prošao.\n\n**Commit:** \`${message}\`\n\n${makeCodeFence("build.log", formatCommandResult(buildResult, "Nema build outputa."))}`
       );
       addLog("ok", "Deploy completed");
-      window.setTimeout(() => { void refreshDevOps(); }, 500);
       return true;
     }
 
@@ -1693,12 +1676,69 @@ const devPanelPreview = {
   };
 
   const handleDevPortalAction = useCallback(async (cmd: string) => {
-    const handled = await executeProjectCommand(cmd);
-    if (!handled) {
-      await executeStudioFlow(cmd);
+    const raw = cmd.trim();
+    const root = projectRootState.trim();
+    if (!root) {
+      addLog("warn", "Project root nije postavljen");
+      return;
     }
+
+    const commitMatch = raw.match(/^(?:git commit|commit)\s+([\s\S]+)$/i);
+    const deployMatch = raw.match(/^(?:deploy)(?:\s+([\s\S]+))?$/i);
+
+    let action = "";
+    let payload: Record<string, unknown> = {};
+    let successMessage = "";
+
+    if (/^(?:git status|status)$/i.test(raw)) {
+      action = "git_status";
+      successMessage = "Git status osvježen";
+    } else if (/^(?:pokreni build|run build|build)$/i.test(raw)) {
+      action = "build";
+      successMessage = "Build završen";
+    } else if (/^(?:git push|push)$/i.test(raw)) {
+      action = "git_push";
+      successMessage = "Git push završen";
+    } else if (/^(?:git pull --rebase|pull rebase|git pull rebase)$/i.test(raw)) {
+      action = "git_pull_rebase";
+      successMessage = "Git pull --rebase završen";
+    } else if (commitMatch) {
+      action = "git_commit";
+      payload.message = commitMatch[1].trim().replace(/^['"`]|['"`]$/g, "");
+      successMessage = `Commit: ${payload.message}`;
+    } else if (deployMatch) {
+      action = "deploy";
+      const msg = (deployMatch[1] || "").trim().replace(/^['"`]|['"`]$/g, "");
+      if (msg) payload.message = msg;
+      successMessage = "Deploy flow završen";
+    } else {
+      addLog("warn", `Nepoznata DEV akcija: ${raw}`);
+      return;
+    }
+
+    addLog("info", `▶ ${raw}`);
+    if (action === "deploy") {
+      setIsDeploying(true);
+      setDeployStatus("idle");
+    }
+
+    const result = await callDevControl(action, payload);
+    if (result?.success) {
+      addLog("ok", result.message || successMessage);
+      if (result.summary) addLog("dim", String(result.summary).slice(0, 500));
+      if (action === "deploy") setDeployStatus("success");
+    } else {
+      addLog("warn", result?.error || `Greška u akciji: ${raw}`);
+      if (action === "deploy") setDeployStatus("error");
+    }
+
+    if (action === "deploy") {
+      window.setTimeout(() => setDeployStatus("idle"), 4000);
+      setIsDeploying(false);
+    }
+
     window.setTimeout(() => { void refreshDevOps(); }, 250);
-  }, [executeProjectCommand, executeStudioFlow, refreshDevOps]);
+  }, [callDevControl, projectRootState, refreshDevOps]);
 
 
   const handleStudioExecute = () => {
@@ -1830,47 +1870,16 @@ const devPanelPreview = {
   };
 
   const handleDeploy = async () => {
-    setIsDeploying(true);
-    setDeployStatus("idle");
-    try {
-      await handleDevPortalAction("deploy");
-      setDeployStatus("success");
-    } catch {
-      setDeployStatus("error");
-    } finally {
-      setIsDeploying(false);
-      setTimeout(() => setDeployStatus("idle"), 4000);
-    }
+    await handleDevPortalAction("deploy");
   };
 
   const handleStartAgent = async () => {
-    const command = String.raw`cd /d "D:\1 PROJEKT APLIKACIJA LOKALNO\1 PROJEKT APLIKACIJA LOKALNO claude\docs\agent-server" && start_agent.bat`;
-
-    if (agentOnline) {
-      addLog("ok", "Agent je već online");
-      pushAssistantMessage("✅ Agent je već online.");
-      return;
-    }
-
+    const command = `cd /d "D:\\1 PROJEKT APLIKACIJA LOKALNO\\1 PROJEKT APLIKACIJA LOKALNO claude\\docs\\agent-server" && start_agent.bat`;
     try {
       await navigator.clipboard.writeText(command);
-      addLog("info", "Start agent komanda kopirana u clipboard");
-      pushAssistantMessage(`▶ **Start agent** je ručan korak na lokalnom PC-u.
-
-Komanda je kopirana u clipboard:
-
-\`${command}\`
-
-Pokreni je u Windows Terminalu ili dvoklikni **start_agent.bat**, pa onda klikni **Check agent**.`);
+      addLog("ok", "Start agent komanda kopirana u clipboard");
     } catch {
-      addLog("info", "Prikaži ručne korake za start agenta");
-      pushAssistantMessage(`▶ **Start agent** je ručan korak na lokalnom PC-u.
-
-Pokreni ovo:
-
-\`${command}\`
-
-Nakon toga klikni **Check agent**.`);
+      addLog("info", "Pokreni agent lokalno iz docs\\agent-server\\start_agent.bat");
     }
   };
 
@@ -1900,12 +1909,66 @@ Nakon toga klikni **Check agent**.`);
 
   if (!open) return null;
 
+  if (devStudioMode && !isMobile) {
+    return (
+      <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-lg">
+        <div className="relative h-[98vh] w-[99vw] overflow-hidden rounded-2xl border border-white/[0.06] bg-[hsl(220,15%,7%)] shadow-2xl">
+          <DevPanel
+            title="Dev Studio"
+            steps={devPanelSteps}
+            preview={devPanelPreview}
+            consoleLogs={consoleLogs as ConsoleLog[]}
+            isAgentRunning={isAgentActionRunning}
+            agentOnline={agentOnline}
+            modelBadge={PROVIDERS[selectedProvider].models.find(m => m.id === selectedProviderModel)?.badge || MODEL_BADGES[selectedModel]}
+            isRecording={isRecording}
+            recordingName={recordingName}
+            isDeploying={isDeploying}
+            deployStatus={deployStatus}
+            savedActions={savedActions}
+            projectRoot={projectRootState}
+            devOps={devOpsSnapshot}
+            devOpsLoading={devOpsLoading || devOpsRefreshing}
+            onRunAction={handleDevPanelAction}
+            onStopAgent={() => abortControllerRef.current?.abort()}
+            onClearSteps={() => setDevSteps([])}
+            onDeleteStep={(stepId) => setDevSteps(prev => prev.filter(step => step.id !== stepId))}
+            onSelectStep={(step) => addLog("info", `Odabran korak: ${step.label}`)}
+            onDescribePreview={handlePreviewDescribe}
+            onWaitForLoad={handlePreviewWait}
+            onRefreshScreenshot={handleStudioScreenshot}
+            onRefreshDevOps={() => { void refreshDevOps(); }}
+            onDeploy={handleDeploy}
+            onStartAgent={handleStartAgent}
+            onStartRecording={() => { void handleStartRecording(); }}
+            onSaveRecording={() => { void handleSaveAction(); }}
+            onCancelRecording={handleCancelRecording}
+            onRunSavedAction={(name) => { void handleRunSavedAction(name); }}
+            onRefreshActions={() => { void handleRefreshActions(); }}
+            onCheckHealth={() => { void checkAgentHealth(); }}
+            onPortalAction={(cmd) => { void handleDevPortalAction(cmd); }}
+            onSaveProjectRoot={(value) => {
+              localStorage.setItem("stellan_project_root", value);
+              setProjectRootState(value);
+              addLog("ok", `Project root spremljen: ${value}`);
+              void refreshDevOps();
+            }}
+            onBackToStellan={() => setDevStudioMode(false)}
+          />
+        </div>
+      </div>
+    );
+  }
+
   const hasMessages = messages.length > 0;
   const hasCode = codeBlocks.length > 0;
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-lg">
-      <div className="relative bg-[hsl(220,15%,7%)] border border-white/[0.06] rounded-2xl flex shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200 w-[96vw] h-[94vh]">
+      <div className={cn(
+        "relative bg-[hsl(220,15%,7%)] border border-white/[0.06] rounded-2xl flex shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200",
+        devMode ? "w-[99vw] h-[98vh]" : "w-[96vw] h-[94vh]"
+      )}>
 
         {/* Left sidebar - conversations */}
         {showSidebar && (
@@ -1963,7 +2026,7 @@ Nakon toga klikni **Check agent**.`);
         )}
 
         {/* Main chat area */}
-        <div className="flex flex-col min-w-0 relative flex-1">
+        <div className={cn("flex flex-col min-w-0 relative", devMode ? "w-[35%] shrink-0" : "flex-1")}>
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/[0.06]">
             <div className="flex items-center gap-2">
@@ -1986,7 +2049,7 @@ Nakon toga klikni **Check agent**.`);
             <div className="flex items-center gap-1.5">
 
               <button
-                onClick={() => toggleWorkspacePanel("dev")}
+                onClick={() => { setDevStudioMode(!devStudioMode); if (!devStudioMode) { setDevMode(false); setBrainMode(false); } }}
                 title="DEV Studio — agent preview, actions, build, patch i project komande iz chata"
                 className={cn(
                   "h-7 px-2.5 rounded-lg flex items-center gap-1.5 text-[10px] transition-colors",
@@ -1999,7 +2062,7 @@ Nakon toga klikni **Check agent**.`);
                 DEV
               </button>
               <button
-                onClick={() => toggleWorkspacePanel("learning")}
+                onClick={() => { setDevMode(!devMode); if (!devMode) { setDevStudioMode(false); setBrainMode(false); } }}
                 title="Učenje — Browser Use automation"
                 className={cn(
                   "h-7 px-2.5 rounded-lg flex items-center gap-1.5 text-[10px] transition-colors",
@@ -2012,7 +2075,7 @@ Nakon toga klikni **Check agent**.`);
                 Učenje
               </button>
               <button
-                onClick={() => toggleWorkspacePanel("brain")}
+                onClick={() => { setBrainMode(!brainMode); if(!brainMode) { setDevMode(false); setDevStudioMode(false); } }}
                 title="Mozak — Vizualni pregled Stellanovih toolova, znanja i workflowa"
                 className={cn(
                   "h-7 px-2.5 rounded-lg flex items-center gap-1.5 text-[10px] transition-colors",
@@ -2434,10 +2497,9 @@ Nakon toga klikni **Check agent**.`);
         </div>
 
 
-        {/* DEV Studio overlay */}
+        {/* DEV Studio */}
         {devStudioMode && !isMobile && (
-          <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/80 backdrop-blur-lg">
-            <div className="relative h-[98vh] w-[99vw] overflow-hidden rounded-2xl border border-white/[0.06] bg-[hsl(220,15%,7%)] shadow-2xl">
+          <div className="flex-1 border-l border-white/[0.06] min-w-0 overflow-hidden">
             <DevPanel
               title="Dev Studio"
               steps={devPanelSteps}
@@ -2472,19 +2534,29 @@ Nakon toga klikni **Check agent**.`);
               onRefreshActions={() => { void handleRefreshActions(); }}
               onCheckHealth={() => { void checkAgentHealth(); }}
               onPortalAction={(cmd) => { void handleDevPortalAction(cmd); }}
+              onSaveProjectRoot={(value) => {
+                localStorage.setItem("stellan_project_root", value);
+                setProjectRootState(value);
+                addLog("ok", `Project root spremljen: ${value}`);
+                void refreshDevOps();
+              }}
               onBackToStellan={() => setDevStudioMode(false)}
             />
-            </div>
           </div>
         )}
  
 
-        {/* STELLAN UČENJE overlay */}
+        {/* STELLAN UČENJE — Browser Use automation panel */}
         {devMode && !isMobile && (
-          <LearningPanel onClose={() => setDevMode(false)} />
+          <div className="flex-1 border-l border-white/[0.06] min-w-0 overflow-hidden">
+            <LearningPanel
+              onClose={() => setDevMode(false)}
+              agentServerUrl={import.meta.env.VITE_AGENT_SERVER_URL || ""}
+            />
+          </div>
         )}
 
-        {/* STELLAN MOZAK overlay */}
+        {/* STELLAN MOZAK — Visual brain panel (fullscreen overlay) */}
         {brainMode && !isMobile && (
           <div className="fixed inset-0 z-50">
             <BrainPanel onClose={() => setBrainMode(false)} />
