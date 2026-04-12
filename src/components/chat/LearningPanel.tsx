@@ -25,7 +25,7 @@ const AnimatedConn = ({ d, color, index, active }: any) => (
     </circle>
   </g>
 );
-
+ 
 // ─── Zoom kontrole ───────────────────────────────────────
 const ZoomBar = ({ zoom, onIn, onOut, onFit }: any) => (
   <div className="absolute bottom-20 left-4 z-30 flex flex-col rounded-xl overflow-hidden border"
