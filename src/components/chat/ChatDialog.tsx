@@ -2469,9 +2469,9 @@ const devPanelPreview = {
           </div>
         )}
 
-        {/* STELLAN MOZAK — Visual brain panel */}
+        {/* STELLAN MOZAK — Visual brain panel (fullscreen overlay) */}
         {brainMode && !isMobile && (
-          <div className="flex-1 border-l border-white/[0.06] min-w-0 overflow-hidden">
+          <div className="fixed inset-0 z-50">
             <BrainPanel onClose={() => setBrainMode(false)} />
           </div>
         )}
