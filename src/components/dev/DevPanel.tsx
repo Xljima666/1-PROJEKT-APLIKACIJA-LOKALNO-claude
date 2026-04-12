@@ -26,7 +26,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import type { DevOpsLogEntry, DevOpsSnapshot } from "@/types/devops";
-
+ 
 export type DevActionType = "open" | "click" | "type" | "screenshot" | "learn";
 export type StepStatus = "queued" | "running" | "done" | "error";
 
