@@ -468,8 +468,8 @@ export function useLearningPanelTech() {
     const flow = nodes.map(n => ({ label: n.label, kind: n.kind, config: n.config }));
     const res = await callAgent("code/clean_playwright", { content: JSON.stringify(flow, null, 2) });
     if (res?.cleaned_content) {
-      addNode("ai", 460, 760);
-      updateNodeConfig(nodes[nodes.length - 1]?.id || "", "result", res.cleaned_content);
+      const aiNode = addNode("ai", 460, 760);
+      updateNodeConfig(aiNode.id, "result", res.cleaned_content);
       log("✓ AI poboljšanje generirano", "success");
     } else {
       log(`Greška: ${res?.error || "AI improve nije uspio"}`, "error");
@@ -642,3 +642,14 @@ export function useLearningPanelTech() {
       startRecording,
       stopRecording,
       setStartUrl,
+      loadPreview,
+      improveWithAI,
+      generateFlowFromPrompt,
+      runFlowAnimated,
+      saveFlow,
+      loadFlow,
+      deleteSelected,
+      exportFlowToBrain,
+    },
+  };
+}
