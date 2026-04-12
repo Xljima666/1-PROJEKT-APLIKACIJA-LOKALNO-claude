@@ -2,17 +2,18 @@ import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
 import { Search, ChevronRight, Plus } from "lucide-react";
-import { NODE_CATALOG, CATEGORY_META, type NodeTemplate, type CategoryType } from "./types";
+import { NODE_CATALOG, CATEGORY_META, type NodeTemplate } from "./types";
 
 interface Props {
   onAddNode: (template: NodeTemplate, x: number, y: number) => void;
+  catalog?: Record<string, NodeTemplate[]>;
 }
 
-const NodePalette = ({ onAddNode }: Props) => {
+const NodePalette = ({ onAddNode, catalog = NODE_CATALOG }: Props) => {
   const [search, setSearch] = useState("");
   const [expandedGroup, setExpandedGroup] = useState<string | null>("Playwright");
 
-  const filteredCatalog = Object.entries(NODE_CATALOG).reduce<Record<string, NodeTemplate[]>>((acc, [group, templates]) => {
+  const filteredCatalog = Object.entries(catalog).reduce<Record<string, NodeTemplate[]>>((acc, [group, templates]) => {
     if (!search) { acc[group] = templates; return acc; }
     const filtered = templates.filter(t =>
       t.label.toLowerCase().includes(search.toLowerCase()) ||
