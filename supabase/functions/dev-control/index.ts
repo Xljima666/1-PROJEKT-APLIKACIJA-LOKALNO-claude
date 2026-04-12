@@ -92,40 +92,31 @@ const fetchText = async (url: string, init?: RequestInit) => {
   return text;
 };
 
-
-const getAgentHeaders = (agentApiKey: string) => ({
-  "Content-Type": "application/json",
-  "X-API-Key": agentApiKey,
-  "ngrok-skip-browser-warning": "true",
-  "User-Agent": "GeoTerra-Dev-Control/1.0",
-});
-
-const callAgentJson = async (
+const agentRequest = async (
   agentBaseUrl: string,
   agentApiKey: string,
   endpoint: string,
-  body?: Record<string, unknown>,
-  method: "GET" | "POST" = "POST",
+  body: Record<string, unknown>,
 ) => {
-  const url = new URL(endpoint.replace(/^\/+/, ""), `${agentBaseUrl}/`).toString();
-  const res = await fetch(url, {
-    method,
-    headers: getAgentHeaders(agentApiKey),
-    body: method === "GET" ? undefined : JSON.stringify(body || {}),
+  const res = await fetch(`${agentBaseUrl}/${endpoint.replace(/^\/+/, "")}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-API-Key": agentApiKey,
+      "ngrok-skip-browser-warning": "true",
+      "User-Agent": "GeoTerra-Dev-Control/1.0",
+    },
+    body: JSON.stringify(body),
   });
-  const data = await res.json().catch(async () => ({ success: false, error: await res.text().catch(() => `HTTP ${res.status}`) }));
-  if (!res.ok) {
-    throw new Error((data as any)?.error || `HTTP ${res.status}`);
+  const data = await res.json().catch(() => null);
+  if (!res.ok || data?.success === false) {
+    throw new Error(data?.error || data?.detail || `Agent HTTP ${res.status}`);
   }
-  return data as any;
+  return data;
 };
 
-const resolveProjectRoot = (body: any) => {
-  if (typeof body?.projectRoot === "string" && body.projectRoot.trim()) return body.projectRoot.trim();
-  if (typeof body?.repo_path === "string" && body.repo_path.trim()) return body.repo_path.trim();
-  if (typeof body?.cwd === "string" && body.cwd.trim()) return body.cwd.trim();
-  return "";
-};
+const normalizeMessage = (value?: string | null) =>
+  String(value || "").trim().replace(/^['"`]|['"`]$/g, "");
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -145,84 +136,56 @@ serve(async (req) => {
     const vercelToken = Deno.env.get("VERCEL_TOKEN") || "";
     const vercelProjectId = Deno.env.get("VERCEL_PROJECT_ID") || "";
     const vercelTeamId = Deno.env.get("VERCEL_TEAM_ID") || "";
-    const action = typeof body?.action === "string" ? body.action.trim().toLowerCase() : "status";
-    const actionProjectRoot = resolveProjectRoot(body);
 
-    if (action !== "status") {
-      if (!agentBaseUrl || !agentApiKey) {
-        return json({ success: false, error: "AGENT_SERVER_URL ili AGENT_API_KEY nisu konfigurirani." }, 500);
-      }
+    const action = typeof body?.action === "string" ? body.action.trim() : "status";
+
+    if (action && action !== "status") {
+      if (!projectRoot) return json({ success: false, error: "Project root nije postavljen." }, 400);
+      if (!agentBaseUrl || !agentApiKey) return json({ success: false, error: "Agent nije konfiguriran." }, 500);
 
       try {
-        if (action === "check_agent") {
-          const health = await callAgentJson(agentBaseUrl, agentApiKey, "/health", undefined, "GET");
-          return json({ success: true, online: true, ...(health || {}) });
-        }
-
-        if (!actionProjectRoot) {
-          return json({ success: false, error: "projectRoot je obavezan za ovu DEV akciju." }, 400);
-        }
-
         if (action === "git_status") {
-          const result = await callAgentJson(agentBaseUrl, agentApiKey, "/git_status", { repo_path: actionProjectRoot });
-          return json(result);
+          const result = await agentRequest(agentBaseUrl, agentApiKey, "git_status", { repo_path: projectRoot });
+          return json({ success: true, action, message: "Git status dohvaćen.", result, summary: result?.stdout || "" });
         }
-
         if (action === "git_commit") {
-          const message = typeof body?.message === "string" ? body.message.trim() : "";
+          const message = normalizeMessage(body?.message as string);
           if (!message) return json({ success: false, error: "Commit poruka je obavezna." }, 400);
-          const result = await callAgentJson(agentBaseUrl, agentApiKey, "/git_commit", {
-            repo_path: actionProjectRoot,
-            message,
-          });
-          return json(result);
+          const result = await agentRequest(agentBaseUrl, agentApiKey, "git_commit", { repo_path: projectRoot, message });
+          return json({ success: true, action, message: `Commit spremljen: ${message}`, result, summary: [result?.stdout, result?.stderr].filter(Boolean).join("\n\n") });
         }
-
         if (action === "git_push") {
-          const branch = typeof body?.branch === "string" && body.branch.trim() ? body.branch.trim() : undefined;
-          const result = await callAgentJson(agentBaseUrl, agentApiKey, "/git_push", {
-            repo_path: actionProjectRoot,
-            branch,
-          });
-          return json(result);
+          const branch = normalizeMessage(body?.branch as string) || undefined;
+          const result = await agentRequest(agentBaseUrl, agentApiKey, "git_push", { repo_path: projectRoot, branch });
+          return json({ success: true, action, message: branch ? `Git push na ${branch} prošao.` : "Git push prošao.", result, summary: [result?.stdout, result?.stderr].filter(Boolean).join("\n\n") });
         }
-
-        if (action === "run_build") {
-          const result = await callAgentJson(agentBaseUrl, agentApiKey, "/run_build", { cwd: actionProjectRoot });
-          return json(result);
+        if (action === "git_pull_rebase") {
+          const branch = normalizeMessage(body?.branch as string) || undefined;
+          const result = await agentRequest(agentBaseUrl, agentApiKey, "git_pull_rebase", { repo_path: projectRoot, branch });
+          return json({ success: true, action, message: "Git pull --rebase prošao.", result, summary: [result?.stdout, result?.stderr].filter(Boolean).join("\n\n") });
         }
-
+        if (action === "build") {
+          const result = await agentRequest(agentBaseUrl, agentApiKey, "run_build", { cwd: projectRoot });
+          return json({ success: true, action, message: "Build je prošao.", result, summary: [result?.stdout, result?.stderr].filter(Boolean).join("\n\n") });
+        }
         if (action === "deploy") {
-          const message = typeof body?.message === "string" && body.message.trim()
-            ? body.message.trim()
-            : `deploy ${new Date().toISOString().slice(0, 16).replace("T", " ")}`;
-
-          const build = await callAgentJson(agentBaseUrl, agentApiKey, "/run_build", { cwd: actionProjectRoot });
-          if (!build?.success) {
-            return json({ success: false, stage: "build", build });
-          }
-
-          const commit = await callAgentJson(agentBaseUrl, agentApiKey, "/git_commit", {
-            repo_path: actionProjectRoot,
-            message,
+          const message = normalizeMessage(body?.message as string) || `deploy ${new Date().toISOString().slice(0, 16).replace("T", " ")}`;
+          const buildResult = await agentRequest(agentBaseUrl, agentApiKey, "run_build", { cwd: projectRoot });
+          const commitResult = await agentRequest(agentBaseUrl, agentApiKey, "git_commit", { repo_path: projectRoot, message });
+          const pushResult = await agentRequest(agentBaseUrl, agentApiKey, "git_push", { repo_path: projectRoot });
+          return json({
+            success: true,
+            action,
+            message: `Deploy flow završen: ${message}`,
+            result: { buildResult, commitResult, pushResult },
+            summary: [buildResult?.stdout, commitResult?.stdout, pushResult?.stdout].filter(Boolean).join("\n\n"),
           });
-          if (!commit?.success) {
-            return json({ success: false, stage: "git_commit", build, commit });
-          }
-
-          const push = await callAgentJson(agentBaseUrl, agentApiKey, "/git_push", {
-            repo_path: actionProjectRoot,
-          });
-          if (!push?.success) {
-            return json({ success: false, stage: "git_push", build, commit, push });
-          }
-
-          return json({ success: true, stage: "done", message, build, commit, push });
         }
 
         return json({ success: false, error: `Nepoznata DEV akcija: ${action}` }, 400);
       } catch (error) {
-        return json({ success: false, error: error instanceof Error ? error.message : "DEV akcija nije uspjela." }, 500);
+        const message = error instanceof Error ? error.message : "DEV akcija nije uspjela.";
+        return json({ success: false, error: message }, 500);
       }
     }
 
@@ -278,6 +241,12 @@ serve(async (req) => {
         commitSha?: string | null;
         commitMessage?: string | null;
         createdAt?: string | null;
+      }>,
+      backups: [] as Array<{
+        name: string;
+        path?: string | null;
+        size?: number | null;
+        modifiedAt?: string | null;
       }>,
       logs,
       errors,
@@ -450,6 +419,31 @@ serve(async (req) => {
             title: "Zadnji local build log",
             detail: logDetail.slice(-4000),
           });
+        }
+
+        const backupsData = await fetchJson(`${agentBaseUrl}/list_backups`, {
+          method: "POST",
+          headers: agentHeaders,
+          body: JSON.stringify({ repo_path: projectRoot, limit: 8 }),
+        }).catch(() => null);
+
+        if (backupsData?.success && Array.isArray(backupsData.items)) {
+          snapshot.backups = backupsData.items.map((item: any) => ({
+            name: item?.name || "backup.zip",
+            path: item?.path || null,
+            size: typeof item?.size === "number" ? item.size : null,
+            modifiedAt: item?.modified_at || null,
+          }));
+          if (snapshot.backups[0]) {
+            logs.push({
+              id: "backup-latest",
+              source: "system",
+              level: "info",
+              title: `Zadnji backup: ${snapshot.backups[0].name}`,
+              detail: snapshot.backups[0].path || undefined,
+              at: snapshot.backups[0].modifiedAt || undefined,
+            });
+          }
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : "Agent git status nije dostupan.";
