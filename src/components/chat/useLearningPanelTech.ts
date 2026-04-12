@@ -617,7 +617,7 @@ export function useLearningPanelTech() {
     }).filter(Boolean) as Array<LearningConnection & { d: string }>;
   }, [connections, nodes]);
 
-
+ 
   const exportFlowToBrain = useCallback(() => {
     const steps = nodes
       .filter(n => n.kind !== "start" && n.kind !== "ai")
