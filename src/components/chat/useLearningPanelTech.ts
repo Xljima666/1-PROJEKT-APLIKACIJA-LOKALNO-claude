@@ -313,26 +313,23 @@ export function useLearningPanelTech() {
 
   const startRecording = useCallback(async (url?: string) => {
     if (isRecordingRef.current) return;
-    const targetUrl = url || startUrl || "https://www.google.com";
+    const targetUrl = url || startUrl || "about:blank";
 
-    // Step 1: Start recording FIRST - agent launches its own Chromium (headed, persistent)
-    // We pass url so backend can navigate inside the recorder session (no dual-browser race)
-    log("Pokretanje Chromiuma za snimanje...", "info");
-    const res = await callAgent("record/start", {
-      name: flowName || "learning_flow",
-      url: targetUrl,
-      headed: true,
-    });
+    // Step 1: Open/navigate browser so page exists
+    log("Otvaranje browsera...", "info");
+    callAgent("playwright", { action: "navigate", url: targetUrl, timeout: 45000 })
+      .then(r => log(r?.success ? `✓ Browser otvoren: ${targetUrl}` : `Upozorenje: ${r?.error || ""}`, r?.success ? "success" : "info"))
+      .catch(() => {});
+    // Kratka pauza da browser ima vremena startati
+    await new Promise(r => setTimeout(r, 2000));
+    log("Browser se otvara u pozadini...", "info");
+
+    // Step 2: Start recording
+    const res = await callAgent("record/start", { name: flowName || "learning_flow" });
     if (res?.success) {
       setRecording(true);
       isRecordingRef.current = true;
-      log("✓ Chromium otvoren. Snimanje pokrenuto — klikaj u prozoru.", "success");
-
-      // Fallback navigate: if backend's record/start did not accept url param,
-      // push navigation inside the same recording session
-      callAgent("playwright", { action: "navigate", url: targetUrl, timeout: 45000 })
-        .then(r => { if (r?.success) log(`→ Navigacija: ${targetUrl}`, "info"); })
-        .catch(() => {});
+      log("✓ Snimanje pokrenuto. Klikaj u Chromiumu.", "success");
 
       // Poll every 1.2s for new browser events → real-time nodes
       pollIntervalRef.current = setInterval(async () => {
@@ -386,7 +383,7 @@ export function useLearningPanelTech() {
     } else {
       log(`Greška: ${res?.error || "ne mogu pokrenuti učenje"}`, "error");
     }
-  }, [callAgent, flowName, log, startUrl]);
+  }, [callAgent, flowName, log]);
 
   const stopRecording = useCallback(async () => {
     isRecordingRef.current = false;
@@ -445,29 +442,7 @@ export function useLearningPanelTech() {
   }, [callAgent, convertStepsToNodes, flowName, log]);
 
   const loadPreview = useCallback(async () => {
-    let res = await callAgent("preview/current", {}, "GET");
-
-    // If browser is closed or no page, open one and retry
-    const err = String(res?.error || "").toLowerCase();
-    const browserDead = !res?.success && (
-      err.includes("closed") || err.includes("no page") ||
-      err.includes("no browser") || err.includes("target") || !res
-    );
-    if (browserDead) {
-      log("Browser nije aktivan — otvaram novi…", "info");
-      const nav = await callAgent("playwright", {
-        action: "navigate",
-        url: startUrl || "https://www.google.com",
-        timeout: 45000,
-      });
-      if (!nav?.success) {
-        log(`Preview greška: ne mogu otvoriti browser (${nav?.error || "nepoznato"})`, "error");
-        return;
-      }
-      await new Promise(r => setTimeout(r, 800));
-      res = await callAgent("preview/current", {}, "GET");
-    }
-
+    const res = await callAgent("preview/current", {}, "GET");
     if (res?.success && res.screenshot_base64) {
       const image = `data:image/png;base64,${res.screenshot_base64}`;
       setPreviewImage(image);
@@ -487,7 +462,7 @@ export function useLearningPanelTech() {
     } else {
       log(`Preview greška: ${res?.error || "nema slike"}`, "error");
     }
-  }, [callAgent, nodes.length, log, startUrl]);
+  }, [callAgent, nodes.length, log]);
 
   const improveWithAI = useCallback(async () => {
     const flow = nodes.map(n => ({ label: n.label, kind: n.kind, config: n.config }));
@@ -520,33 +495,17 @@ export function useLearningPanelTech() {
 
   const runFlowAnimated = useCallback(async () => {
     setIsRunning(true);
-    const ordered = nodes.filter(n => n.kind !== "screenshot" && n.kind !== "start");
+    const ordered = nodes.filter(n => n.kind !== "screenshot");
     for (const node of ordered) {
       setActiveNodes([node.id]);
-      await new Promise(r => setTimeout(r, 400));
+      await new Promise(r => setTimeout(r, 500));
     }
     setActiveNodes([]);
-
-    // Build steps from current canvas so manually-built flows also run
-    const steps = nodes
-      .filter(n => n.kind !== "start" && n.kind !== "ai" && n.kind !== "run")
-      .map(n => {
-        if (n.kind === "goto") return { action: "goto", url: n.config?.url, timeout: n.config?.timeout };
-        if (n.kind === "click") return { action: "click", selector: n.config?.selector, timeout: n.config?.timeout };
-        if (n.kind === "fill") return { action: "fill", selector: n.config?.selector, value: n.config?.value, timeout: n.config?.timeout };
-        if (n.kind === "input") return { action: "input", key: n.config?.key, value: n.config?.value };
-        if (n.kind === "screenshot") return { action: "screenshot", full_page: n.config?.full_page, timeout: n.config?.timeout };
-        return null;
-      })
-      .filter(Boolean);
-
-    await callAgent("record/save", {
-      name: flowName || "learning_flow",
-      steps,
-    });
+    // Ensure flow is saved as .py before running
+    await callAgent("record/save", { name: flowName || "learning_flow" });
     const res = await callAgent("record/run", { name: flowName || "learning_flow" });
     if (res?.success) {
-      log(`✓ Flow izvršen (${steps.length} koraka)`, "success");
+      log("✓ Flow izvršen", "success");
     } else {
       log(`Greška: ${res?.error || res?.stderr || "run nije uspio"}`, "error");
     }
@@ -617,7 +576,7 @@ export function useLearningPanelTech() {
     }).filter(Boolean) as Array<LearningConnection & { d: string }>;
   }, [connections, nodes]);
 
- 
+
   const exportFlowToBrain = useCallback(() => {
     const steps = nodes
       .filter(n => n.kind !== "start" && n.kind !== "ai")
@@ -642,3 +601,44 @@ export function useLearningPanelTech() {
 
   return {
     constants: { CANVAS_W, CANVAS_H, NODE_W, getNodeHeight },
+    state: {
+      containerRef,
+      flowName,
+      startUrl,
+      agentOnline,
+      nodes,
+      connections,
+      selectedNode,
+      selectedConnection,
+      selectedNodeData,
+      pan,
+      zoom,
+      vpSize,
+      isPanning,
+      recording,
+      previewImage,
+      previewTitle,
+      logs,
+      activeNodes,
+      isRunning,
+      flowPrompt,
+      draggingNodeId,
+      savedFlows,
+      connectionPaths,
+    },
+    actions: {
+      setFlowName,
+      setSelectedNode,
+      setSelectedConnection,
+      setFlowPrompt,
+      addNode,
+      updateNodeConfig,
+      handleNodeMouseDown,
+      handleCanvasMouseDown,
+      zoomIn,
+      zoomOut,
+      fitToScreen,
+      handleMinimapNav,
+      startRecording,
+      stopRecording,
+      setStartUrl,
