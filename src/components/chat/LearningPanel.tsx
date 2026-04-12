@@ -605,3 +605,15 @@ export default function LearningPanel({ onClose }: Props) {
               <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-center">
                 <Monitor className="w-6 h-6 text-white/15" />
                 <p className="text-xs text-white/20">Klikni Preview za screenshot</p>
+                <p className="text-[10px] text-white/12">ili se osvježi automatski dok snimaš</p>
+              </div>
+            )}
+          </div>
+          {state.previewTitle && (
+            <p className="text-[10px] text-white/35 truncate">{state.previewTitle}</p>
+          )}
+        </div>
+      </div>
+    </motion.div>
+  );
+}
