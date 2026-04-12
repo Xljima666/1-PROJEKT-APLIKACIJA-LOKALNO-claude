@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
   Activity,
@@ -91,6 +91,7 @@ type Props = {
   onRefreshActions?: () => void;
   onCheckHealth?: () => void;
   onPortalAction?: (cmd: string) => void;
+  onSaveProjectRoot?: (value: string) => void;
   onBackToStellan?: () => void;
   onBack?: () => void;
 };
@@ -228,11 +229,17 @@ export default function DevPanel({
   onStopAgent,
   onCheckHealth,
   onPortalAction,
+  onSaveProjectRoot,
   onBackToStellan,
   onBack,
 }: Props) {
   const [commitMessage, setCommitMessage] = useState("");
+  const [projectRootInput, setProjectRootInput] = useState(projectRoot || "");
   const backHandler = onBackToStellan || onBack;
+
+  useEffect(() => {
+    setProjectRootInput(projectRoot || "");
+  }, [projectRoot]);
 
   const mergedLogs = useMemo(() => {
     const localLogs: DevOpsLogEntry[] = consoleLogs.slice(-20).map((log, index) => ({
@@ -412,7 +419,7 @@ export default function DevPanel({
               icon={FolderOpen}
               label="Project root"
               value={projectRoot || "Not set"}
-              hint={projectRoot ? "Lokalni root za git/build/deploy akcije" : "Postavi ga kroz chat ili DEV naredbu"}
+              hint={projectRoot ? "Lokalni root za git/build/deploy akcije" : "Upiši lokalni root projekta ispod i spremi ga."}
             />
           </div>
         </div>
