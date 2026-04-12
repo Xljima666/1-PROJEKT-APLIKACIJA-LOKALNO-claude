@@ -17,7 +17,7 @@ interface Props {
   onReset: () => void;
   onPreview: () => void;
 }
-
+ 
 const RunPanel = ({ nodes, connections, runStatuses, isRunning, onRun, onStop, onReset, onPreview }: Props) => {
   const [expanded, setExpanded] = useState(true);
 
