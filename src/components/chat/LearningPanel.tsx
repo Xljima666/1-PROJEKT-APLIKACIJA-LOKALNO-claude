@@ -356,7 +356,7 @@ export default function LearningPanel({ onClose }: Props) {
         <button onClick={refreshPreview} disabled={previewRefreshing}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-cyan-100 text-xs shrink-0 disabled:opacity-40"
           style={{ background: "rgba(34,211,238,0.10)", borderColor: "rgba(34,211,238,0.18)" }}>
-          <Camera className="w-3.5 h-3.5" className={previewRefreshing ? "animate-spin" : ""} /> Preview
+          <Camera className={`w-3.5 h-3.5 ${previewRefreshing ? "animate-spin" : ""}`} /> Preview
         </button>
 
         {/* Improve */}
