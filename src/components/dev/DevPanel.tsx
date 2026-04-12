@@ -129,6 +129,18 @@ function formatTime(value?: string | null) {
   }
 }
 
+function formatBytes(value?: number | null) {
+  if (!value || value <= 0) return "—";
+  const units = ["B", "KB", "MB", "GB"];
+  let size = value;
+  let idx = 0;
+  while (size >= 1024 && idx < units.length - 1) {
+    size /= 1024;
+    idx += 1;
+  }
+  return `${size.toFixed(idx === 0 ? 0 : 1)} ${units[idx]}`;
+}
+
 function CopyChip({ value }: { value: string }) {
   const [copied, setCopied] = useState(false);
 
@@ -426,12 +438,43 @@ export default function DevPanel({
 
         <div className="relative z-10 grid min-h-0 flex-1 gap-4 p-4 xl:grid-cols-[420px_minmax(0,1fr)]">
           <div className="min-h-0 space-y-4">
-            <Section title="Commit & deploy" subtitle="Glavne DEV akcije za repo" right={projectRoot ? <CopyChip value={projectRoot} /> : undefined}>
+            <Section title="Project root" subtitle="Lokalni repo koji DEV koristi za build, backup i deploy" right={projectRoot ? <CopyChip value={projectRoot} /> : undefined}>
+              <div className="space-y-3">
+                <div className="flex gap-2">
+                  <Input
+                    value={projectRootInput}
+                    onChange={(e) => setProjectRootInput(e.target.value)}
+                    placeholder="D:/1 PROJEKT APLIKACIJA LOKALNO/..."
+                    className="h-11 rounded-2xl border-white/10 bg-white/[0.04] text-white placeholder:text-white/25"
+                  />
+                  <Button
+                    className="h-11 rounded-2xl bg-white px-4 text-slate-950 hover:bg-white/90"
+                    onClick={() => onSaveProjectRoot?.(projectRootInput.trim())}
+                    disabled={!projectRootInput.trim()}
+                  >
+                    Spremi root
+                  </Button>
+                </div>
+                <div className="rounded-[20px] border border-white/10 bg-white/[0.03] px-3 py-2.5 text-[12px] leading-5 text-white/58">
+                  Ovdje upiši lokalni folder repozitorija. Sve DEV akcije — backup, build, commit, push i deploy — vrte se nad tim folderom.
+                </div>
+              </div>
+            </Section>
+
+            <Section title="Commit / backup / deploy" subtitle="Glavne akcije za lokalni repo" right={projectRoot ? <Badge variant="outline" className="rounded-full border-emerald-400/20 bg-emerald-400/10 text-[10px] text-emerald-100">One-click cockpit</Badge> : undefined}>
               <div className="space-y-3">
                 <div className="grid gap-2 sm:grid-cols-2">
                   <Button variant="outline" className="h-12 justify-start rounded-2xl border-emerald-400/12 bg-emerald-400/[0.03] text-white hover:bg-emerald-400/[0.08]" onClick={() => onPortalAction?.("git status")}>
                     <GitBranch className="mr-2 h-4 w-4 text-emerald-300" />
                     Git status
+                  </Button>
+                  <Button variant="outline" className="h-12 justify-start rounded-2xl border-cyan-400/12 bg-cyan-400/[0.03] text-white hover:bg-cyan-400/[0.08]" onClick={() => onPortalAction?.("git pull rebase")}>
+                    <RefreshCw className="mr-2 h-4 w-4 text-cyan-300" />
+                    Pull / rebase
+                  </Button>
+                  <Button variant="outline" className="h-12 justify-start rounded-2xl border-amber-400/12 bg-amber-400/[0.03] text-white hover:bg-amber-400/[0.08]" onClick={() => onPortalAction?.("backup project")}>
+                    <FolderOpen className="mr-2 h-4 w-4 text-amber-300" />
+                    Backup projekta
                   </Button>
                   <Button variant="outline" className="h-12 justify-start rounded-2xl border-cyan-400/12 bg-cyan-400/[0.03] text-white hover:bg-cyan-400/[0.08]" onClick={() => onPortalAction?.("pokreni build")}>
                     <Play className="mr-2 h-4 w-4 text-cyan-300" />
@@ -443,20 +486,20 @@ export default function DevPanel({
                   </Button>
                   <Button className="h-12 justify-start rounded-2xl bg-emerald-400 text-slate-950 hover:bg-emerald-300" onClick={handleDeployWithMessage}>
                     <Rocket className="mr-2 h-4 w-4" />
-                    Deploy
+                    One-click deploy
                   </Button>
                 </div>
 
                 <div className="rounded-[22px] border border-emerald-400/10 bg-black/15 p-3.5">
                   <div className="mb-2 text-sm font-medium text-white/92">Commit poruka</div>
                   <div className="mb-3 text-[11px] leading-5 text-white/42">
-                    Upiši poruku i klikni commit. Ista poruka se može koristiti i za deploy.
+                    Upiši poruku pa klikni <strong>Commit</strong>. Kod <strong>One-click deploy</strong> prvo se radi backup, zatim build, commit i push.
                   </div>
                   <div className="flex gap-2">
                     <Input
                       value={commitMessage}
                       onChange={(e) => setCommitMessage(e.target.value)}
-                      placeholder="npr. fix: dev panel green polish"
+                      placeholder="npr. feat: dev tab full cockpit"
                       className="h-11 rounded-2xl border-white/10 bg-white/[0.04] text-white placeholder:text-white/25"
                     />
                     <Button className="h-11 rounded-2xl bg-white px-4 text-slate-950 hover:bg-white/90" onClick={handleCommit} disabled={!commitMessage.trim()}>
@@ -496,6 +539,31 @@ export default function DevPanel({
                   )}
                 </div>
               </div>
+            </Section>
+
+            <Section title="Backupi" subtitle="Zadnji snapshoti lokalnog projekta">
+              {(devOps?.backups || []).length === 0 ? (
+                <div className="rounded-[22px] border border-white/10 bg-white/[0.03] p-4 text-sm text-white/42">
+                  Još nema backupova. Klikni <strong>Backup projekta</strong> prije većih izmjena ili deploya.
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {devOps!.backups!.slice(0, 6).map((backup) => (
+                    <div key={backup.path || backup.name} className="rounded-[20px] border border-white/10 bg-white/[0.03] px-3 py-2.5 text-sm text-white/75">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="truncate font-medium text-white/92">{backup.name}</div>
+                          <div className="truncate text-[11px] text-white/42">{backup.path || "_agent_backups"}</div>
+                        </div>
+                        <Badge variant="outline" className="rounded-full border-amber-400/18 bg-amber-400/10 text-[10px] text-amber-100">
+                          {formatBytes(backup.size)}
+                        </Badge>
+                      </div>
+                      <div className="mt-1 text-[11px] text-white/42">{formatTime(backup.modifiedAt)}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </Section>
 
             {derivedErrors.length > 0 ? (
