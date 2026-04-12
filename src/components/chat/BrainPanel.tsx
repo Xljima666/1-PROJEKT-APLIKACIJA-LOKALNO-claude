@@ -13,6 +13,7 @@ import {
   CANVAS_W,
   CANVAS_H,
   getNodeHeight,
+  type NodeTemplate,
 } from "./brain/types";
 import { useBrainPanelTech } from "./BrainPanelTech";
 
@@ -224,13 +225,32 @@ const NodeConfigEditor = ({ node, onChange }: { node: any; onChange: (key: strin
 };
 
 // ─── Main BrainPanel ────────────────────────────────────
-interface Props { onClose: () => void; activeNodes?: string[]; }
+interface Props {
+  onClose: () => void;
+  activeNodes?: string[];
+  customCatalog?: Record<string, NodeTemplate[]>;
+  onAddNodeExternal?: ((callback: (template: NodeTemplate, x?: number, y?: number, config?: Record<string, unknown>) => void) => void) | null;
+}
 
-const BrainPanel = ({ onClose, activeNodes = [] }: Props) => {
+const BrainPanel = ({ onClose, activeNodes = [], customCatalog, onAddNodeExternal }: Props) => {
   const { state, actions } = useBrainPanelTech(activeNodes);
   const selected = state.selectedNodeData;
   const [smartPrompt, setSmartPrompt] = useState("");
   const [runExpanded, setRunExpanded] = useState(true);
+
+  useEffect(() => {
+    if (!onAddNodeExternal) return;
+    onAddNodeExternal((template, x, y, config) =>
+      actions.handleAddNode(
+        {
+          ...template,
+          defaultConfig: { ...(template.defaultConfig || {}), ...(config || {}) },
+        },
+        x,
+        y,
+      ),
+    );
+  }, [actions.handleAddNode, onAddNodeExternal]);
 
   // ── Auto-start recording as soon as panel opens ──────
   useEffect(() => {
@@ -359,7 +379,7 @@ const BrainPanel = ({ onClose, activeNodes = [] }: Props) => {
 
       {/* Body */}
       <div className="flex-1 flex min-h-0 relative z-10">
-        <NodePalette onAddNode={(template, x, y) => actions.handleAddNode(template, x, y)} />
+        <NodePalette catalog={customCatalog} onAddNode={(template, x, y) => actions.handleAddNode(template, x, y)} />
 
         {/* Canvas */}
         <div ref={state.containerRef}
