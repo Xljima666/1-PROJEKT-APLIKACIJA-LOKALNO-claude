@@ -207,11 +207,14 @@ export default function LearningPanel({ onClose }: Props) {
     setPreviewRefreshing(false);
   }, [actions]);
 
-  // ── Auto-refresh preview every 4s while recording ───
+  // Auto-refresh preview every 8s while recording (delayed start)
   useEffect(() => {
     if (!state.recording) return;
-    const id = setInterval(refreshPreview, 4000);
-    return () => clearInterval(id);
+    const id = setTimeout(() => {
+      const interval = setInterval(refreshPreview, 8000);
+      return () => clearInterval(interval);
+    }, 5000); // Čekaj 5s da se browser potpuno učita
+    return () => clearTimeout(id);
   }, [state.recording, refreshPreview]);
 
   return (
@@ -318,13 +321,22 @@ export default function LearningPanel({ onClose }: Props) {
 
         <div className="h-4 w-px shrink-0" style={{ background: border }} />
 
-        {/* Record / Stop */}
+        {/* URL + Record / Stop */}
         {!state.recording ? (
-          <button onClick={actions.startRecording}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-amber-100 text-xs shrink-0"
-            style={{ background: "rgba(245,158,11,0.12)", borderColor: "rgba(245,158,11,0.20)" }}>
-            <Circle className="w-3.5 h-3.5 fill-amber-400 text-amber-400" /> Record
-          </button>
+          <div className="flex items-center gap-1 shrink-0">
+            <input
+              value={state.startUrl || ""}
+              onChange={e => actions.setStartUrl(e.target.value)}
+              placeholder="https://oss.uredjenazemlja.hr/"
+              className="h-8 w-52 rounded-l-xl border-y border-l px-2.5 text-xs text-white/75 placeholder:text-white/25 outline-none"
+              style={{ background: "rgba(255,255,255,0.04)", borderColor: "rgba(245,158,11,0.20)" }}
+            />
+            <button onClick={() => actions.startRecording(state.startUrl)}
+              className="flex items-center gap-1.5 px-3 h-8 rounded-r-xl border text-amber-100 text-xs"
+              style={{ background: "rgba(245,158,11,0.14)", borderColor: "rgba(245,158,11,0.20)" }}>
+              <Circle className="w-3 h-3 fill-amber-400 text-amber-400" /> Record
+            </button>
+          </div>
         ) : (
           <button onClick={actions.stopRecording}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-red-100 text-xs shrink-0 animate-pulse"
@@ -593,15 +605,3 @@ export default function LearningPanel({ onClose }: Props) {
               <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-center">
                 <Monitor className="w-6 h-6 text-white/15" />
                 <p className="text-xs text-white/20">Klikni Preview za screenshot</p>
-                <p className="text-[10px] text-white/12">ili se osvježi automatski dok snimaš</p>
-              </div>
-            )}
-          </div>
-          {state.previewTitle && (
-            <p className="text-[10px] text-white/35 truncate">{state.previewTitle}</p>
-          )}
-        </div>
-      </div>
-    </motion.div>
-  );
-}
