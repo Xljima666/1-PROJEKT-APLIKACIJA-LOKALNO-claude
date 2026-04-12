@@ -31,6 +31,7 @@ interface Conversation {
 
 // CodeBlock type imported from ChatMessage
 const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/chat`;
+const DEV_CONTROL_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/dev-control`;
 
 const MODEL_LABELS: Record<"flash" | "pro" | "flash3" | "pro3", string> = {
   flash: "GPT-5.4-mini",
@@ -991,6 +992,28 @@ const devPanelPreview = {
     }
   };
 
+  const callDevControlAction = async (action: string, payload: Record<string, unknown> = {}) => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(DEV_CONTROL_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+          apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+        },
+        body: JSON.stringify({ action, ...payload }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        return { success: false, error: data?.error || `DEV control error (${res.status})`, ...(data || {}) };
+      }
+      return data;
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : "DEV control request failed" };
+    }
+  };
+
   const checkAgentHealth = async () => {
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -1193,7 +1216,7 @@ const devPanelPreview = {
         addLog("warn", "Build bez project roota");
         return true;
       }
-      const result = await callAgentDirect("run_build", { cwd: projectRoot });
+      const result = await callDevControlAction("run_build", { projectRoot });
       const outputParts = [
         result?.error ? `ERROR: ${result.error}` : "",
         result?.stdout || "",
@@ -1207,9 +1230,11 @@ const devPanelPreview = {
       if (result?.success) {
         pushAssistantMessage(`✅ Build je prošao.\n\n${makeCodeFence("build.log", output)}${logHints ? `\n\nLogovi:\n${logHints}` : ""}`);
         addLog("ok", "Build OK");
+        window.setTimeout(() => { void refreshDevOps(); }, 250);
       } else {
         pushAssistantMessage(`❌ Build je pao.\n\n${makeCodeFence("build.log", output)}${logHints ? `\n\nLogovi:\n${logHints}` : ""}${extraHint}`);
         addLog("warn", `Build failed${result?.error ? `: ${result.error}` : ""}`);
+        window.setTimeout(() => { void refreshDevOps(); }, 250);
       }
       return true;
     }
@@ -1221,14 +1246,16 @@ const devPanelPreview = {
         addLog("warn", "Git status bez project roota");
         return true;
       }
-      const result = await callAgentDirect("git_status", { repo_path: projectRoot });
+      const result = await callDevControlAction("git_status", { projectRoot });
       const output = formatCommandResult(result, "Nema git status outputa.");
       if (result?.success) {
         pushAssistantMessage(`### Git status\n\n**Repo:** \`${projectRoot}\`\n\n${makeCodeFence("git-status.txt", output)}`);
         addLog("ok", "Git status OK");
+        window.setTimeout(() => { void refreshDevOps(); }, 250);
       } else {
         pushAssistantMessage(`❌ Git status nije uspio.\n\n${makeCodeFence("git-status.txt", output)}`);
         addLog("warn", `Git status failed${result?.error ? `: ${result.error}` : ""}`);
+        window.setTimeout(() => { void refreshDevOps(); }, 250);
       }
       return true;
     }
@@ -1247,14 +1274,16 @@ const devPanelPreview = {
         addLog("warn", "Git commit bez poruke");
         return true;
       }
-      const result = await callAgentDirect("git_commit", { repo_path: projectRoot, message });
+      const result = await callDevControlAction("git_commit", { projectRoot, message });
       const output = formatCommandResult(result, "Nema git commit outputa.");
       if (result?.success) {
         pushAssistantMessage(`✅ Git commit je prošao.\n\n**Poruka:** \`${message}\`\n\n${makeCodeFence("git-commit.txt", output)}`);
         addLog("ok", `Git commit: ${message}`);
+        window.setTimeout(() => { void refreshDevOps(); }, 250);
       } else {
         pushAssistantMessage(`❌ Git commit nije uspio.\n\n${makeCodeFence("git-commit.txt", output)}`);
         addLog("warn", `Git commit failed${result?.error ? `: ${result.error}` : ""}`);
+        window.setTimeout(() => { void refreshDevOps(); }, 250);
       }
       return true;
     }
@@ -1268,17 +1297,19 @@ const devPanelPreview = {
         return true;
       }
       const branch = cleanQuoted(match[1] || "");
-      const result = await callAgentDirect("git_push", {
-        repo_path: projectRoot,
+      const result = await callDevControlAction("git_push", {
+        projectRoot,
         branch: branch || undefined,
       });
       const output = formatCommandResult(result, "Nema git push outputa.");
       if (result?.success) {
         pushAssistantMessage(`✅ Git push je prošao.${branch ? `\n\n**Branch:** \`${branch}\`` : ""}\n\n${makeCodeFence("git-push.txt", output)}`);
         addLog("ok", `Git push${branch ? `: ${branch}` : ""}`);
+        window.setTimeout(() => { void refreshDevOps(); }, 250);
       } else {
         pushAssistantMessage(`❌ Git push nije uspio.\n\n${makeCodeFence("git-push.txt", output)}`);
         addLog("warn", `Git push failed${result?.error ? `: ${result.error}` : ""}`);
+        window.setTimeout(() => { void refreshDevOps(); }, 250);
       }
       return true;
     }
@@ -1295,24 +1326,27 @@ const devPanelPreview = {
       const message = normalizeGitMessage(match[1] || "") || `deploy ${new Date().toISOString().slice(0, 16).replace("T", " ")}`;
       pushAssistantMessage(`### Deploy\n\nPokrećem build → git commit → git push...`);
 
-      const buildResult = await callAgentDirect("run_build", { cwd: projectRoot });
+      const buildResult = await callDevControlAction("run_build", { projectRoot });
       if (!buildResult?.success) {
         pushAssistantMessage(`❌ Deploy zaustavljen na buildu.\n\n${makeCodeFence("build.log", formatCommandResult(buildResult, "Nema build outputa."))}`);
         addLog("warn", "Deploy stopped at build");
+        window.setTimeout(() => { void refreshDevOps(); }, 250);
         return true;
       }
 
-      const commitResult = await callAgentDirect("git_commit", { repo_path: projectRoot, message });
+      const commitResult = await callDevControlAction("git_commit", { projectRoot, message });
       if (!commitResult?.success) {
         pushAssistantMessage(`❌ Build je prošao, ali git commit nije uspio.\n\n${makeCodeFence("git-commit.txt", formatCommandResult(commitResult, "Nema git commit outputa."))}`);
         addLog("warn", "Deploy stopped at git commit");
+        window.setTimeout(() => { void refreshDevOps(); }, 250);
         return true;
       }
 
-      const pushResult = await callAgentDirect("git_push", { repo_path: projectRoot });
+      const pushResult = await callDevControlAction("git_push", { projectRoot });
       if (!pushResult?.success) {
         pushAssistantMessage(`❌ Build i commit su prošli, ali git push nije uspio.\n\n${makeCodeFence("git-push.txt", formatCommandResult(pushResult, "Nema git push outputa."))}`);
         addLog("warn", "Deploy stopped at git push");
+        window.setTimeout(() => { void refreshDevOps(); }, 250);
         return true;
       }
 
@@ -1320,6 +1354,7 @@ const devPanelPreview = {
         `✅ Deploy je prošao.\n\n**Commit:** \`${message}\`\n\n${makeCodeFence("build.log", formatCommandResult(buildResult, "Nema build outputa."))}`
       );
       addLog("ok", "Deploy completed");
+      window.setTimeout(() => { void refreshDevOps(); }, 500);
       return true;
     }
 
@@ -1808,9 +1843,35 @@ const devPanelPreview = {
     }
   };
 
-  const handleStartAgent = () => {
-    setInput("Pokreni agent server naredbom: cd 'D:\\1 PROJEKT APLIKACIJA LOKALNO\\1 PROJEKT APLIKACIJA LOKALNO claude\\docs\\agent-server' i pokreni start_agent.bat");
-    setTimeout(() => inputRef.current?.focus(), 100);
+  const handleStartAgent = async () => {
+    const command = String.raw`cd /d "D:\1 PROJEKT APLIKACIJA LOKALNO\1 PROJEKT APLIKACIJA LOKALNO claude\docs\agent-server" && start_agent.bat`;
+
+    if (agentOnline) {
+      addLog("ok", "Agent je već online");
+      pushAssistantMessage("✅ Agent je već online.");
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(command);
+      addLog("info", "Start agent komanda kopirana u clipboard");
+      pushAssistantMessage(`▶ **Start agent** je ručan korak na lokalnom PC-u.
+
+Komanda je kopirana u clipboard:
+
+\`${command}\`
+
+Pokreni je u Windows Terminalu ili dvoklikni **start_agent.bat**, pa onda klikni **Check agent**.`);
+    } catch {
+      addLog("info", "Prikaži ručne korake za start agenta");
+      pushAssistantMessage(`▶ **Start agent** je ručan korak na lokalnom PC-u.
+
+Pokreni ovo:
+
+\`${command}\`
+
+Nakon toga klikni **Check agent**.`);
+    }
   };
 
   const handleReaction = (index: number, reaction: "up" | "down") => {
