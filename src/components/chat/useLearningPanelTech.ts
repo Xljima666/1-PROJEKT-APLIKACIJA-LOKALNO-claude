@@ -51,6 +51,7 @@ export function useLearningPanelTech() {
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [flowName, setFlowName] = useState("Learning Flow");
+  const [startUrl, setStartUrl] = useState("https://oss.uredjenazemlja.hr/");
   const [agentOnline, setAgentOnline] = useState<boolean | null>(null);
   const [nodes, setNodes] = useState<LearningNodeData[]>([
     {
@@ -310,13 +311,25 @@ export function useLearningPanelTech() {
     log(`✓ Flow pretvoren u ${mapped.length - 1} nodeova`, "success");
   }, [connectSequentially, log]);
 
-  const startRecording = useCallback(async () => {
+  const startRecording = useCallback(async (url?: string) => {
     if (isRecordingRef.current) return;
+    const targetUrl = url || startUrl || "about:blank";
+
+    // Step 1: Open/navigate browser so page exists
+    log("Otvaranje browsera...", "info");
+    callAgent("playwright", { action: "navigate", url: targetUrl, timeout: 45000 })
+      .then(r => log(r?.success ? `✓ Browser otvoren: ${targetUrl}` : `Upozorenje: ${r?.error || ""}`, r?.success ? "success" : "info"))
+      .catch(() => {});
+    // Kratka pauza da browser ima vremena startati
+    await new Promise(r => setTimeout(r, 2000));
+    log("Browser se otvara u pozadini...", "info");
+
+    // Step 2: Start recording
     const res = await callAgent("record/start", { name: flowName || "learning_flow" });
     if (res?.success) {
       setRecording(true);
       isRecordingRef.current = true;
-      log("✓ Učenje pokrenuto. Klikaj u browseru.", "success");
+      log("✓ Snimanje pokrenuto. Klikaj u Chromiumu.", "success");
 
       // Poll every 1.2s for new browser events → real-time nodes
       pollIntervalRef.current = setInterval(async () => {
@@ -591,6 +604,7 @@ export function useLearningPanelTech() {
     state: {
       containerRef,
       flowName,
+      startUrl,
       agentOnline,
       nodes,
       connections,
@@ -627,18 +641,4 @@ export function useLearningPanelTech() {
       handleMinimapNav,
       startRecording,
       stopRecording,
-      loadPreview,
-      improveWithAI,
-      generateFlowFromPrompt,
-      runFlowAnimated,
-      saveFlow,
-      loadFlow,
-      deleteSelected,
-      connectSequentially,
-      setNodes,
-      setConnections,
-      convertStepsToNodes,
-      exportFlowToBrain,
-    },
-  };
-}
+      setStartUrl,
