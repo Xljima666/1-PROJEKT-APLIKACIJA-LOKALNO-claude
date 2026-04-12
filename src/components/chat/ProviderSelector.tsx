@@ -9,7 +9,7 @@ export interface ProviderModel {
   label: string;
   badge: string;
 }
-
+ 
 export interface ProviderConfig {
   label: string;
   icon: string;
