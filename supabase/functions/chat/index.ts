@@ -3769,6 +3769,129 @@ async function saveToVectorMemory(
 }
 
 
+// ════════════════════════════════════════════════════════════════
+//   LOKALNI 0 MOZAK — hibridni recall/save preko agent servera
+//   Master: lokalni 0 MOZAK (markdown + numpy vektori)
+//   Mirror: Supabase stellan_memory (fallback kad PC nije online)
+// ════════════════════════════════════════════════════════════════
+
+const LOCAL_BRAIN_TIMEOUT_MS = 1500;  // brz timeout da ne usporava chat ako je lokal spor
+const LOCAL_BRAIN_LEARN_TIMEOUT_MS = 20000;  // duži za async learning u pozadini
+
+async function callLocalBrain(path: string, body?: any, timeoutMs = LOCAL_BRAIN_TIMEOUT_MS): Promise<any | null> {
+  const AGENT_SERVER_URL = Deno.env.get("AGENT_SERVER_URL");
+  const AGENT_API_KEY = Deno.env.get("AGENT_API_KEY");
+  if (!AGENT_SERVER_URL || !AGENT_API_KEY) return null;
+  const baseUrl = sanitizeAgentServerUrl(AGENT_SERVER_URL);
+  if (!baseUrl) return null;
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(`${baseUrl}${path}`, {
+      method: body !== undefined ? "POST" : "GET",
+      headers: {
+        "Content-Type": "application/json",
+        "X-API-Key": AGENT_API_KEY,
+      },
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      console.warn(`[LocalBrain] ${path} vratio ${res.status}`);
+      return null;
+    }
+    return await res.json();
+  } catch (e: any) {
+    if (e?.name !== "AbortError") {
+      console.warn(`[LocalBrain] ${path} greška:`, e?.message || e);
+    }
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Dohvaća kontekst iz lokalnog brain-a. Uvijek siguran poziv — vraća "" ako lokal nije dostupan.
+ * Spaja: vector search znanja + hijerarhijsku memoriju (episodic/semantic/procedural) + relevantne lekcije.
+ */
+async function getLocalBrainContext(query: string): Promise<string> {
+  if (!query || query.length < 3) return "";
+
+  // Paralelno dohvati znanje i sjećanja
+  const [knowledgeRes, memoryRes] = await Promise.all([
+    callLocalBrain("/brain/search_knowledge", { query, k: 3, rerank: false }),
+    callLocalBrain("/brain/recall_memory", { query, k: 3, layer: "all" }),
+  ]);
+
+  const blocks: string[] = [];
+
+  if (knowledgeRes?.results?.length) {
+    blocks.push("### LOKALNO ZNANJE (0 MOZAK)");
+    for (const r of knowledgeRes.results) {
+      const text = (r.text || "").toString().slice(0, 400);
+      blocks.push(`- [${r.file || "?"}] ${text}`);
+    }
+  }
+
+  if (memoryRes?.results) {
+    const layers = memoryRes.results as Record<string, any[]>;
+    for (const [layerName, items] of Object.entries(layers)) {
+      if (!items || items.length === 0) continue;
+      blocks.push(`### ${layerName.toUpperCase()} MEMORIJA`);
+      for (const it of items) {
+        const txt = (it.text || it.fact || it.name || "").toString().slice(0, 300);
+        if (txt) blocks.push(`- ${txt}`);
+      }
+    }
+  }
+
+  return blocks.length ? blocks.join("\n") : "";
+}
+
+/**
+ * Dohvaća sistemski prompt iz lokalnog brain-a (identity + rules + knowledge index + learned_lessons).
+ * Vraća null ako lokal nije dostupan — tada se koristi postojeći build flow.
+ */
+async function getLocalBrainSystemPrompt(user: string, recallQuery?: string): Promise<string | null> {
+  const res = await callLocalBrain("/brain/system_prompt", {
+    user,
+    include_recall_for: recallQuery || null,
+  }, 2000);
+  return res?.prompt || null;
+}
+
+/**
+ * Async mirror u lokalni brain nakon završenog razgovora.
+ * Vrti se u pozadini — ne blokira response korisniku.
+ * Radi dvije stvari:
+ *   1. add_episode — sirov zapis razgovora
+ *   2. learn_from_conversation — LLM ekstraktira činjenice/procedure i upisuje ih u semantic/procedural layer
+ */
+async function mirrorToLocalBrain(userText: string, assistantText: string, userId: string): Promise<void> {
+  try {
+    // 1. Episodic snapshot
+    await callLocalBrain("/brain/add_episode", {
+      user: userId,
+      text: `Korisnik: ${userText.slice(0, 500)}\nStellan: ${assistantText.slice(0, 500)}`,
+      meta: { source: "chat" },
+    }, 3000);
+
+    // 2. Learning (async, tolerira spor — veći timeout)
+    const transcript = `Korisnik: ${userText}\nStellan: ${assistantText.slice(0, 1500)}`;
+    await callLocalBrain("/brain/learn_from_conversation", {
+      transcript,
+      user: userId,
+    }, LOCAL_BRAIN_LEARN_TIMEOUT_MS);
+  } catch (e) {
+    console.warn("[LocalBrain] Mirror failed (non-fatal):", e);
+  }
+}
+
+// ════════════════════════════════════════════════════════════════
+
+
 async function searchIdeasFromMemory(supabaseAdmin: any, userId: string, query: string, openaiApiKey: string): Promise<string> {
   try {
     // If specific query, use vector search
@@ -3973,7 +4096,17 @@ serve(async (req) => {
       vectorMemories = await searchVectorMemory(supabaseAdmin, user_id, lastUserText, OPENAI_API_KEY, 10);
     }
 
-    const memoryContext = [recentMemories, vectorMemories].filter(Boolean).join("\n");
+    // ── Lokalni 0 MOZAK context (master brain, hibridno) ──────
+    // Ne blokira ako je lokal offline — callLocalBrain ima ugrađen timeout
+    let localBrainContext = "";
+    if (lastUserText.length > 3) {
+      localBrainContext = await getLocalBrainContext(lastUserText);
+      if (localBrainContext) {
+        console.log(`[LocalBrain] Učitan kontekst (${localBrainContext.length} chars)`);
+      }
+    }
+
+    const memoryContext = [localBrainContext, recentMemories, vectorMemories].filter(Boolean).join("\n");
     // ── Brain/Drive tools — dinamički check ──────────────
     let enableDriveTools = false;
     let brainAccessToken: string | null = null;
@@ -4271,6 +4404,18 @@ ${memoryContext ? `════════════════════�
           await saveToVectorMemory(supabaseAdmin, user_id, messages, shared.fullResponse || "", OPENAI_API_KEY);
         } catch (e) {
           console.error("Vector save error:", e);
+        }
+
+        // ── Hibridni mirror u lokalni 0 MOZAK ──────────────────
+        // Zrcali razgovor u lokalni master brain (async, non-blocking)
+        try {
+          const lastUserForMirror = [...messages].reverse().find((m: any) => m.role === "user");
+          const userTextForMirror = typeof lastUserForMirror?.content === "string" ? lastUserForMirror.content : "";
+          if (userTextForMirror && userTextForMirror.length >= 20) {
+            await mirrorToLocalBrain(userTextForMirror, shared.fullResponse || "", user_id);
+          }
+        } catch (e) {
+          console.warn("[LocalBrain] Mirror error (non-fatal):", e);
         }
       })
       .catch((e) => console.error("Persistence error:", e));
