@@ -2,7 +2,8 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type",
 };
 
 type DevOpsLogLevel = "info" | "success" | "warning" | "error";
@@ -60,7 +61,10 @@ const parseGitStatus = (stdout?: string | null) => {
   const raw = String(stdout || "").trim();
   const lines = raw.split(/\r?\n/).filter(Boolean);
   const header = lines[0] || "";
-  const changedFiles = lines.slice(1).map((line) => line.trim()).filter(Boolean);
+  const changedFiles = lines
+    .slice(1)
+    .map((line) => line.trim())
+    .filter(Boolean);
 
   let branch = "";
   const branchMatch = header.match(/^##\s+([^\.\s]+)/);
@@ -78,7 +82,9 @@ const fetchJson = async (url: string, init?: RequestInit) => {
   const res = await fetch(url, init);
   const data = await res.json().catch(() => null);
   if (!res.ok) {
-    throw new Error(data?.error?.message || data?.message || `HTTP ${res.status}`);
+    throw new Error(
+      data?.error?.message || data?.message || `HTTP ${res.status}`,
+    );
   }
   return data;
 };
@@ -116,75 +122,194 @@ const agentRequest = async (
 };
 
 const normalizeMessage = (value?: string | null) =>
-  String(value || "").trim().replace(/^['"`]|['"`]$/g, "");
+  String(value || "")
+    .trim()
+    .replace(/^['"`]|['"`]$/g, "");
 
 serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  if (req.method === "OPTIONS")
+    return new Response("ok", { headers: corsHeaders });
 
   try {
-    const body = req.method === "POST" ? await req.json().catch(() => ({})) : {};
-    const projectRoot = typeof body?.projectRoot === "string" ? body.projectRoot.trim() : "";
+    const body =
+      req.method === "POST" ? await req.json().catch(() => ({})) : {};
+    const projectRoot =
+      typeof body?.projectRoot === "string" ? body.projectRoot.trim() : "";
 
     const rawAgentUrl = Deno.env.get("AGENT_SERVER_URL");
     const agentBaseUrl = cleanUrl(rawAgentUrl);
     const agentApiKey = Deno.env.get("AGENT_API_KEY") || "";
 
     const githubToken = Deno.env.get("GITHUB_TOKEN") || "";
-    const githubOwner = Deno.env.get("GITHUB_OWNER") || Deno.env.get("DEV_GITHUB_OWNER") || "";
-    const githubRepo = Deno.env.get("GITHUB_REPO") || Deno.env.get("DEV_GITHUB_REPO") || "";
+    const githubOwner =
+      Deno.env.get("GITHUB_OWNER") || Deno.env.get("DEV_GITHUB_OWNER") || "";
+    const githubRepo =
+      Deno.env.get("GITHUB_REPO") || Deno.env.get("DEV_GITHUB_REPO") || "";
 
     const vercelToken = Deno.env.get("VERCEL_TOKEN") || "";
     const vercelProjectId = Deno.env.get("VERCEL_PROJECT_ID") || "";
     const vercelTeamId = Deno.env.get("VERCEL_TEAM_ID") || "";
 
-    const action = typeof body?.action === "string" ? body.action.trim() : "status";
+    const action =
+      typeof body?.action === "string" ? body.action.trim() : "status";
 
     if (action && action !== "status") {
-      if (!projectRoot) return json({ success: false, error: "Project root nije postavljen." }, 400);
-      if (!agentBaseUrl || !agentApiKey) return json({ success: false, error: "Agent nije konfiguriran." }, 500);
+      if (!projectRoot)
+        return json(
+          { success: false, error: "Project root nije postavljen." },
+          400,
+        );
+      if (!agentBaseUrl || !agentApiKey)
+        return json({ success: false, error: "Agent nije konfiguriran." }, 500);
 
       try {
         if (action === "git_status") {
-          const result = await agentRequest(agentBaseUrl, agentApiKey, "git_status", { repo_path: projectRoot });
-          return json({ success: true, action, message: "Git status dohvaćen.", result, summary: result?.stdout || "" });
+          const result = await agentRequest(
+            agentBaseUrl,
+            agentApiKey,
+            "git_status",
+            { repo_path: projectRoot },
+          );
+          return json({
+            success: true,
+            action,
+            message: "Git status dohvaćen.",
+            result,
+            summary: result?.stdout || "",
+          });
         }
         if (action === "git_commit") {
           const message = normalizeMessage(body?.message as string);
-          if (!message) return json({ success: false, error: "Commit poruka je obavezna." }, 400);
-          const result = await agentRequest(agentBaseUrl, agentApiKey, "git_commit", { repo_path: projectRoot, message });
-          return json({ success: true, action, message: `Commit spremljen: ${message}`, result, summary: [result?.stdout, result?.stderr].filter(Boolean).join("\n\n") });
+          if (!message)
+            return json(
+              { success: false, error: "Commit poruka je obavezna." },
+              400,
+            );
+          const result = await agentRequest(
+            agentBaseUrl,
+            agentApiKey,
+            "git_commit",
+            { repo_path: projectRoot, message },
+          );
+          return json({
+            success: true,
+            action,
+            message: `Commit spremljen: ${message}`,
+            result,
+            summary: [result?.stdout, result?.stderr]
+              .filter(Boolean)
+              .join("\n\n"),
+          });
         }
         if (action === "git_push") {
           const branch = normalizeMessage(body?.branch as string) || undefined;
-          const result = await agentRequest(agentBaseUrl, agentApiKey, "git_push", { repo_path: projectRoot, branch });
-          return json({ success: true, action, message: branch ? `Git push na ${branch} prošao.` : "Git push prošao.", result, summary: [result?.stdout, result?.stderr].filter(Boolean).join("\n\n") });
+          const result = await agentRequest(
+            agentBaseUrl,
+            agentApiKey,
+            "git_push",
+            { repo_path: projectRoot, branch },
+          );
+          return json({
+            success: true,
+            action,
+            message: branch
+              ? `Git push na ${branch} prošao.`
+              : "Git push prošao.",
+            result,
+            summary: [result?.stdout, result?.stderr]
+              .filter(Boolean)
+              .join("\n\n"),
+          });
         }
         if (action === "git_pull_rebase") {
           const branch = normalizeMessage(body?.branch as string) || undefined;
-          const result = await agentRequest(agentBaseUrl, agentApiKey, "git_pull_rebase", { repo_path: projectRoot, branch });
-          return json({ success: true, action, message: "Git pull --rebase prošao.", result, summary: [result?.stdout, result?.stderr].filter(Boolean).join("\n\n") });
+          const result = await agentRequest(
+            agentBaseUrl,
+            agentApiKey,
+            "git_pull_rebase",
+            { repo_path: projectRoot, branch },
+          );
+          return json({
+            success: true,
+            action,
+            message: "Git pull --rebase prošao.",
+            result,
+            summary: [result?.stdout, result?.stderr]
+              .filter(Boolean)
+              .join("\n\n"),
+          });
         }
         if (action === "build") {
-          const result = await agentRequest(agentBaseUrl, agentApiKey, "run_build", { cwd: projectRoot });
-          return json({ success: true, action, message: "Build je prošao.", result, summary: [result?.stdout, result?.stderr].filter(Boolean).join("\n\n") });
+          const result = await agentRequest(
+            agentBaseUrl,
+            agentApiKey,
+            "run_build",
+            { cwd: projectRoot },
+          );
+          return json({
+            success: true,
+            action,
+            message: "Build je prošao.",
+            result,
+            summary: [result?.stdout, result?.stderr]
+              .filter(Boolean)
+              .join("\n\n"),
+          });
+        }
+        if (action === "backup_project") {
+          return json(
+            {
+              success: false,
+              error:
+                "Backup projekta još nema backend endpoint u dev-control funkciji.",
+            },
+            501,
+          );
         }
         if (action === "deploy") {
-          const message = normalizeMessage(body?.message as string) || `deploy ${new Date().toISOString().slice(0, 16).replace("T", " ")}`;
-          const buildResult = await agentRequest(agentBaseUrl, agentApiKey, "run_build", { cwd: projectRoot });
-          const commitResult = await agentRequest(agentBaseUrl, agentApiKey, "git_commit", { repo_path: projectRoot, message });
-          const pushResult = await agentRequest(agentBaseUrl, agentApiKey, "git_push", { repo_path: projectRoot });
+          const message =
+            normalizeMessage(body?.message as string) ||
+            `deploy ${new Date().toISOString().slice(0, 16).replace("T", " ")}`;
+          const buildResult = await agentRequest(
+            agentBaseUrl,
+            agentApiKey,
+            "run_build",
+            { cwd: projectRoot },
+          );
+          const commitResult = await agentRequest(
+            agentBaseUrl,
+            agentApiKey,
+            "git_commit",
+            { repo_path: projectRoot, message },
+          );
+          const pushResult = await agentRequest(
+            agentBaseUrl,
+            agentApiKey,
+            "git_push",
+            { repo_path: projectRoot },
+          );
           return json({
             success: true,
             action,
             message: `Deploy flow završen: ${message}`,
             result: { buildResult, commitResult, pushResult },
-            summary: [buildResult?.stdout, commitResult?.stdout, pushResult?.stdout].filter(Boolean).join("\n\n"),
+            summary: [
+              buildResult?.stdout,
+              commitResult?.stdout,
+              pushResult?.stdout,
+            ]
+              .filter(Boolean)
+              .join("\n\n"),
           });
         }
 
-        return json({ success: false, error: `Nepoznata DEV akcija: ${action}` }, 400);
+        return json(
+          { success: false, error: `Nepoznata DEV akcija: ${action}` },
+          400,
+        );
       } catch (error) {
-        const message = error instanceof Error ? error.message : "DEV akcija nije uspjela.";
+        const message =
+          error instanceof Error ? error.message : "DEV akcija nije uspjela.";
         return json({ success: false, error: message }, 500);
       }
     }
@@ -210,7 +335,10 @@ serve(async (req) => {
         configured: !!(githubOwner && githubRepo),
         source: "none" as "agent" | "github" | "none",
         repo: githubOwner && githubRepo ? `${githubOwner}/${githubRepo}` : null,
-        repoUrl: githubOwner && githubRepo ? `https://github.com/${githubOwner}/${githubRepo}` : null,
+        repoUrl:
+          githubOwner && githubRepo
+            ? `https://github.com/${githubOwner}/${githubRepo}`
+            : null,
         branch: null,
         statusText: null,
         dirty: false,
@@ -271,7 +399,8 @@ serve(async (req) => {
         source: "system",
         level: "warning",
         title: "GitHub status nije konfiguriran",
-        detail: "Postavi GITHUB_OWNER, GITHUB_REPO i GITHUB_TOKEN za repo status.",
+        detail:
+          "Postavi GITHUB_OWNER, GITHUB_REPO i GITHUB_TOKEN za repo status.",
       });
     }
 
@@ -282,7 +411,8 @@ serve(async (req) => {
         source: "system",
         level: "warning",
         title: "Vercel status nije konfiguriran",
-        detail: "Postavi VERCEL_TOKEN i VERCEL_PROJECT_ID za build/deploy status.",
+        detail:
+          "Postavi VERCEL_TOKEN i VERCEL_PROJECT_ID za build/deploy status.",
       });
     }
 
@@ -311,7 +441,8 @@ serve(async (req) => {
           at: healthData?.timestamp || undefined,
         });
       } catch (error) {
-        const message = error instanceof Error ? error.message : "Agent nije dostupan.";
+        const message =
+          error instanceof Error ? error.message : "Agent nije dostupan.";
         snapshot.agent.error = message;
         errors.push(message);
         logs.push({
@@ -332,11 +463,18 @@ serve(async (req) => {
           "User-Agent": "GeoTerra-Dev-Control/1.0",
         };
 
-        const repoData = await fetchJson(`https://api.github.com/repos/${githubOwner}/${githubRepo}`, { headers });
+        const repoData = await fetchJson(
+          `https://api.github.com/repos/${githubOwner}/${githubRepo}`,
+          { headers },
+        );
         const defaultBranch = repoData?.default_branch || "main";
-        const commitData = await fetchJson(`https://api.github.com/repos/${githubOwner}/${githubRepo}/commits/${defaultBranch}`, { headers });
+        const commitData = await fetchJson(
+          `https://api.github.com/repos/${githubOwner}/${githubRepo}/commits/${defaultBranch}`,
+          { headers },
+        );
 
-        snapshot.git.source = snapshot.agent.online && projectRoot ? "agent" : "github";
+        snapshot.git.source =
+          snapshot.agent.online && projectRoot ? "agent" : "github";
         snapshot.git.branch = defaultBranch;
         snapshot.git.latestCommit = {
           sha: commitData?.sha || "",
@@ -357,7 +495,10 @@ serve(async (req) => {
           href: commitData?.html_url || undefined,
         });
       } catch (error) {
-        const message = error instanceof Error ? error.message : "GitHub status nije dostupan.";
+        const message =
+          error instanceof Error
+            ? error.message
+            : "GitHub status nije dostupan.";
         snapshot.git.error = message;
         errors.push(message);
         logs.push({
@@ -407,15 +548,24 @@ serve(async (req) => {
         const buildLogs = await fetchJson(`${agentBaseUrl}/read_logs`, {
           method: "POST",
           headers: agentHeaders,
-          body: JSON.stringify({ cwd: projectRoot, log_name: "build", max_chars: 5000 }),
+          body: JSON.stringify({
+            cwd: projectRoot,
+            log_name: "build",
+            max_chars: 5000,
+          }),
         }).catch(() => null);
 
-        const logDetail = [buildLogs?.stdout, buildLogs?.stderr].filter(Boolean).join("\n\n").trim();
+        const logDetail = [buildLogs?.stdout, buildLogs?.stderr]
+          .filter(Boolean)
+          .join("\n\n")
+          .trim();
         if (logDetail) {
           logs.push({
             id: "agent-build-log",
             source: "agent",
-            level: /error|failed|fail|vite build/i.test(logDetail) ? "warning" : "info",
+            level: /error|failed|fail|vite build/i.test(logDetail)
+              ? "warning"
+              : "info",
             title: "Zadnji local build log",
             detail: logDetail.slice(-4000),
           });
@@ -446,7 +596,10 @@ serve(async (req) => {
           }
         }
       } catch (error) {
-        const message = error instanceof Error ? error.message : "Agent git status nije dostupan.";
+        const message =
+          error instanceof Error
+            ? error.message
+            : "Agent git status nije dostupan.";
         snapshot.git.error = snapshot.git.error || message;
         errors.push(message);
         logs.push({
@@ -473,7 +626,9 @@ serve(async (req) => {
           },
         });
 
-        const deployments = Array.isArray(deploymentData?.deployments) ? deploymentData.deployments : [];
+        const deployments = Array.isArray(deploymentData?.deployments)
+          ? deploymentData.deployments
+          : [];
         snapshot.deployments = deployments.slice(0, 6).map((item: any) => {
           const state = mapVercelStatus(item?.state || item?.readyState);
           return {
@@ -483,9 +638,12 @@ serve(async (req) => {
             inspectorUrl: item?.inspectorUrl || null,
             target: item?.target || null,
             branch: item?.meta?.githubCommitRef || null,
-            commitSha: item?.meta?.githubCommitSha || item?.meta?.githubSha || null,
+            commitSha:
+              item?.meta?.githubCommitSha || item?.meta?.githubSha || null,
             commitMessage: item?.meta?.githubCommitMessage || null,
-            createdAt: item?.createdAt ? new Date(item.createdAt).toISOString() : null,
+            createdAt: item?.createdAt
+              ? new Date(item.createdAt).toISOString()
+              : null,
           };
         });
 
@@ -505,7 +663,14 @@ serve(async (req) => {
           logs.push({
             id: `vercel-${latest.id}`,
             source: "vercel",
-            level: latest.status === "ready" ? "success" : latest.status === "error" ? "error" : latest.status === "building" ? "warning" : "info",
+            level:
+              latest.status === "ready"
+                ? "success"
+                : latest.status === "error"
+                  ? "error"
+                  : latest.status === "building"
+                    ? "warning"
+                    : "info",
             title: `Vercel ${label}`,
             detail: latest.commitMessage || latest.url || "Zadnji deployment",
             at: latest.createdAt || undefined,
@@ -513,7 +678,10 @@ serve(async (req) => {
           });
         }
       } catch (error) {
-        const message = error instanceof Error ? error.message : "Vercel status nije dostupan.";
+        const message =
+          error instanceof Error
+            ? error.message
+            : "Vercel status nije dostupan.";
         snapshot.build.error = message;
         errors.push(message);
         logs.push({
@@ -525,7 +693,7 @@ serve(async (req) => {
         });
       }
     }
- 
+
     snapshot.ok = errors.length === 0;
     logs.sort((a, b) => {
       const left = a.at ? new Date(a.at).getTime() : 0;
@@ -535,7 +703,8 @@ serve(async (req) => {
 
     return json(snapshot);
   } catch (error) {
-    const message = error instanceof Error ? error.message : "DEV control error";
+    const message =
+      error instanceof Error ? error.message : "DEV control error";
     return json({ error: message }, 500);
   }
 });
