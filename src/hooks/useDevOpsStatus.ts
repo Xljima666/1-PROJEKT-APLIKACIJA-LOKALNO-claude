@@ -31,62 +31,69 @@ export function useDevOpsStatus({
     };
   }, []);
 
-  const refresh = useCallback(async (silent = false) => {
-    if (!enabled || inFlightRef.current) return null;
+  const refresh = useCallback(
+    async (silent = false) => {
+      if (!enabled || inFlightRef.current) return null;
 
-    inFlightRef.current = true;
+      inFlightRef.current = true;
 
-    if (!silent && mountedRef.current) {
-      if (!hasLoadedOnceRef.current) {
-        setLoading(true);
-      } else {
-        setRefreshing(true);
-      }
-    }
-
-    try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-
-      const res = await fetch(DEV_CONTROL_URL, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
-          apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
-        },
-        body: JSON.stringify({
-          action: "status",
-          projectRoot: projectRoot?.trim() || null,
-        }),
-      });
-
-      const data = await res.json().catch(() => null);
-      if (!res.ok) {
-        throw new Error(data?.error || `DEV status error (${res.status})`);
+      if (!silent && mountedRef.current) {
+        if (!hasLoadedOnceRef.current) {
+          setLoading(true);
+        } else {
+          setRefreshing(true);
+        }
       }
 
-      if (mountedRef.current) {
-        setSnapshot(data as DevOpsSnapshot);
-        setError(null);
-        hasLoadedOnceRef.current = true;
-      }
+      try {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
 
-      return data as DevOpsSnapshot;
-    } catch (err) {
-      if (mountedRef.current) {
-        setError(err instanceof Error ? err.message : "Ne mogu učitati DEV status.");
+        const res = await fetch(DEV_CONTROL_URL, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(session?.access_token
+              ? { Authorization: `Bearer ${session.access_token}` }
+              : {}),
+            apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+          },
+          body: JSON.stringify({
+            action: "status",
+            projectRoot: projectRoot?.trim() || null,
+          }),
+        });
+
+        const data = await res.json().catch(() => null);
+        if (!res.ok) {
+          throw new Error(data?.error || `DEV status error (${res.status})`);
+        }
+
+        if (mountedRef.current) {
+          setSnapshot(data as DevOpsSnapshot);
+          setError(null);
+          hasLoadedOnceRef.current = true;
+        }
+
+        return data as DevOpsSnapshot;
+      } catch (err) {
+        if (mountedRef.current) {
+          setError(
+            err instanceof Error ? err.message : "Ne mogu učitati DEV status.",
+          );
+        }
+        return null;
+      } finally {
+        inFlightRef.current = false;
+        if (mountedRef.current && !silent) {
+          setLoading(false);
+          setRefreshing(false);
+        }
       }
-      return null;
-    } finally {
-      inFlightRef.current = false;
-      if (mountedRef.current && !silent) {
-        setLoading(false);
-        setRefreshing(false);
-      }
-    }
-  }, [enabled, projectRoot]);
+    },
+    [enabled, projectRoot],
+  );
 
   useEffect(() => {
     if (!enabled) return;
