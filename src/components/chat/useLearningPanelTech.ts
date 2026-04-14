@@ -10,7 +10,7 @@ export interface LearningNodeData {
   y: number;
   config: Record<string, any>;
 }
- 
+
 export interface LearningConnection {
   id: string;
   fromNode: string;
@@ -27,6 +27,7 @@ export interface LearningLog {
 const CANVAS_W = 5200;
 const CANVAS_H = 3200;
 const NODE_W = 240;
+const LEARNING_TO_BRAIN_BRIDGE_KEY = "stellan_learning_to_brain_bridge_v1";
 
 function getNodeHeight(node: LearningNodeData) {
   if (node.kind === "screenshot" && node.config?.image) return 240;
@@ -50,6 +51,7 @@ export function useLearningPanelTech() {
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [flowName, setFlowName] = useState("Learning Flow");
+  const [startUrl, setStartUrl] = useState("https://oss.uredjenazemlja.hr/");
   const [agentOnline, setAgentOnline] = useState<boolean | null>(null);
   const [nodes, setNodes] = useState<LearningNodeData[]>([
     {
@@ -79,6 +81,8 @@ export function useLearningPanelTech() {
   const [draggingNodeId, setDraggingNodeId] = useState<string | null>(null);
   const [savedFlows, setSavedFlows] = useState<{ id: string; name: string; savedAt: number }[]>([]);
   const dragRef = useRef<{ type: "pan" | "node"; startX: number; startY: number; nodeId?: string; originX?: number; originY?: number; panX?: number; panY?: number } | null>(null);
+  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const isRecordingRef = useRef(false);
 
   const log = useCallback((msg: string, tone?: "info" | "success" | "error") => {
     const time = new Date().toLocaleTimeString("hr-HR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
@@ -307,28 +311,135 @@ export function useLearningPanelTech() {
     log(`✓ Flow pretvoren u ${mapped.length - 1} nodeova`, "success");
   }, [connectSequentially, log]);
 
-  const startRecording = useCallback(async () => {
+  const startRecording = useCallback(async (url?: string) => {
+    if (isRecordingRef.current) return;
+    const targetUrl = url || startUrl || "about:blank";
+
+    // Step 1: Open/navigate browser so page exists
+    log("Otvaranje browsera...", "info");
+    callAgent("playwright", { action: "navigate", url: targetUrl, timeout: 45000 })
+      .then(r => log(r?.success ? `✓ Browser otvoren: ${targetUrl}` : `Upozorenje: ${r?.error || ""}`, r?.success ? "success" : "info"))
+      .catch(() => {});
+    // Kratka pauza da browser ima vremena startati
+    await new Promise(r => setTimeout(r, 2000));
+    log("Browser se otvara u pozadini...", "info");
+
+    // Step 2: Start recording
     const res = await callAgent("record/start", { name: flowName || "learning_flow" });
     if (res?.success) {
       setRecording(true);
-      log("✓ Učenje pokrenuto. Klikaj u browseru.", "success");
+      isRecordingRef.current = true;
+      log("✓ Snimanje pokrenuto. Klikaj u Chromiumu.", "success");
+
+      // Poll every 1.2s for new browser events → real-time nodes
+      pollIntervalRef.current = setInterval(async () => {
+        if (!isRecordingRef.current) return;
+        try {
+          const poll = await callAgent("record/poll", {}, "GET");
+          if (poll?.new_events?.length > 0) {
+            for (const evt of poll.new_events) {
+              const action = String(evt.action || "").toLowerCase();
+              let kind: LearningNodeKind = "click";
+              if (action === "navigate" || action === "goto" || evt.url) kind = "goto";
+              else if (action === "fill" || action === "type") kind = "fill";
+              else if (action === "screenshot") kind = "screenshot";
+
+              const template = LEARNING_NODE_TYPES[kind];
+              const newNode: LearningNodeData = {
+                id: uid("rec"),
+                kind,
+                label: template.label,
+                category: template.category,
+                x: 0,
+                y: 0,
+                config: { ...template.defaults, ...evt },
+              };
+
+              setNodes(prev => {
+                const x = 520 + prev.length * 300;
+                const y = 220 + ((prev.length % 2) * 170);
+                const positioned = { ...newNode, x, y };
+
+                if (prev.length > 0) {
+                  const fromNode = prev[prev.length - 1];
+                  setConnections(prevConns => [
+                    ...prevConns,
+                    {
+                      id: `conn_${fromNode.id}_${positioned.id}`,
+                      fromNode: fromNode.id,
+                      toNode: positioned.id,
+                      color: template.color,
+                    },
+                  ]);
+                }
+
+                return [...prev, positioned];
+              });
+              log(`🔴 ${kind.toUpperCase()}: ${evt.selector || evt.url || ""}`, "info");
+            }
+          }
+        } catch {}
+      }, 1200);
     } else {
       log(`Greška: ${res?.error || "ne mogu pokrenuti učenje"}`, "error");
     }
   }, [callAgent, flowName, log]);
 
   const stopRecording = useCallback(async () => {
-    const res = await callAgent("record/stop", {});
+    isRecordingRef.current = false;
     setRecording(false);
-    if (res?.success && Array.isArray(res.steps)) {
-      convertStepsToNodes(res.steps);
-      log(`✓ Snimanje završeno. Koraka: ${res.steps.length}`, "success");
-    } else if (res?.success) {
-      log(`✓ Snimanje završeno. Koraka: ${res.steps ?? 0}`, "success");
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current);
+      pollIntervalRef.current = null;
+    }
+
+    // Final poll to grab last events
+    try {
+      const poll = await callAgent("record/poll", {}, "GET");
+      if (poll?.new_events?.length > 0) {
+        for (const evt of poll.new_events) {
+          const action = String(evt.action || "").toLowerCase();
+          let kind: LearningNodeKind = "click";
+          if (action === "navigate" || action === "goto" || evt.url) kind = "goto";
+          else if (action === "fill" || action === "type") kind = "fill";
+          else if (action === "screenshot") kind = "screenshot";
+          const template = LEARNING_NODE_TYPES[kind];
+          const newNode: LearningNodeData = {
+            id: uid("rec"),
+            kind,
+            label: template.label,
+            category: template.category,
+            x: 0, y: 0,
+            config: { ...template.defaults, ...evt },
+          };
+          setNodes(prev => {
+            const x = 520 + prev.length * 300;
+            const y = 220 + ((prev.length % 2) * 170);
+            const positioned = { ...newNode, x, y };
+            if (prev.length > 0) {
+              const fromNode = prev[prev.length - 1];
+              setConnections(prevConns => [...prevConns, {
+                id: `conn_${fromNode.id}_${positioned.id}`,
+                fromNode: fromNode.id,
+                toNode: positioned.id,
+                color: template.color,
+              }]);
+            }
+            return [...prev, positioned];
+          });
+        }
+      }
+    } catch {}
+
+    const res = await callAgent("record/stop", {});
+    if (res?.success) {
+      // Save as .py so Run Flow works
+      await callAgent("record/save", { name: flowName || "learning_flow" });
+      log(`✓ Snimanje završeno i spremljeno. Koraka: ${res.steps ?? 0}`, "success");
     } else {
       log(`Greška: ${res?.error || "ne mogu zaustaviti učenje"}`, "error");
     }
-  }, [callAgent, convertStepsToNodes, log]);
+  }, [callAgent, convertStepsToNodes, flowName, log]);
 
   const loadPreview = useCallback(async () => {
     const res = await callAgent("preview/current", {}, "GET");
@@ -357,8 +468,8 @@ export function useLearningPanelTech() {
     const flow = nodes.map(n => ({ label: n.label, kind: n.kind, config: n.config }));
     const res = await callAgent("code/clean_playwright", { content: JSON.stringify(flow, null, 2) });
     if (res?.cleaned_content) {
-      addNode("ai", 460, 760);
-      updateNodeConfig(nodes[nodes.length - 1]?.id || "", "result", res.cleaned_content);
+      const aiNode = addNode("ai", 460, 760);
+      updateNodeConfig(aiNode.id, "result", res.cleaned_content);
       log("✓ AI poboljšanje generirano", "success");
     } else {
       log(`Greška: ${res?.error || "AI improve nije uspio"}`, "error");
@@ -390,6 +501,8 @@ export function useLearningPanelTech() {
       await new Promise(r => setTimeout(r, 500));
     }
     setActiveNodes([]);
+    // Ensure flow is saved as .py before running
+    await callAgent("record/save", { name: flowName || "learning_flow" });
     const res = await callAgent("record/run", { name: flowName || "learning_flow" });
     if (res?.success) {
       log("✓ Flow izvršen", "success");
@@ -401,8 +514,15 @@ export function useLearningPanelTech() {
 
   const saveFlow = useCallback(() => {
     const key = "stellan_learning_flows_v2";
-    const payload = { id: uid("flow"), name: flowName, savedAt: Date.now(), nodes, connections };
     const prev = JSON.parse(localStorage.getItem(key) || "[]");
+    const existing = prev.find((x: any) => x?.name === flowName);
+    const payload = {
+      id: existing?.id || uid("flow"),
+      name: flowName,
+      savedAt: Date.now(),
+      nodes,
+      connections,
+    };
     const next = [payload, ...prev.filter((x: any) => x.name !== flowName)].slice(0, 20);
     localStorage.setItem(key, JSON.stringify(next));
     setSavedFlows(next.map((x: any) => ({ id: x.id, name: x.name, savedAt: x.savedAt })));
@@ -411,8 +531,16 @@ export function useLearningPanelTech() {
 
   const loadFlow = useCallback((id: string) => {
     const items = JSON.parse(localStorage.getItem("stellan_learning_flows_v2") || "[]");
-    const found = items.find((x: any) => x.id === id);
-    if (!found) return;
+    const found =
+      items.find((x: any) => x.id === id) ||
+      items.find((x: any) => `local:${x.id}` === id) ||
+      items.find((x: any) => x.name === id);
+
+    if (!found) {
+      log("Flow nije pronađen.", "error");
+      return;
+    }
+
     setFlowName(found.name || "Learning Flow");
     setNodes(found.nodes || []);
     setConnections(found.connections || []);
@@ -433,9 +561,22 @@ export function useLearningPanelTech() {
     }
   }, [selectedConnection, selectedNode]);
 
+  const refreshSavedFlows = useCallback(() => {
+    const items = JSON.parse(localStorage.getItem("stellan_learning_flows_v2") || "[]");
+    setSavedFlows(items.map((x: any) => ({ id: x.id || `local:${x.name}`, name: x.name, savedAt: x.savedAt })));
+  }, []);
+
   useEffect(() => {
     const items = JSON.parse(localStorage.getItem("stellan_learning_flows_v2") || "[]");
     setSavedFlows(items.map((x: any) => ({ id: x.id, name: x.name, savedAt: x.savedAt })));
+  }, []);
+
+  // Cleanup polling on unmount
+  useEffect(() => {
+    return () => {
+      isRecordingRef.current = false;
+      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+    };
   }, []);
 
   const selectedNodeData = useMemo(() => nodes.find(n => n.id === selectedNode) || null, [nodes, selectedNode]);
@@ -455,11 +596,35 @@ export function useLearningPanelTech() {
     }).filter(Boolean) as Array<LearningConnection & { d: string }>;
   }, [connections, nodes]);
 
+
+  const exportFlowToBrain = useCallback(() => {
+    const steps = nodes
+      .filter(n => n.kind !== "start" && n.kind !== "ai")
+      .map((n) => {
+        if (n.kind === "goto") return { action: "goto", url: n.config?.url, timeout: n.config?.timeout };
+        if (n.kind === "click") return { action: "click", selector: n.config?.selector, timeout: n.config?.timeout };
+        if (n.kind === "fill") return { action: "fill", selector: n.config?.selector, value: n.config?.value, timeout: n.config?.timeout };
+        if (n.kind === "input") return { action: "input", key: n.config?.key, value: n.config?.value };
+        if (n.kind === "screenshot") return { action: "screenshot", full_page: n.config?.full_page, timeout: n.config?.timeout };
+        if (n.kind === "run") return { action: "run" };
+        return { action: "click", selector: n.config?.selector || "" };
+      });
+
+    localStorage.setItem(LEARNING_TO_BRAIN_BRIDGE_KEY, JSON.stringify({
+      flowName: flowName || "Learning Flow",
+      steps,
+      exportedAt: Date.now(),
+    }));
+    log("✓ Flow poslan u Mozak", "success");
+    return steps;
+  }, [flowName, log, nodes]);
+
   return {
     constants: { CANVAS_W, CANVAS_H, NODE_W, getNodeHeight },
     state: {
       containerRef,
       flowName,
+      startUrl,
       agentOnline,
       nodes,
       connections,
@@ -496,6 +661,7 @@ export function useLearningPanelTech() {
       handleMinimapNav,
       startRecording,
       stopRecording,
+      setStartUrl,
       loadPreview,
       improveWithAI,
       generateFlowFromPrompt,
@@ -503,10 +669,8 @@ export function useLearningPanelTech() {
       saveFlow,
       loadFlow,
       deleteSelected,
-      connectSequentially,
-      setNodes,
-      setConnections,
-      convertStepsToNodes,
+      exportFlowToBrain,
+      refreshSavedFlows,
     },
   };
 }
