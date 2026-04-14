@@ -250,7 +250,7 @@ export default function LearningPanel({ onClose }: Props) {
               <>
                 <div className="fixed inset-0 z-40" onClick={() => setShowFlowMenu(false)} />
                 <div className="absolute right-0 top-full mt-1 z-50 w-72 rounded-xl border overflow-hidden"
-                  style={{ background: "rgba(5,22,21,0.97)", borderColor: border, backdropFilter: "blur(20px)" }}>
+                  style={{ background: "#071c1a", borderColor: "rgba(94, 234, 212, 0.18)", boxShadow: "0 18px 48px rgba(0,0,0,0.45)" }}>
                   <div className="flex items-center justify-between px-4 py-2 border-b" style={{ borderColor: border }}>
                     <p className="text-xs text-white/70">Spremljeni flowovi</p>
                     <button
@@ -264,10 +264,10 @@ export default function LearningPanel({ onClose }: Props) {
                     ? <p className="text-xs text-white/30 px-4 py-3">Nema spremljenih flowova</p>
                     : state.savedFlows.slice(0, 20).map((f: any) => (
                       <button key={f.id} onClick={() => { void actions.loadFlow(f.id); setShowFlowMenu(false); }}
-                        className="w-full text-left px-4 py-2.5 hover:bg-white/[0.05] border-b last:border-0 transition-colors"
+                        className="w-full text-left px-4 py-2.5 hover:bg-white/[0.08] border-b last:border-0 transition-colors"
                         style={{ borderColor: border }}>
                         <div className="flex items-center justify-between gap-2">
-                          <p className="text-xs text-white/80 truncate">{f.name}</p>
+                          <p className="text-xs text-white/90 truncate">{f.name}</p>
                           <span className={cn(
                             "shrink-0 rounded-full px-2 py-0.5 text-[9px]",
                             f.source === "agent" ? "bg-cyan-500/10 text-cyan-300" : "bg-emerald-500/10 text-emerald-300"
@@ -275,7 +275,7 @@ export default function LearningPanel({ onClose }: Props) {
                             {f.source === "agent" ? "agent" : "lokalno"}
                           </span>
                         </div>
-                        <p className="text-[9px] text-white/25">
+                        <p className="text-[9px] text-white/40">
                           {f.source === "agent"
                             ? (f.file || "Pokretanje preko agenta")
                             : new Date(f.savedAt).toLocaleString("hr-HR")}
