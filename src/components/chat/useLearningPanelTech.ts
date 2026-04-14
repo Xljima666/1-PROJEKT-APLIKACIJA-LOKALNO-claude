@@ -140,9 +140,17 @@ export function useLearningPanelTech() {
   }, [AGENT_URL, AGENT_KEY, log]);
 
   const persistFlowLocally = useCallback((name: string, nextNodes: LearningNodeData[], nextConnections: LearningConnection[]) => {
-    const payload = { id: `local:${uid("flow")}`, name, savedAt: Date.now(), source: "local" as const, nodes: nextNodes, connections: nextConnections };
     const prev = safeJsonParse<any[]>(localStorage.getItem(LOCAL_FLOW_KEY), []);
-    const next = [payload, ...prev.filter((x: any) => !(x?.source === "local" && x?.name === name))].slice(0, 30);
+    const existing = prev.find((x: any) => x?.source !== "agent" && x?.name === name);
+    const payload = {
+      id: existing?.id || `local:${uid("flow")}`,
+      name,
+      savedAt: Date.now(),
+      source: "local" as const,
+      nodes: nextNodes,
+      connections: nextConnections,
+    };
+    const next = [payload, ...prev.filter((x: any) => !(x?.source !== "agent" && x?.name === name))].slice(0, 30);
     localStorage.setItem(LOCAL_FLOW_KEY, JSON.stringify(next));
     return payload;
   }, []);
@@ -648,28 +656,31 @@ export function useLearningPanelTech() {
   }, [connections, flowName, log, nodes, persistFlowLocally, refreshSavedFlows]);
 
   const loadFlow = useCallback(async (id: string) => {
-    if (id.startsWith("local:")) {
-      const items = safeJsonParse<any[]>(localStorage.getItem(LOCAL_FLOW_KEY), []);
-      const found = items.find((x: any) => x.id === id);
-      if (!found) {
-        log("Flow nije pronađen.", "error");
-        return;
-      }
-      setFlowName(found.name || "Learning Flow");
-      setNodes(found.nodes || []);
-      setConnections(found.connections || []);
-      setSelectedNode(found.nodes?.[0]?.id || null);
-      log(`✓ Učitan flow: ${found.name}`, "success");
+    const items = safeJsonParse<any[]>(localStorage.getItem(LOCAL_FLOW_KEY), []);
+    const foundLocal =
+      items.find((x: any) => x.id === id) ||
+      items.find((x: any) => `local:${x.id}` === id) ||
+      items.find((x: any) => x.name === id);
+
+    if (foundLocal) {
+      setFlowName(foundLocal.name || "Learning Flow");
+      setNodes(foundLocal.nodes || []);
+      setConnections(foundLocal.connections || []);
+      setSelectedNode(foundLocal.nodes?.[0]?.id || null);
+      log(`✓ Učitan flow: ${foundLocal.name}`, "success");
       return;
     }
 
-    if (id.startsWith("agent:")) {
-      const name = id.replace(/^agent:/, "");
-      setFlowName(name || "Learning Flow");
-      log(`✓ Odabran agent flow: ${name}. Klikni Run Flow za pokretanje.`, "success");
+    const agentName = id.startsWith("agent:") ? id.replace(/^agent:/, "") : id;
+    const foundAgent = savedFlows.find((f) => f.source === "agent" && (f.id === id || f.name === agentName));
+    if (foundAgent) {
+      setFlowName(foundAgent.name || "Learning Flow");
+      log(`✓ Odabran agent flow: ${foundAgent.name}. Klikni Run Flow za pokretanje.`, "success");
       return;
     }
-  }, [log]);
+
+    log("Flow nije pronađen.", "error");
+  }, [log, savedFlows]);
 
   const deleteSelected = useCallback(() => {
     if (selectedNode) {
