@@ -10,7 +10,7 @@ export interface LearningNodeData {
   y: number;
   config: Record<string, any>;
 }
-
+ 
 export interface LearningConnection {
   id: string;
   fromNode: string;
