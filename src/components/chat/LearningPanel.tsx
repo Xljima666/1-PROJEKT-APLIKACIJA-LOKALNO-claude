@@ -1,78 +1,43 @@
-import React, { useState, useEffect, useCallback } from "react";
+import { ArrowLeft, Brain, Camera, FolderOpen, Maximize2, Minus, Play, Plus, Save, Sparkles, Trash2, Wand2, Square, Send } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
-import {
-  ArrowLeft, Brain, Camera, FolderOpen, Maximize2, Minus, Plus,
-  Save, Sparkles, Wand2, Play, RefreshCw, Monitor, Circle, StopCircle, HardDrive
-} from "lucide-react";
-import { CATEGORY_META, LEARNING_NODE_TYPES, type LearningNodeKind } from "./learningNodeTypes";
+import { CATEGORY_META, LEARNING_NODE_TYPES } from "./learningNodeTypes";
 import { useLearningPanelTech } from "./useLearningPanelTech";
-
-const bg = "radial-gradient(ellipse 120% 90% at 50% 35%, rgba(10,62,55,1) 0%, rgba(6,31,31,1) 42%, rgba(3,18,18,1) 72%, rgba(2,12,12,1) 100%)";
-const panelBg = "rgba(5, 26, 24, 0.82)";
-const border = "rgba(94, 234, 212, 0.10)";
-const borderActive = "rgba(94, 234, 212, 0.22)";
-
-const AnimatedConn = ({ d, color, index, active }: any) => (
+ 
+const AnimatedConnection = ({ d, color, index, isActive }: { d: string; color: string; index: number; isActive?: boolean }) => (
   <g>
-    <path d={d} fill="none" stroke={color} strokeWidth={active ? 6 : 4} strokeOpacity={active ? 0.14 : 0.05} />
-    <path d={d} fill="none" stroke={color} strokeWidth={active ? 2.2 : 1.5} strokeOpacity={active ? 0.78 : 0.42} />
-    <circle r={active ? 3.5 : 2.5} fill={color} opacity={active ? 1 : 0.8}>
-      <animateMotion dur={`${active ? 1.4 : 3 + (index % 4) * 0.7}s`} repeatCount="indefinite" path={d} />
+    <path d={d} fill="none" stroke={color} strokeWidth={isActive ? 6 : 4} strokeOpacity={isActive ? 0.15 : 0.06} />
+    <path d={d} fill="none" stroke={color} strokeWidth={isActive ? 2 : 1.5} strokeOpacity={isActive ? 0.7 : 0.45} />
+    <circle r={isActive ? 3.5 : 2.5} fill={color} opacity={isActive ? 1 : 0.75}>
+      <animateMotion dur={`${isActive ? 1.4 : 3 + (index % 4) * 0.7}s`} repeatCount="indefinite" path={d} />
     </circle>
   </g>
 );
 
-const ZoomBar = ({ zoom, onIn, onOut, onFit }: any) => (
-  <div className="absolute bottom-20 left-4 z-30 flex flex-col rounded-xl overflow-hidden border"
-    style={{ background: "rgba(5,22,21,0.90)", borderColor: border, backdropFilter: "blur(12px)" }}>
-    <button onClick={onIn} className="w-9 h-9 flex items-center justify-center text-white/50 hover:text-white hover:bg-white/[0.06]"><Plus className="w-4 h-4" /></button>
-    <div className="text-[9px] text-white/30 text-center py-0.5 border-y" style={{ borderColor: border }}>{Math.round(zoom * 100)}%</div>
-    <button onClick={onOut} className="w-9 h-9 flex items-center justify-center text-white/50 hover:text-white hover:bg-white/[0.06]"><Minus className="w-4 h-4" /></button>
-    <button onClick={onFit} className="w-9 h-9 flex items-center justify-center text-white/50 hover:text-white hover:bg-white/[0.06] border-t" style={{ borderColor: border }}><Maximize2 className="w-3.5 h-3.5" /></button>
-  </div>
-);
-
-const Minimap = ({ nodes, paths, zoom, panX, panY, vpW, vpH, onNav, getH, CW, CH }: any) => {
-  const W = 160, H = 100;
-  const s = Math.min(W / CW, H / CH);
-  return (
-    <div className="absolute bottom-4 right-4 z-30 rounded-xl overflow-hidden border"
-      style={{ background: "rgba(5,22,21,0.90)", borderColor: border }}>
-      <svg width={W} height={H} className="cursor-pointer"
-        onClick={e => { const r = e.currentTarget.getBoundingClientRect(); onNav((e.clientX - r.left) / s, (e.clientY - r.top) / s); }}>
-        {paths.map((p: any, i: number) => <path key={i} d={p.d} fill="none" stroke={p.color} strokeWidth={0.5} strokeOpacity={0.3} transform={`scale(${s})`} />)}
-        {nodes.map((n: any) => {
-          const t = LEARNING_NODE_TYPES[n.kind as LearningNodeKind];
-          return <rect key={n.id} x={n.x * s} y={n.y * s} width={240 * s} height={getH(n) * s} rx={2} fill={t?.color || "#888"} fillOpacity={0.4} />;
-        })}
-        <rect x={Math.max(0, (-panX / zoom) * s)} y={Math.max(0, (-panY / zoom) * s)}
-          width={Math.min((vpW / zoom) * s, W)} height={Math.min((vpH / zoom) * s, H)}
-          fill="rgba(255,255,255,0.04)" stroke="rgba(153,246,228,0.3)" strokeWidth={1} rx={2} />
-      </svg>
+const NodePalette = ({ onAdd }: { onAdd: (kind: keyof typeof LEARNING_NODE_TYPES) => void }) => (
+  <div className="w-[240px] border-r border-white/[0.06] p-4 overflow-y-auto shrink-0" style={{ background: "rgba(12,10,22,0.72)", backdropFilter: "blur(18px)" }}>
+    <div className="mb-4">
+      <p className="text-sm font-semibold text-white/90">Learning Nodes</p>
+      <p className="text-xs text-white/35">Klikni za dodavanje u flow</p>
     </div>
-  );
-};
 
-const Palette = ({ onAdd }: { onAdd: (kind: LearningNodeKind) => void }) => (
-  <div className="w-48 shrink-0 border-r overflow-y-auto" style={{ background: panelBg, borderColor: border }}>
-    <div className="px-3 pt-4 pb-2">
-      <p className="text-xs font-semibold text-white/80">Čvorovi</p>
-      <p className="text-[10px] text-white/30 mt-0.5">Klikni za dodavanje</p>
-    </div>
-    <div className="p-2 space-y-1">
-      {Object.values(LEARNING_NODE_TYPES).map(t => {
-        const Icon = t.icon;
+    <div className="space-y-2">
+      {Object.values(LEARNING_NODE_TYPES).map((template) => {
+        const Icon = template.icon;
         return (
-          <button key={t.kind} onClick={() => onAdd(t.kind as LearningNodeKind)}
-            className="w-full flex items-center gap-2.5 p-2.5 rounded-xl border text-left hover:translate-x-0.5 transition-transform"
-            style={{ background: "rgba(255,255,255,0.025)", borderColor: border }}>
-            <div className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0" style={{ background: t.glow }}>
-              <Icon className="w-3.5 h-3.5" style={{ color: t.color }} />
-            </div>
-            <div>
-              <p className="text-[11px] font-semibold text-white/85">{t.label}</p>
-              <p className="text-[9px] text-white/30 uppercase">{t.category}</p>
+          <button
+            key={template.kind}
+            onClick={() => onAdd(template.kind)}
+            className="w-full rounded-2xl border border-white/[0.06] bg-white/[0.03] hover:bg-white/[0.06] transition text-left p-3"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: template.glow }}>
+                <Icon className="w-4 h-4" style={{ color: template.color }} />
+              </div>
+              <div>
+                <p className="text-xs font-semibold text-white/90">{template.label}</p>
+                <p className="text-[10px] text-white/35 uppercase tracking-wider">{template.category}</p>
+              </div>
             </div>
           </button>
         );
@@ -81,54 +46,64 @@ const Palette = ({ onAdd }: { onAdd: (kind: LearningNodeKind) => void }) => (
   </div>
 );
 
-const NodeCard = ({ node, selected, active, onMouseDown, onClick, getH }: any) => {
-  const t = LEARNING_NODE_TYPES[node.kind as LearningNodeKind];
-  if (!t) return null;
-  const Icon = t.icon;
+const NodeCard = ({ node, isSelected, isActive, onMouseDown, onClick, getNodeHeight }: any) => {
+  const template = LEARNING_NODE_TYPES[node.kind];
+  const Icon = template.icon;
   return (
     <motion.div
       data-node-card="true"
       onMouseDown={onMouseDown}
       onClick={onClick}
-      className="absolute rounded-2xl border overflow-hidden cursor-grab select-none"
+      className={cn(
+        "absolute rounded-2xl border overflow-hidden select-none cursor-grab",
+        isSelected ? "border-white/30 shadow-[0_0_0_1px_rgba(255,255,255,0.10)]" : "border-white/[0.08]"
+      )}
       style={{
-        left: node.x, top: node.y, width: 240, height: getH(node),
-        borderColor: selected ? borderActive : border,
-        background: "linear-gradient(180deg, rgba(7,28,26,0.98), rgba(5,20,19,0.96))",
-        boxShadow: active ? `0 0 28px ${t.color}33` : selected ? `0 0 0 1px ${t.color}22` : "0 8px 24px rgba(0,0,0,0.3)",
+        left: node.x,
+        top: node.y,
+        width: 240,
+        height: getNodeHeight(node),
+        background: "linear-gradient(180deg, rgba(18,14,30,0.98), rgba(11,9,20,0.96))",
+        boxShadow: isActive ? `0 0 28px ${template.color}30` : "0 12px 32px rgba(0,0,0,0.28)",
       }}
-      animate={active ? { scale: [1, 1.02, 1] } : { scale: 1 }}
-      transition={{ duration: 0.8, repeat: active ? Infinity : 0 }}
+      animate={isActive ? { scale: [1, 1.02, 1] } : { scale: 1 }}
+      transition={{ duration: 0.8, repeat: isActive ? Infinity : 0 }}
     >
-      <div className="absolute inset-x-0 top-0 h-[2px]" style={{ background: t.color }} />
-      <div className="p-3 pt-4">
-        <div className="flex items-center gap-2.5">
-          <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: t.glow }}>
-            <Icon className="w-4 h-4" style={{ color: t.color }} />
+      <div className="absolute inset-x-0 top-0 h-[2px]" style={{ background: template.color }} />
+      <div className="p-3">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: template.glow }}>
+            <Icon className="w-4 h-4" style={{ color: template.color }} />
           </div>
           <div className="min-w-0">
-            <p className="text-xs font-semibold text-white/90">{node.label}</p>
-            <span className={cn("text-[9px] px-1.5 py-0.5 rounded-full inline-block mt-0.5",
-              CATEGORY_META[node.category as keyof typeof CATEGORY_META]?.bg,
-              CATEGORY_META[node.category as keyof typeof CATEGORY_META]?.text)}>
-              {CATEGORY_META[node.category as keyof typeof CATEGORY_META]?.label}
+            <p className="text-xs font-semibold text-white/90 truncate">{node.label}</p>
+            <span className={cn("text-[9px] px-2 py-0.5 rounded-full inline-block mt-1", CATEGORY_META[node.category].bg, CATEGORY_META[node.category].text)}>
+              {CATEGORY_META[node.category].label}
             </span>
           </div>
         </div>
-        <div className="mt-2 space-y-0.5 text-[10px] text-white/40">
-          {node.kind === "goto" && <p className="truncate">🌐 {node.config?.url || "—"}</p>}
-          {node.kind === "click" && <p className="truncate">🖱 {node.config?.selector || "—"}</p>}
-          {node.kind === "fill" && <>
-            <p className="truncate">📍 {node.config?.selector || "—"}</p>
-            <p className="truncate">✏️ {node.config?.value || "—"}</p>
-          </>}
-          {node.kind === "input" && <p className="truncate">⌨️ {node.config?.value || node.config?.key || "—"}</p>}
-          {node.kind === "screenshot" && <p className="text-pink-300/60">📸 Screenshot</p>}
-          {node.kind === "ai" && <p className="truncate">✨ {node.config?.prompt || "AI block"}</p>}
+
+        <div className="mt-3 text-[10px] text-white/45 space-y-1">
+          {node.kind === "goto" && <p className="truncate">URL: {node.config?.url || "—"}</p>}
+          {node.kind === "click" && <p className="truncate">Selector: {node.config?.selector || "—"}</p>}
+          {node.kind === "fill" && (
+            <>
+              <p className="truncate">Selector: {node.config?.selector || "—"}</p>
+              <p className="truncate">Value: {node.config?.value || "—"}</p>
+            </>
+          )}
+          {node.kind === "input" && (
+            <>
+              <p className="truncate">Key: {node.config?.key || "—"}</p>
+              <p className="truncate">Value: {node.config?.value || "—"}</p>
+            </>
+          )}
+          {node.kind === "ai" && <p className="truncate">Prompt: {node.config?.prompt || node.config?.result || "AI block"}</p>}
         </div>
+
         {node.kind === "screenshot" && node.config?.image && (
-          <div className="mt-2 rounded-lg overflow-hidden border" style={{ borderColor: border }}>
-            <img src={node.config.image} alt="" className="w-full h-[80px] object-cover" />
+          <div className="mt-3 rounded-xl overflow-hidden border border-white/[0.06] bg-black/20">
+            <img src={node.config.image} alt="preview" className="w-full h-[110px] object-cover" />
           </div>
         )}
       </div>
@@ -136,252 +111,236 @@ const NodeCard = ({ node, selected, active, onMouseDown, onClick, getH }: any) =
   );
 };
 
-const Field = ({ label, value, onChange, placeholder = "", multiline = false, type = "text" }: any) => (
-  <div className="space-y-1">
-    <label className="text-[10px] font-semibold text-white/35 uppercase tracking-wider block">{label}</label>
+const Minimap = ({ nodes, connectionPaths, zoom, panX, panY, vpW, vpH, onNav, getNodeHeight, CANVAS_W, CANVAS_H }: any) => {
+  const mmW = 180;
+  const mmH = 110;
+  const scale = Math.min(mmW / CANVAS_W, mmH / CANVAS_H);
+  const vx = (-panX / zoom) * scale;
+  const vy = (-panY / zoom) * scale;
+  const vw = (vpW / zoom) * scale;
+  const vh = (vpH / zoom) * scale;
+
+  return (
+    <div className="absolute bottom-4 right-4 z-30 rounded-xl overflow-hidden border border-white/[0.08]" style={{ background: "rgba(10,8,20,0.85)", backdropFilter: "blur(12px)" }}>
+      <svg
+        width={mmW}
+        height={mmH}
+        className="cursor-pointer"
+        onClick={(e) => {
+          const r = e.currentTarget.getBoundingClientRect();
+          onNav((e.clientX - r.left) / scale, (e.clientY - r.top) / scale);
+        }}
+      >
+        {connectionPaths.map((cp: any, i: number) => (
+          <path key={i} d={cp.d} fill="none" stroke={cp.color} strokeWidth={0.5} strokeOpacity={0.3} transform={`scale(${scale})`} />
+        ))}
+        {nodes.map((n: any) => (
+          <rect key={n.id} x={n.x * scale} y={n.y * scale} width={240 * scale} height={getNodeHeight(n) * scale} rx={2} fill={LEARNING_NODE_TYPES[n.kind].color} fillOpacity={0.45} />
+        ))}
+        <rect x={Math.max(0, vx)} y={Math.max(0, vy)} width={Math.min(vw, mmW)} height={Math.min(vh, mmH)} fill="rgba(255,255,255,0.05)" stroke="rgba(255,255,255,0.3)" strokeWidth={1} rx={2} />
+      </svg>
+    </div>
+  );
+};
+
+const ZoomControls = ({ zoom, onIn, onOut, onFit }: any) => (
+  <div className="absolute bottom-20 left-4 z-30 flex flex-col gap-1 rounded-xl overflow-hidden border border-white/[0.08]" style={{ background: "rgba(10,8,20,0.85)", backdropFilter: "blur(12px)" }}>
+    <button onClick={onIn} className="w-9 h-9 flex items-center justify-center text-white/50 hover:text-white hover:bg-white/[0.06]"><Plus className="w-4 h-4" /></button>
+    <div className="text-[9px] text-white/30 text-center py-0.5 border-y border-white/[0.06]">{Math.round(zoom * 100)}%</div>
+    <button onClick={onOut} className="w-9 h-9 flex items-center justify-center text-white/50 hover:text-white hover:bg-white/[0.06]"><Minus className="w-4 h-4" /></button>
+    <button onClick={onFit} className="w-9 h-9 flex items-center justify-center text-white/50 hover:text-white hover:bg-white/[0.06] border-t border-white/[0.06]"><Maximize2 className="w-3.5 h-3.5" /></button>
+  </div>
+);
+
+const InspectorField = ({ label, value, onChange, multiline = false, numeric = false, placeholder = "" }: any) => (
+  <div className="space-y-1.5">
+    <p className="text-[10px] font-semibold text-white/30 uppercase tracking-wider">{label}</p>
     {multiline ? (
-      <textarea value={value ?? ""} onChange={e => onChange(e.target.value)} placeholder={placeholder} rows={3}
-        className="w-full rounded-lg px-2.5 py-1.5 text-xs text-white/80 placeholder:text-white/20 outline-none focus:border-emerald-500/40 resize-none border"
-        style={{ background: "rgba(255,255,255,0.04)", borderColor: border }} />
+      <textarea value={value ?? ""} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} className="w-full min-h-[76px] rounded-lg bg-white/[0.04] border border-white/[0.08] px-3 py-2 text-xs text-white/85 outline-none focus:border-white/[0.16]" />
     ) : (
-      <input type={type} value={value ?? ""} onChange={e => onChange(type === "number" ? Number(e.target.value) : e.target.value)}
-        placeholder={placeholder}
-        className="w-full h-8 rounded-lg px-2.5 text-xs text-white/80 placeholder:text-white/20 outline-none focus:border-emerald-500/40 border"
-        style={{ background: "rgba(255,255,255,0.04)", borderColor: border }} />
+      <input type={numeric ? "number" : "text"} value={value ?? ""} onChange={(e) => onChange(numeric ? Number(e.target.value || 0) : e.target.value)} placeholder={placeholder} className="w-full h-9 rounded-lg bg-white/[0.04] border border-white/[0.08] px-3 text-xs text-white/85 outline-none focus:border-white/[0.16]" />
     )}
   </div>
 );
 
-const LogRow = ({ entry }: any) => (
-  <div className={cn("flex gap-2 rounded-lg px-2.5 py-1.5 text-[11px] border",
-    entry.tone === "success" && "bg-emerald-500/[0.05] border-emerald-500/[0.12]",
-    entry.tone === "error" && "bg-red-500/[0.05] border-red-500/[0.12]",
-    entry.tone === "info" && "border-transparent bg-white/[0.025]",
-    !entry.tone && "border-transparent bg-white/[0.025]",
-  )}>
-    <span className="text-white/25 shrink-0">{entry.time}</span>
-    <span className={cn(
-      entry.tone === "success" ? "text-emerald-300/80" :
-      entry.tone === "error" ? "text-red-300/80" : "text-white/55"
-    )}>{entry.msg}</span>
+const ToneLog = ({ logs }: any) => (
+  <div className="space-y-2">
+    {logs.map((entry: any, i: number) => (
+      <div
+        key={`${entry.time}-${i}`}
+        className={cn(
+          "flex items-start gap-3 rounded-2xl border px-3 py-2.5",
+          entry.tone === "success" && "border-emerald-400/12 bg-emerald-500/[0.06]",
+          entry.tone === "error" && "border-red-400/12 bg-red-500/[0.06]",
+          (!entry.tone || entry.tone === "info") && "border-white/8 bg-white/[0.03]"
+        )}
+      >
+        <div className="mt-0.5 text-[11px] text-white/30">{entry.time}</div>
+        <div className={cn(
+          "text-[12px] leading-6",
+          entry.tone === "success" && "text-emerald-200/90",
+          entry.tone === "error" && "text-red-200/90",
+          (!entry.tone || entry.tone === "info") && "text-white/72"
+        )}>
+          {entry.msg}
+        </div>
+      </div>
+    ))}
   </div>
 );
 
-interface Props { onClose: () => void; }
+interface Props {
+  onClose: () => void;
+}
 
-export default function LearningPanel({ onClose }: Props) {
+export default function LearningPanelV2({ onClose }: Props) {
   const { constants, state, actions } = useLearningPanelTech();
   const selected = state.selectedNodeData;
-  const [showFlowMenu, setShowFlowMenu] = useState(false);
-  const [previewRefreshing, setPreviewRefreshing] = useState(false);
-  const nodeMap = new Map(state.nodes.map((n: any) => [n.id, n]));
-
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      const tag = (document.activeElement as HTMLElement)?.tagName?.toLowerCase();
-      if (tag === "input" || tag === "textarea") return;
-      if (e.key === "Delete" || e.key === "Backspace") actions.deleteSelected();
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [actions]);
-
-  const refreshPreview = useCallback(async () => {
-    setPreviewRefreshing(true);
-    await actions.loadPreview();
-    setPreviewRefreshing(false);
-  }, [actions]);
-
-  const handleOpenFlowMenu = async () => {
-    await actions.refreshSavedFlows();
-    setShowFlowMenu(v => !v);
-  };
 
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.25 }}
       className="fixed inset-0 z-[80] flex flex-col"
-      style={{ background: bg }}>
-
+      style={{
+        background:
+          "radial-gradient(ellipse 120% 80% at 50% 40%, rgba(30,20,50,1) 0%, rgba(12,10,22,1) 50%, rgba(8,6,16,1) 100%)",
+      }}
+    >
       <div className="absolute inset-0 pointer-events-none overflow-hidden">
-        <div className="absolute top-[10%] left-[18%] w-[500px] h-[500px] rounded-full opacity-[0.07]" style={{ background: "radial-gradient(circle, rgba(16,185,129,1), transparent 70%)" }} />
-        <div className="absolute top-[40%] right-[12%] w-[400px] h-[400px] rounded-full opacity-[0.05]" style={{ background: "radial-gradient(circle, rgba(34,211,238,1), transparent 70%)" }} />
+        <div className="absolute top-[15%] left-[20%] w-[500px] h-[500px] rounded-full opacity-[0.05]" style={{ background: "radial-gradient(circle, rgba(167,139,250,1), transparent 70%)" }} />
+        <div className="absolute top-[50%] right-[15%] w-[420px] h-[420px] rounded-full opacity-[0.04]" style={{ background: "radial-gradient(circle, rgba(56,189,248,1), transparent 70%)" }} />
+        <div className="absolute bottom-[10%] left-[40%] w-[350px] h-[350px] rounded-full opacity-[0.04]" style={{ background: "radial-gradient(circle, rgba(244,114,182,1), transparent 70%)" }} />
       </div>
 
-      <div className="relative z-10 flex items-center justify-between px-5 py-2.5 border-b shrink-0" style={{ borderColor: border }}>
+      <div className="relative z-10 flex items-center justify-between px-5 py-2.5 border-b border-white/[0.06]">
         <div className="flex items-center gap-3">
-          <button onClick={onClose} className="flex items-center gap-2 px-3 py-1.5 rounded-lg border text-white/70 hover:text-white text-xs"
-            style={{ background: "rgba(255,255,255,0.04)", borderColor: border }}>
+          <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.97 }} onClick={onClose} className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/[0.06] hover:bg-white/[0.10] border border-white/[0.08] text-white/70 hover:text-white text-xs font-medium">
             <ArrowLeft className="w-3.5 h-3.5" /> Nazad na Stellan
-          </button>
-          <div className="h-4 w-px" style={{ background: border }} />
-          <div className="w-6 h-6 rounded-lg flex items-center justify-center" style={{ background: "linear-gradient(135deg, rgba(16,185,129,0.28), rgba(34,211,238,0.14))" }}>
-            <Brain className="w-3.5 h-3.5 text-emerald-300" />
+          </motion.button>
+
+          <div className="h-5 w-px bg-white/[0.08]" />
+
+          <div className="flex items-center gap-2">
+            <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: "linear-gradient(135deg, rgba(167,139,250,0.3), rgba(139,92,246,0.15))" }}>
+              <Brain className="w-4 h-4 text-purple-400" style={{ filter: "drop-shadow(0 0 6px rgba(167,139,250,0.5))" }} />
+            </div>
+            <input value={state.flowName} onChange={(e) => actions.setFlowName(e.target.value)} className="bg-transparent text-sm font-semibold text-white/90 outline-none border-b border-transparent hover:border-white/10 focus:border-white/20 transition-colors w-48" />
+            <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/[0.05] text-white/40 border border-white/[0.06]">
+              {state.nodes.length} nodeova · {state.connections.length} veza
+            </span>
+            <span className={cn("text-[10px] px-2 py-0.5 rounded-full border", state.agentOnline ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-200" : "border-red-500/20 bg-red-500/10 text-red-200")}>
+              {state.agentOnline ? "Agent online" : "Agent offline"}
+            </span>
           </div>
-          <input value={state.flowName} onChange={e => actions.setFlowName(e.target.value)}
-            className="bg-transparent text-sm font-semibold text-white/90 outline-none border-b border-transparent hover:border-white/10 focus:border-white/20 w-44" />
-          <span className="text-[10px] px-2 py-0.5 rounded-full border text-white/35" style={{ background: "rgba(255,255,255,0.03)", borderColor: border }}>
-            {state.nodes.length} čvorova · {state.connections.length} veza
-          </span>
-          <span className={cn("text-[10px] px-2 py-0.5 rounded-full border",
-            state.agentOnline ? "text-emerald-300" : state.agentOnline === false ? "text-red-300" : "text-white/30")}
-            style={{ background: state.agentOnline ? "rgba(16,185,129,0.10)" : "rgba(239,68,68,0.08)", borderColor: state.agentOnline ? "rgba(16,185,129,0.18)" : "rgba(239,68,68,0.15)" }}>
-            {state.agentOnline === null ? "Provjera..." : state.agentOnline ? "Agent online ✓" : "Agent offline ✗"}
-          </span>
         </div>
+
         <div className="flex items-center gap-2">
-          <button onClick={actions.exportFlowToBrain}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-emerald-100 text-xs"
-            style={{ background: "rgba(16,185,129,0.12)", borderColor: "rgba(16,185,129,0.18)" }}>
-            <Brain className="w-3 h-3" /> Izvezi u Mozak
-          </button>
-          <button onClick={() => { void actions.saveFlow(); }}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-white/65 hover:text-white text-xs"
-            style={{ background: "rgba(255,255,255,0.04)", borderColor: border }}>
+          <button onClick={actions.saveFlow} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/[0.06] hover:bg-white/[0.1] border border-white/[0.08] text-white/50 hover:text-white text-xs">
             <Save className="w-3 h-3" /> Spremi
           </button>
+
           <div className="relative">
-            <button onClick={() => { void handleOpenFlowMenu(); }}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-white/65 hover:text-white text-xs"
-              style={{ background: "rgba(255,255,255,0.04)", borderColor: border }}>
+            <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/[0.06] border border-white/[0.08] text-white/50 hover:text-white text-xs">
               <FolderOpen className="w-3 h-3" /> Učitaj
-              <span className="text-[10px] text-white/25">({state.savedFlows.length})</span>
             </button>
-            {showFlowMenu && (
-              <>
-                <div className="fixed inset-0 z-40" onClick={() => setShowFlowMenu(false)} />
-                <div className="absolute right-0 top-full mt-1 z-50 w-72 rounded-xl border overflow-hidden"
-                  style={{ background: "#071c1a", borderColor: "rgba(94, 234, 212, 0.18)", boxShadow: "0 18px 48px rgba(0,0,0,0.45)" }}>
-                  <div className="flex items-center justify-between px-4 py-2 border-b" style={{ borderColor: border }}>
-                    <p className="text-xs text-white/70">Spremljeni flowovi</p>
-                    <button
-                      onClick={() => { void actions.refreshSavedFlows(); }}
-                      className="rounded-md p-1 text-white/30 hover:text-white/70 hover:bg-white/[0.05]"
-                    >
-                      <RefreshCw className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                  {state.savedFlows.length === 0
-                    ? <p className="text-xs text-white/30 px-4 py-3">Nema spremljenih flowova</p>
-                    : state.savedFlows.slice(0, 20).map((f: any) => (
-                      <button key={f.id} onClick={() => { void actions.loadFlow(f.id); setShowFlowMenu(false); }}
-                        className="w-full text-left px-4 py-2.5 hover:bg-white/[0.08] border-b last:border-0 transition-colors"
-                        style={{ borderColor: border }}>
-                        <div className="flex items-center justify-between gap-2">
-                          <p className="text-xs text-white/90 truncate">{f.name}</p>
-                          <span className={cn(
-                            "shrink-0 rounded-full px-2 py-0.5 text-[9px]",
-                            f.source === "agent" ? "bg-cyan-500/10 text-cyan-300" : "bg-emerald-500/10 text-emerald-300"
-                          )}>
-                            {f.source === "agent" ? "agent" : "lokalno"}
-                          </span>
-                        </div>
-                        <p className="text-[9px] text-white/40">
-                          {f.source === "agent"
-                            ? (f.file || "Pokretanje preko agenta")
-                            : new Date(f.savedAt).toLocaleString("hr-HR")}
-                        </p>
-                      </button>
-                    ))}
-                </div>
-              </>
+            {state.savedFlows.length > 0 && (
+              <div className="absolute right-0 top-full mt-1 z-50 w-56 rounded-xl border border-white/[0.08] overflow-hidden" style={{ background: "rgba(12,10,22,0.96)", backdropFilter: "blur(20px)" }}>
+                {state.savedFlows.slice(0, 8).map((flow: any) => (
+                  <button key={flow.id} onClick={() => actions.loadFlow(flow.id)} className="w-full text-left px-4 py-2.5 hover:bg-white/[0.05] border-b border-white/[0.04] last:border-0">
+                    <p className="text-xs text-white/70">{flow.name}</p>
+                    <p className="text-[9px] text-white/45">{new Date(flow.savedAt).toLocaleString("hr-HR")}</p>
+                  </button>
+                ))}
+              </div>
             )}
+          </div>
+
+          {(state.selectedNode || state.selectedConnection) && (
+            <button onClick={actions.deleteSelected} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-500/10 hover:bg-red-500/20 border border-red-500/15 text-red-400 text-xs">
+              <Trash2 className="w-3 h-3" /> Obriši
+            </button>
+          )}
+
+          <div className="flex items-center gap-1 text-[10px] text-white/30">
+            <Sparkles className="w-3 h-3" /> Learning Workflow Builder
           </div>
         </div>
       </div>
 
-      <div className="relative z-10 border-b px-5 py-2.5 flex items-center gap-2 shrink-0 flex-wrap" style={{ borderColor: border }}>
-        <div className="flex items-center gap-2 rounded-xl border px-3 py-1.5 flex-1 min-w-[200px]"
-          style={{ background: "rgba(255,255,255,0.03)", borderColor: border }}>
-          <Wand2 className="w-3.5 h-3.5 text-emerald-300 shrink-0" />
-          <input value={state.flowPrompt} onChange={e => actions.setFlowPrompt(e.target.value)}
-            onKeyDown={e => e.key === "Enter" && actions.generateFlowFromPrompt()}
-            placeholder="Smart Auto — napiši što Stellan treba napraviti..."
-            className="bg-transparent text-xs text-white/80 outline-none placeholder:text-white/25 w-full" />
+      <div className="relative z-10 border-b border-white/[0.06] px-5 py-3 flex items-center gap-3">
+        <div className="rounded-xl border border-white/[0.08] bg-white/[0.04] px-3 py-2 flex-1 flex items-center gap-2">
+          <Wand2 className="w-4 h-4 text-violet-300" />
+          <input
+            value={state.flowPrompt}
+            onChange={(e) => actions.setFlowPrompt(e.target.value)}
+            placeholder="Napiši što želiš da Stellan napravi... npr. Odi na OSS i klikni Prijava"
+            className="bg-transparent w-full text-sm text-white/85 outline-none placeholder:text-white/25"
+          />
         </div>
-        <button onClick={actions.generateFlowFromPrompt}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-emerald-100 text-xs shrink-0"
-          style={{ background: "rgba(16,185,129,0.12)", borderColor: "rgba(16,185,129,0.18)" }}>
-          <Wand2 className="w-3.5 h-3.5" /> Smart Auto
-        </button>
-
-        <div className="h-4 w-px shrink-0" style={{ background: border }} />
-
+        <button onClick={actions.generateFlowFromPrompt} className="px-3 py-2 rounded-xl bg-violet-500/15 text-violet-200 border border-violet-400/20 text-sm">🧠 Generate</button>
         {!state.recording ? (
-          <div className="flex items-center gap-1 shrink-0">
-            <input
-              value={state.startUrl || ""}
-              onChange={e => actions.setStartUrl(e.target.value)}
-              placeholder="https://oss.uredjenazemlja.hr/"
-              className="h-8 w-52 rounded-l-xl border-y border-l px-2.5 text-xs text-white/75 placeholder:text-white/25 outline-none"
-              style={{ background: "rgba(255,255,255,0.04)", borderColor: "rgba(245,158,11,0.20)" }}
-            />
-            <button onClick={() => { void actions.startRecording(state.startUrl); }}
-              className="flex items-center gap-1.5 px-3 h-8 rounded-r-xl border text-amber-100 text-xs"
-              style={{ background: "rgba(245,158,11,0.14)", borderColor: "rgba(245,158,11,0.20)" }}>
-              <Circle className="w-3 h-3 fill-amber-400 text-amber-400" /> Record
-            </button>
-          </div>
+          <button onClick={actions.startRecording} className="px-3 py-2 rounded-xl bg-amber-500/15 text-amber-100 border border-amber-400/20 text-sm">⏺ Record</button>
         ) : (
-          <button onClick={() => { void actions.stopRecording(); }}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-red-100 text-xs shrink-0 animate-pulse"
-            style={{ background: "rgba(239,68,68,0.15)", borderColor: "rgba(239,68,68,0.25)" }}>
-            <StopCircle className="w-3.5 h-3.5" /> Stop Recording
-          </button>
+          <button onClick={actions.stopRecording} className="px-3 py-2 rounded-xl bg-red-500/15 text-red-100 border border-red-400/20 text-sm">⏹ Stop</button>
         )}
-
-        <button onClick={() => { void actions.runFlowAnimated(); }} disabled={state.isRunning}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-emerald-100 text-xs shrink-0 disabled:opacity-40"
-          style={{ background: "rgba(16,185,129,0.12)", borderColor: "rgba(16,185,129,0.18)" }}>
-          <Play className="w-3.5 h-3.5" /> Run Flow
+        <button onClick={actions.runFlowAnimated} disabled={state.isRunning} className="px-3 py-2 rounded-xl bg-emerald-500/15 text-emerald-100 border border-emerald-400/20 text-sm disabled:opacity-40">
+          <Play className="w-4 h-4 inline mr-1" /> Run
         </button>
-
-        <button onClick={refreshPreview} disabled={previewRefreshing}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-cyan-100 text-xs shrink-0 disabled:opacity-40"
-          style={{ background: "rgba(34,211,238,0.10)", borderColor: "rgba(34,211,238,0.18)" }}>
-          <Camera className={`w-3.5 h-3.5 ${previewRefreshing ? "animate-spin" : ""}`} /> Preview
+        <button onClick={actions.loadPreview} className="px-3 py-2 rounded-xl bg-pink-500/15 text-pink-100 border border-pink-400/20 text-sm">
+          <Camera className="w-4 h-4 inline mr-1" /> Preview Node
         </button>
-
-        <button onClick={actions.improveWithAI}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-violet-100 text-xs shrink-0"
-          style={{ background: "rgba(139,92,246,0.10)", borderColor: "rgba(139,92,246,0.18)" }}>
-          <Sparkles className="w-3.5 h-3.5" /> Improve
+        <button onClick={actions.exportFlowToBrain} className="px-3 py-2 rounded-xl bg-purple-500/15 text-purple-100 border border-purple-400/20 text-sm">
+          <Send className="w-4 h-4 inline mr-1" /> Pošalji u Mozak
         </button>
+        <button onClick={actions.improveWithAI} className="px-3 py-2 rounded-xl bg-sky-500/15 text-sky-100 border border-sky-400/20 text-sm">✨ AI Improve</button>
       </div>
 
       <div className="flex-1 flex min-h-0 relative z-10">
-        <Palette onAdd={kind => actions.addNode(kind)} />
-        <div ref={state.containerRef}
+        <NodePalette onAdd={actions.addNode as any} />
+
+        <div
+          ref={state.containerRef}
           className={cn("flex-1 relative overflow-hidden", state.isPanning ? "cursor-grabbing" : "cursor-grab")}
-          onMouseDown={actions.handleCanvasMouseDown}>
+          onMouseDown={actions.handleCanvasMouseDown}
+        >
           <div data-canvas="true" className="absolute inset-0" />
-          <div style={{
-            transform: `translate(${state.pan.x}px, ${state.pan.y}px) scale(${state.zoom})`,
-            transformOrigin: "0 0", position: "absolute",
-            width: constants.CANVAS_W, height: constants.CANVAS_H,
-          }}>
+
+          <div
+            style={{
+              transform: `translate(${state.pan.x}px, ${state.pan.y}px) scale(${state.zoom})`,
+              transformOrigin: "0 0",
+              position: "absolute",
+              width: constants.CANVAS_W,
+              height: constants.CANVAS_H,
+            }}
+          >
             <svg className="absolute inset-0 pointer-events-none" width={constants.CANVAS_W} height={constants.CANVAS_H}>
               <defs>
-                <pattern id="lg-grid" width="44" height="44" patternUnits="userSpaceOnUse">
-                  <path d="M 44 0 L 0 0 0 44" fill="none" stroke="rgba(94,234,212,0.04)" strokeWidth="0.7" />
+                <pattern id="learning-grid" width="40" height="40" patternUnits="userSpaceOnUse">
+                  <path d="M 40 0 L 0 0 0 40" fill="none" stroke="rgba(255,255,255,0.025)" strokeWidth="0.5" />
                 </pattern>
               </defs>
-              <rect width="100%" height="100%" fill="url(#lg-grid)" />
+              <rect width="100%" height="100%" fill="url(#learning-grid)" />
             </svg>
 
             <svg className="absolute inset-0 pointer-events-none" width={constants.CANVAS_W} height={constants.CANVAS_H} style={{ zIndex: 1 }}>
-              {state.connectionPaths.map((cp: any, i: number) => {
-                const fromNode = nodeMap.get(cp.fromNode);
-                const t = LEARNING_NODE_TYPES[(fromNode as any)?.kind as LearningNodeKind];
-                const color = t?.color || "#5eead4";
-                return (
-                  <g key={cp.id} onClick={e => { e.stopPropagation(); actions.setSelectedConnection(cp.id); actions.setSelectedNode(null); }}
-                    style={{ pointerEvents: "stroke", cursor: "pointer" }}>
-                    <path d={cp.d} fill="none" stroke="transparent" strokeWidth={14} />
-                    <AnimatedConn d={cp.d} color={state.selectedConnection === cp.id ? "#ccfbf1" : color} index={i}
-                      active={state.activeNodes.includes(cp.fromNode) || state.activeNodes.includes(cp.toNode)} />
-                  </g>
-                );
-              })}
+              {state.connectionPaths.map((cp: any, i: number) => (
+                <g
+                  key={cp.id}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    actions.setSelectedConnection(cp.id);
+                    actions.setSelectedNode(null);
+                  }}
+                  style={{ pointerEvents: "stroke", cursor: "pointer" }}
+                >
+                  <path d={cp.d} fill="none" stroke="transparent" strokeWidth={12} />
+                  <AnimatedConnection d={cp.d} color={state.selectedConnection === cp.id ? "#fff" : cp.color} index={i} isActive={state.activeNodes.includes(cp.fromNode) || state.activeNodes.includes(cp.toNode)} />
+                </g>
+              ))}
             </svg>
 
             <div style={{ position: "relative", zIndex: 2, width: constants.CANVAS_W, height: constants.CANVAS_H }}>
@@ -389,91 +348,158 @@ export default function LearningPanel({ onClose }: Props) {
                 <NodeCard
                   key={node.id}
                   node={node}
-                  selected={state.selectedNode === node.id}
-                  active={state.activeNodes.includes(node.id)}
+                  isSelected={state.selectedNode === node.id}
+                  isActive={state.activeNodes.includes(node.id)}
                   onMouseDown={(e: any) => actions.handleNodeMouseDown(node.id, e)}
-                  onClick={(e: any) => { e.stopPropagation(); actions.setSelectedNode(node.id); actions.setSelectedConnection(null); }}
-                  getH={constants.getNodeHeight}
+                  onClick={(e: any) => {
+                    e.stopPropagation();
+                    actions.setSelectedNode(node.id);
+                    actions.setSelectedConnection(null);
+                  }}
+                  getNodeHeight={constants.getNodeHeight}
                 />
               ))}
+
+              {state.nodes.length === 0 && (
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <div className="text-center space-y-3">
+                    <div className="w-16 h-16 mx-auto rounded-2xl bg-white/[0.03] border border-white/[0.06] flex items-center justify-center">
+                      <Brain className="w-8 h-8 text-white/10" />
+                    </div>
+                    <p className="text-sm text-white/30">Dodaj nodeove iz palete lijevo</p>
+                    <p className="text-xs text-white/15">Record, Generate ili ručno složi workflow</p>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
-          <ZoomBar zoom={state.zoom} onIn={actions.zoomIn} onOut={actions.zoomOut} onFit={actions.fitToScreen} />
-          <Minimap nodes={state.nodes} paths={state.connectionPaths.map((cp: any) => {
-            const fn = nodeMap.get(cp.fromNode);
-            const t = LEARNING_NODE_TYPES[(fn as any)?.kind as LearningNodeKind];
-            return { ...cp, color: t?.color || "#5eead4" };
-          })} zoom={state.zoom} panX={state.pan.x} panY={state.pan.y}
-            vpW={state.vpSize.w} vpH={state.vpSize.h}
+          <ZoomControls zoom={state.zoom} onIn={actions.zoomIn} onOut={actions.zoomOut} onFit={actions.fitToScreen} />
+          <Minimap
+            nodes={state.nodes}
+            connectionPaths={state.connectionPaths}
+            zoom={state.zoom}
+            panX={state.pan.x}
+            panY={state.pan.y}
+            vpW={state.vpSize.w}
+            vpH={state.vpSize.h}
             onNav={actions.handleMinimapNav}
-            getH={constants.getNodeHeight}
-            CW={constants.CANVAS_W} CH={constants.CANVAS_H} />
+            getNodeHeight={constants.getNodeHeight}
+            CANVAS_W={constants.CANVAS_W}
+            CANVAS_H={constants.CANVAS_H}
+          />
         </div>
+
+        <AnimatePresence>
+          {selected && (
+            <motion.div
+              initial={{ x: 60, opacity: 0 }}
+              animate={{ x: 0, opacity: 1 }}
+              exit={{ x: 60, opacity: 0 }}
+              transition={{ type: "spring", stiffness: 300, damping: 30 }}
+              className="w-72 border-l border-white/[0.06] p-4 space-y-4 overflow-y-auto shrink-0"
+              style={{ background: "rgba(15,12,25,0.85)", backdropFilter: "blur(20px)" }}
+            >
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: LEARNING_NODE_TYPES[selected.kind].glow }}>
+                  {(() => { const Icon = LEARNING_NODE_TYPES[selected.kind].icon; return <Icon className="w-4 h-4" style={{ color: LEARNING_NODE_TYPES[selected.kind].color }} />; })()}
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-white/90">{selected.label}</p>
+                  <span className={cn("text-[8px] font-bold px-1.5 py-0.5 rounded-md", CATEGORY_META[selected.category].bg, CATEGORY_META[selected.category].text)}>
+                    {CATEGORY_META[selected.category].label}
+                  </span>
+                </div>
+              </div>
+
+              {selected.kind === "goto" && (
+                <>
+                  <InspectorField label="URL" value={selected.config?.url || ""} onChange={(v: string) => actions.updateNodeConfig(selected.id, "url", v)} placeholder="https://oss.uredjenazemlja.hr/" />
+                  <InspectorField label="Timeout (ms)" numeric value={selected.config?.timeout || 45000} onChange={(v: number) => actions.updateNodeConfig(selected.id, "timeout", v)} />
+                </>
+              )}
+
+              {selected.kind === "click" && (
+                <>
+                  <InspectorField label="Selector" value={selected.config?.selector || ""} onChange={(v: string) => actions.updateNodeConfig(selected.id, "selector", v)} placeholder='text=Prijava' />
+                  <InspectorField label="Timeout (ms)" numeric value={selected.config?.timeout || 20000} onChange={(v: number) => actions.updateNodeConfig(selected.id, "timeout", v)} />
+                </>
+              )}
+
+              {selected.kind === "fill" && (
+                <>
+                  <InspectorField label="Selector" value={selected.config?.selector || ""} onChange={(v: string) => actions.updateNodeConfig(selected.id, "selector", v)} placeholder='input[name="username"]' />
+                  <InspectorField label="Value" value={selected.config?.value || ""} onChange={(v: string) => actions.updateNodeConfig(selected.id, "value", v)} placeholder="Vrijednost" multiline />
+                  <InspectorField label="Timeout (ms)" numeric value={selected.config?.timeout || 20000} onChange={(v: number) => actions.updateNodeConfig(selected.id, "timeout", v)} />
+                </>
+              )}
+
+              {selected.kind === "input" && (
+                <>
+                  <InspectorField label="Key" value={selected.config?.key || ""} onChange={(v: string) => actions.updateNodeConfig(selected.id, "key", v)} />
+                  <InspectorField label="Value" value={selected.config?.value || ""} onChange={(v: string) => actions.updateNodeConfig(selected.id, "value", v)} multiline />
+                </>
+              )}
+
+              {selected.kind === "screenshot" && (
+                <>
+                  <InspectorField label="Title" value={selected.config?.title || ""} onChange={(v: string) => actions.updateNodeConfig(selected.id, "title", v)} />
+                  {selected.config?.image && (
+                    <div className="rounded-xl overflow-hidden border border-white/[0.06] bg-black/20">
+                      <img src={selected.config.image} alt="preview" className="w-full object-cover" />
+                    </div>
+                  )}
+                </>
+              )}
+
+              {selected.kind === "ai" && (
+                <>
+                  <InspectorField label="Prompt / Result" value={selected.config?.prompt || selected.config?.result || ""} onChange={(v: string) => actions.updateNodeConfig(selected.id, "prompt", v)} multiline />
+                </>
+              )}
+
+              <div className="pt-3 border-t border-white/[0.06]">
+                <p className="text-[10px] font-semibold text-white/30 uppercase tracking-wider mb-2">Status</p>
+                <p className="text-xs text-white/60">{state.activeNodes.includes(selected.id) ? "Running" : "Idle"}</p>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
 
-      <div className="relative z-10 border-t shrink-0 grid grid-cols-[1fr_300px]"
-        style={{ borderColor: border, background: "rgba(5,22,21,0.80)", backdropFilter: "blur(20px)", height: 220 }}>
-
-        <div className="p-4 flex flex-col gap-3 overflow-hidden">
-          <div className="flex items-center gap-2">
-            <p className="text-sm font-semibold text-white/80">Flow Runner</p>
-            <span className="text-[10px] text-white/25">{state.nodes.length} čvorova · {state.connections.length} veza</span>
-            {state.isRunning && <span className="text-[10px] text-emerald-300 animate-pulse">Izvršava se...</span>}
+      <div className="relative z-10 border-t border-white/[0.06] bg-[rgba(10,8,20,0.78)] backdrop-blur-xl h-[260px] grid grid-cols-[1.2fr_340px]">
+        <div className="p-4 overflow-y-auto">
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-sm font-semibold text-white/90">Activity Log</p>
+            <div className="flex items-center gap-2">
+              {state.recording && (
+                <span className="text-[11px] px-2 py-1 rounded-full bg-amber-500/12 text-amber-200 border border-amber-400/20">
+                  Recording aktivan
+                </span>
+              )}
+              {state.isRunning && (
+                <span className="text-[11px] px-2 py-1 rounded-full bg-emerald-500/12 text-emerald-200 border border-emerald-400/20">
+                  Flow se izvršava
+                </span>
+              )}
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <button onClick={() => { void actions.runFlowAnimated(); }} disabled={state.isRunning}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-emerald-100 text-xs disabled:opacity-40"
-              style={{ background: "rgba(16,185,129,0.12)", borderColor: "rgba(16,185,129,0.18)" }}>
-              <Play className="w-3.5 h-3.5" /> Run Flow
-            </button>
-            <button onClick={refreshPreview}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-white/60 text-xs"
-              style={{ background: "rgba(255,255,255,0.04)", borderColor: border }}>
-              <Camera className="w-3.5 h-3.5" /> Preview
-            </button>
-            <button onClick={actions.fitToScreen}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-white/60 text-xs"
-              style={{ background: "rgba(255,255,255,0.04)", borderColor: border }}>
-              <Maximize2 className="w-3.5 h-3.5" /> Fit
-            </button>
-            <button onClick={() => { void actions.refreshSavedFlows(); }}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-white/60 text-xs"
-              style={{ background: "rgba(255,255,255,0.04)", borderColor: border }}>
-              <HardDrive className="w-3.5 h-3.5" /> Osvježi flowove
-            </button>
-          </div>
-          <div className="flex-1 overflow-y-auto space-y-1">
-            {state.logs.length === 0
-              ? <p className="text-xs text-white/20 italic">Log je prazan...</p>
-              : [...state.logs].reverse().slice(0, 8).map((entry: any, i: number) => <LogRow key={i} entry={entry} />)
-            }
-          </div>
+          <ToneLog logs={state.logs} />
         </div>
 
-        <div className="border-l p-4 flex flex-col gap-2" style={{ borderColor: border }}>
-          <div className="flex items-center justify-between">
-            <p className="text-xs font-semibold text-white/70 flex items-center gap-1.5">
-              <Monitor className="w-3.5 h-3.5" /> Live Preview
-            </p>
-            <button onClick={refreshPreview} disabled={previewRefreshing}
-              className="p-1 rounded-lg hover:bg-white/[0.06] text-white/30 hover:text-white/60 transition-colors disabled:opacity-30">
-              <RefreshCw className={cn("w-3.5 h-3.5", previewRefreshing && "animate-spin")} />
-            </button>
-          </div>
-          <div className="flex-1 rounded-xl overflow-hidden border relative" style={{ background: "rgba(255,255,255,0.025)", borderColor: border }}>
+        <div className="border-l border-white/[0.06] p-4 overflow-y-auto">
+          <p className="text-sm font-semibold text-white/90 mb-3">Live Preview</p>
+          <div className="rounded-2xl border border-white/[0.06] bg-white/[0.03] overflow-hidden">
             {state.previewImage ? (
-              <img src={state.previewImage} alt="preview" className="w-full h-full object-cover" />
+              <img src={state.previewImage} alt="preview" className="w-full h-[170px] object-cover" />
             ) : (
-              <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-center">
-                <Monitor className="w-6 h-6 text-white/15" />
-                <p className="text-xs text-white/20">Klikni Preview za screenshot</p>
-              </div>
+              <div className="h-[170px] flex items-center justify-center text-sm text-white/30">Još nema live preview slike</div>
             )}
           </div>
-          {state.previewTitle && (
-            <p className="text-[10px] text-white/35 truncate">{state.previewTitle}</p>
-          )}
+          <div className="mt-3 text-xs text-white/45">
+            <p>Naslov: <span className="text-white/80">{state.previewTitle || "—"}</span></p>
+            <p className="mt-1">Tip: Screenshot node se dodaje direktno u canvas.</p>
+          </div>
         </div>
       </div>
     </motion.div>
