@@ -286,11 +286,16 @@ export default function LearningPanel({ onClose }: Props) {
                   style={{ background: "#071c1a", borderColor: "rgba(94, 234, 212, 0.18)", boxShadow: "0 18px 48px rgba(0,0,0,0.45)" }}>
                   {state.savedFlows.length === 0
                     ? <p className="text-xs text-white/30 px-4 py-3">Nema spremljenih flowova</p>
-                    : state.savedFlows.slice(0, 10).map((f: any) => (
-                      <button key={f.id} onClick={() => { actions.loadFlow(f.id); setShowFlowMenu(false); }}
+                    : state.savedFlows.slice(0, 20).map((f: any) => (
+                      <button key={`${f.source || "local"}:${f.id}`} onClick={() => { actions.loadFlow(`${f.source || "local"}:${f.id}`); setShowFlowMenu(false); }}
                         className="w-full text-left px-4 py-2.5 hover:bg-white/[0.08] border-b last:border-0 transition-colors"
                         style={{ borderColor: border }}>
-                        <p className="text-xs text-white/90">{f.name}</p>
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-xs text-white/90 truncate">{f.name}</p>
+                          <span className="text-[9px] px-1.5 py-0.5 rounded-full border text-white/45" style={{ borderColor: border }}>
+                            {f.source === "agent" ? "agent" : "lokalno"}
+                          </span>
+                        </div>
                         <p className="text-[9px] text-white/45">{new Date(f.savedAt).toLocaleString("hr-HR")}</p>
                       </button>
                     ))}
@@ -566,6 +571,7 @@ export default function LearningPanel({ onClose }: Props) {
             <p className="text-sm font-semibold text-white/80">Flow Runner</p>
             <span className="text-[10px] text-white/25">{state.nodes.length} čvorova · {state.connections.length} veza</span>
             {state.isRunning && <span className="text-[10px] text-emerald-300 animate-pulse">Izvršava se...</span>}
+            {state.currentStepLabel && <span className="text-[10px] text-cyan-200/70 truncate">{state.currentStepLabel}</span>}
             {state.recording && <span className="text-[10px] text-red-300 animate-pulse flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-red-400 inline-block" />Snimanje aktivo</span>}
           </div>
           <div className="flex items-center gap-2">
@@ -618,6 +624,9 @@ export default function LearningPanel({ onClose }: Props) {
           </div>
           {state.previewTitle && (
             <p className="text-[10px] text-white/35 truncate">{state.previewTitle}</p>
+          )}
+          {state.currentStepLabel && (
+            <p className="text-[10px] text-emerald-300/70 truncate">{state.currentStepLabel}</p>
           )}
         </div>
       </div>
