@@ -1,1 +1,0 @@
-print('zbroj:', 2 + 3)
