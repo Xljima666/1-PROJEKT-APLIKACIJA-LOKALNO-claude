@@ -16,7 +16,7 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const UPSTREAM_TIMEOUT_MS = 120000;
+const UPSTREAM_TIMEOUT_MS = 300000;
 const MEMORY_UPDATE_TIMEOUT_MS = 25000;
 
 // ─── OpenAI modeli ────────────────────────────────────────────
@@ -35,6 +35,7 @@ const OPENAI_MODELS: Record<string, string> = {
 const OPENAI_DEFAULT = "fast";
 const OPENAI_API_URL = "https://api.openai.com/v1/responses";
 const OPENAI_MAX_OUTPUT_TOKENS = 12000;
+const XAI_DEFAULT_MODEL = "grok-4.20-reasoning";
 
 // ─── Helper funkcije (identične) ─────────────────────────────
 
@@ -2772,7 +2773,7 @@ async function runResponsesApiWithTools(
   const OPENAI_MODEL = ctx.model;
   const responseTools = convertCustomToolsToResponsesTools(tools);
   let previousResponseId: string | null = null;
-  
+
   let pendingInput: any[] = convertMessagesToResponsesInput(messages);
 
   const streamDelta = async (text: string) => {
@@ -2828,7 +2829,7 @@ async function runResponsesApiWithTools(
     }
 
     const response = await res.json();
-    
+    previousResponseId = response?.id || previousResponseId;
 
     const functionCalls = extractFunctionCallsFromResponse(response);
     const responseText = extractTextFromResponse(response);
@@ -3329,7 +3330,7 @@ async function runOpenAICompatibleWithTools(
   },
 ): Promise<string> {
   let fullResponse = "";
-  const isReasoning = ctx.model.includes("4.20") || ctx.model.includes("reasoning");
+  let previousResponseId: string | null = null;
 
   const responseTools: any[] = [
     { type: "web_search" },
@@ -3392,14 +3393,14 @@ async function runOpenAICompatibleWithTools(
       input: pendingInput,
       tools: responseTools,
       tool_choice: "auto",
-      max_output_tokens: isReasoning ? 16384 : 8192,
+      max_output_tokens: 16384,
       stream: false,
-      store: false,
+      store: true,
       include: ["web_search_call.action.sources"],
     };
 
-    if (isReasoning) {
-      requestBody.reasoning = { effort: "high" };
+    if (previousResponseId) {
+      requestBody.previous_response_id = previousResponseId;
     }
 
     let res: Response | null = null;
@@ -3413,7 +3414,7 @@ async function runOpenAICompatibleWithTools(
             "Content-Type": "application/json",
           },
           body: JSON.stringify(requestBody),
-        }, 180000);
+        }, 300000);
         if (res.ok) break;
 
         const errText = await res.text();
@@ -3445,6 +3446,7 @@ async function runOpenAICompatibleWithTools(
     let response: any = null;
     try {
       response = await res.json();
+      previousResponseId = response?.id || previousResponseId;
     } catch (e) {
       const errMsg = `⚠️ Grok je vratio nečitljiv odgovor: ${e instanceof Error ? e.message : String(e)}`;
       await streamDelta(errMsg);
@@ -3488,16 +3490,8 @@ async function runOpenAICompatibleWithTools(
         try {
           const parsed = JSON.parse(result);
           if (parsed.display && (parsed.display.includes("![") || parsed.display.includes("data:image"))) {
-            await streamDelta("
-
-" + parsed.display + "
-
-");
-            fullResponse += "
-
-" + parsed.display + "
-
-";
+            await streamDelta("\n\n" + parsed.display + "\n\n");
+            fullResponse += "\n\n" + parsed.display + "\n\n";
             toolContent = JSON.stringify({ ...parsed, display: "[prikazano korisniku]" });
           }
         } catch {}
@@ -3916,7 +3910,7 @@ serve(async (req) => {
     // ── Resolve provider & model ──────────────────────────────
     const activeProvider: string = (typeof requestedProvider === "string" && ["openai", "anthropic", "google", "xai"].includes(requestedProvider))
       ? requestedProvider
-      : "xai";
+      : "openai";
 
     const PROVIDER_KEY_MAP: Record<string, string> = {
       openai: "OPENAI_API_KEY",
@@ -3966,10 +3960,10 @@ serve(async (req) => {
       effectiveApiKey = userApiKey || SECRET_GROK_API_KEY;
       effectiveModel = (typeof requestedProviderModel === "string" && requestedProviderModel)
         ? requestedProviderModel
-        : (typeof requestedModel === "string" && requestedModel ? requestedModel : "grok-4-1-fast");
+        : (typeof requestedModel === "string" && requestedModel ? requestedModel : XAI_DEFAULT_MODEL);
     } else {
       effectiveApiKey = SECRET_GROK_API_KEY || OPENAI_API_KEY;
-      effectiveModel = "grok-4-1-fast";
+      effectiveModel = XAI_DEFAULT_MODEL;
     }
 
     if (!effectiveApiKey) {
