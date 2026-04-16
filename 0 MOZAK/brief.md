@@ -1,46 +1,38 @@
-# ☀️ Dnevni brief
+# ☀️ Dnevni brief — 16.04.2026. (Četvrtak)
 
-> Stellan generira ovaj file svako jutro automatski.
-> Zadnji update: _čeka prvi cron_
-
----
-
-## Danas
-
-_Stellan piše: datum, dan u tjednu, kratki vremenski komentar ako je relevantno za terenski rad_
+**Stellan v2.1** • Automatski generiran
 
 ---
 
-## Hitno danas
+## 🎯 Hitno danas (rok < 48h)
 
-_Rok danas ili sutra_
-
----
-
-## Sastanci i tereni
-
-_Iz kalendara_
 
 ---
 
-## Email koji čeka odgovor
+## 🔥 Najvažniji prioritet današnjeg dana
 
-_Iz Gmaila — poruke starije od 24h bez odgovora_
-
----
-
-## Novosti iz SDGE-a
-
-_Promjene statusa aktivnih predmeta_
 
 ---
 
-## Financije
+## 📬 Emailovi koji čekaju odgovor (>24h)
 
-_Neplaćeni računi, ponude bez odgovora_
 
 ---
 
-## Stellanov komentar
+## 📊 SDGE — Promjene statusa aktivnih predmeta
 
-_Stellan ovdje piše jednu konkretnu preporuku za dan — što je najvažnije napraviti_
+
+---
+
+## 💰 Financije / Solo (neplaćeno, otvorene ponude)
+
+
+---
+
+## 🛠 Stellanov komentar i preporuka za danas
+
+**Najvažniji zadatak danas:**
+
+---
+
+**Ovaj brief se generira svako jutro preko GitHub Actions + skripte. Slobodno mi reci što želiš da dodam ili automatiziram jače (npr. stvarno povlačenje podataka iz SDGE/Gmaila).**
