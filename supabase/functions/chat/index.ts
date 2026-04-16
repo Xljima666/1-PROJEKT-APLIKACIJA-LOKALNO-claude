@@ -35,7 +35,7 @@ const OPENAI_MODELS: Record<string, string> = {
 const OPENAI_DEFAULT = "fast";
 const OPENAI_API_URL = "https://api.openai.com/v1/responses";
 const OPENAI_MAX_OUTPUT_TOKENS = 12000;
-const XAI_DEFAULT_MODEL = "grok-4.20-reasoning";
+const XAI_DEFAULT_MODEL = "grok-4-1-fast";
 
 // ─── Helper funkcije (identične) ─────────────────────────────
 
