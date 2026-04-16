@@ -1168,7 +1168,6 @@ const ChatDialog = ({
       const reader = resp.body.getReader();
       const decoder = new TextDecoder();
       let textBuffer = "";
-      let rawResponseText = "";
       let updateScheduled = false;
 
       const flushUpdate = () => {
@@ -1185,128 +1184,55 @@ const ChatDialog = ({
         });
       };
 
-      const scheduleFlush = () => {
+      const appendAssistantText = (chunk: unknown) => {
+        if (typeof chunk !== "string" || !chunk) return;
+        setThinkingStatus(null);
+        assistantSoFar += chunk;
         if (!updateScheduled) {
           updateScheduled = true;
           requestAnimationFrame(flushUpdate);
         }
       };
 
-      const appendAssistantContent = (value: unknown) => {
-        const chunk = typeof value === "string" ? value : "";
-        if (!chunk) return;
-        setThinkingStatus(null);
-        assistantSoFar += chunk;
-        scheduleFlush();
-      };
-
-      const extractTextFromPayload = (parsed: any): string => {
-        if (!parsed) return "";
-
-        const directCandidates = [
-          parsed.choices?.[0]?.delta?.content,
-          parsed.choices?.[0]?.message?.content,
-          parsed.delta?.content,
-          parsed.message?.content,
-          parsed.output_text,
-          parsed.response,
-          parsed.answer,
-          parsed.content,
-          parsed.text,
-        ];
-
-        for (const value of directCandidates) {
-          if (typeof value === "string" && value.trim()) return value;
-        }
-
-        if (Array.isArray(parsed.content)) {
-          const joined = parsed.content
-            .map((item: any) => {
-              if (typeof item === "string") return item;
-              if (typeof item?.text === "string") return item.text;
-              if (typeof item?.content === "string") return item.content;
-              return "";
-            })
-            .filter(Boolean)
-            .join("");
-          if (joined.trim()) return joined;
-        }
-
-        if (Array.isArray(parsed.output)) {
-          const joined = parsed.output
-            .flatMap((item: any) => {
-              if (typeof item?.content === "string") return [item.content];
-              if (Array.isArray(item?.content)) {
-                return item.content
-                  .map((part: any) => {
-                    if (typeof part?.text === "string") return part.text;
-                    if (typeof part?.content === "string") return part.content;
-                    return "";
-                  })
-                  .filter(Boolean);
-              }
-              return [];
-            })
-            .join("");
-          if (joined.trim()) return joined;
-        }
-
-        return "";
-      };
-
       const processSseLine = (inputLine: string) => {
         let line = inputLine;
-        if (line.endsWith("
-")) line = line.slice(0, -1);
+        if (line.endsWith("\r")) line = line.slice(0, -1);
         if (line.startsWith(":") || line.trim() === "") return true;
-        if (!line.startsWith("data: ")) return false;
+        if (!line.startsWith("data: ")) return true;
 
-        const jsonStr = line.slice(6).trim();
-        if (!jsonStr) return true;
-        if (jsonStr === "[DONE]") return "done" as const;
+        const payload = line.slice(6).trim();
+        if (!payload) return true;
+        if (payload === "[DONE]") return false;
 
         try {
-          const parsed = JSON.parse(jsonStr);
+          const parsed = JSON.parse(payload);
+
           if (parsed.status) {
             setThinkingStatus(parsed.status);
             return true;
           }
-          appendAssistantContent(extractTextFromPayload(parsed));
-          return true;
-        } catch {
-          return false;
-        }
-      };
 
-      const extractFallbackText = (raw: string): string => {
-        const trimmed = raw.trim();
-        if (!trimmed) return "";
+          const content =
+            parsed?.choices?.[0]?.delta?.content ??
+            parsed?.delta ??
+            parsed?.content ??
+            parsed?.message?.content ??
+            parsed?.response?.output_text ??
+            parsed?.text ??
+            "";
 
-        if (trimmed.startsWith("data:")) {
-          const pieces = trimmed
-            .split(/
-
-+/)
-            .map((block) => block.trim())
-            .filter(Boolean);
-          const merged: string[] = [];
-
-          for (const piece of pieces) {
-            const handled = processSseLine(piece);
-            if (handled === false) {
-              const plain = piece.replace(/^data:\s*/, "").trim();
-              if (plain && plain !== "[DONE]") merged.push(plain);
+          if (Array.isArray(content)) {
+            for (const item of content) {
+              if (typeof item === "string") appendAssistantText(item);
+              else appendAssistantText(item?.text ?? item?.content ?? "");
             }
+            return true;
           }
 
-          return merged.join("
-").trim();
-        }
-
-        try {
-          return extractTextFromPayload(JSON.parse(trimmed));
+          appendAssistantText(content);
+          return true;
         } catch {
-          return trimmed;
+          return true;
         }
       };
 
@@ -1314,52 +1240,27 @@ const ChatDialog = ({
       while (true) {
         const { done, value } = await reader.read();
         if (done || streamDone) break;
-
-        const chunkText = decoder.decode(value, { stream: true });
-        rawResponseText += chunkText;
-        textBuffer += chunkText;
+        textBuffer += decoder.decode(value, { stream: true });
 
         let newlineIndex: number;
-        while ((newlineIndex = textBuffer.indexOf("
-")) !== -1) {
+        while ((newlineIndex = textBuffer.indexOf("\n")) !== -1) {
           const line = textBuffer.slice(0, newlineIndex);
           textBuffer = textBuffer.slice(newlineIndex + 1);
-          const handled = processSseLine(line);
-          if (handled === "done") {
+          const keepGoing = processSseLine(line);
+          if (!keepGoing) {
             streamDone = true;
-            break;
-          }
-          if (handled === false) {
-            textBuffer = line + "
-" + textBuffer;
             break;
           }
         }
       }
 
-      const finalChunk = decoder.decode();
-      if (finalChunk) {
-        rawResponseText += finalChunk;
-        textBuffer += finalChunk;
+      const remaining = textBuffer.trim();
+      if (remaining) {
+        processSseLine(remaining);
       }
 
-      while (textBuffer.includes("
-")) {
-        const newlineIndex = textBuffer.indexOf("
-");
-        const line = textBuffer.slice(0, newlineIndex);
-        textBuffer = textBuffer.slice(newlineIndex + 1);
-        const handled = processSseLine(line);
-        if (handled === "done") break;
-      }
-
-      if (!assistantSoFar) {
-        const fallbackText = extractFallbackText(textBuffer || rawResponseText);
-        if (fallbackText) appendAssistantContent(fallbackText);
-      }
-
-      // Final flush to ensure all content is rendered
       flushUpdate();
+
     } catch (e: any) {
       if (e?.name === "AbortError") {
         // User stopped generation (or 130 s timeout) — keep what we have so far
