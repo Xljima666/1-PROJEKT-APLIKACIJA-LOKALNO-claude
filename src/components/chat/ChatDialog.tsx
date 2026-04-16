@@ -1956,45 +1956,135 @@ const ChatDialog = ({
     }
   }, []);
 
-  const describeCurrentPreview = useCallback(
-    async (options?: {
-      heading?: string;
-      fallback?: string;
-      silent?: boolean;
-    }) => {
-      const extracted = await callAgentDirect("playwright", {
-        action: "extract",
-        timeout: 15000,
+
+const requestVisionPreviewSummary = useCallback(
+  async (imageDataUrl: string, extractedText?: string) => {
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session) return "";
+
+      const resp = await fetch(CHAT_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          messages: [
+            {
+              role: "user",
+              content: [
+                `![preview-screenshot](${imageDataUrl})`,
+                "Precizno opiši što je STVARNO vidljivo na ovom screenshotu.",
+                "Prvo pročitaj sav čitljiv tekst, poruke, gumbe, tabove, URL i ostale oznake.",
+                "Ne nagađaj nazive fileova, komponenti ili frameworka ako nisu doslovno vidljivi.",
+                extractedText
+                  ? `Dodatni extract stranice (koristi samo kao pomoć, ali prvenstveno vjeruj slici):\n${extractedText}`
+                  : "",
+              ]
+                .filter(Boolean)
+                .join("\n\n"),
+            },
+          ],
+          reasoning: false,
+          model: selectedModel,
+          provider: selectedProvider,
+          provider_model: selectedProviderModel,
+        }),
       });
-      if (!extracted?.success) {
-        const fallback =
-          options?.fallback || "Ne mogu trenutno očitati sadržaj stranice.";
-        if (!options?.silent) pushAssistantMessage(`⚠️ ${fallback}`);
-        return "";
+
+      if (!resp.ok || !resp.body) return "";
+
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let textBuffer = "";
+      let assistantText = "";
+      let streamDone = false;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done || streamDone) break;
+        textBuffer += decoder.decode(value, { stream: true });
+
+        let newlineIndex: number;
+        while ((newlineIndex = textBuffer.indexOf("\n")) !== -1) {
+          let line = textBuffer.slice(0, newlineIndex);
+          textBuffer = textBuffer.slice(newlineIndex + 1);
+          if (line.endsWith("\r")) line = line.slice(0, -1);
+          if (!line.startsWith("data: ")) continue;
+          const jsonStr = line.slice(6).trim();
+          if (!jsonStr || jsonStr === "[DONE]") {
+            if (jsonStr === "[DONE]") streamDone = true;
+            continue;
+          }
+          try {
+            const parsed = JSON.parse(jsonStr);
+            const content = parsed.choices?.[0]?.delta?.content;
+            if (content) assistantText += content;
+          } catch {
+            // ignore partial chunks
+          }
+        }
       }
 
-      const visible = extractVisibleSummary(extracted?.content || "");
-      setLastPreviewSummary(visible || options?.fallback || "");
+      return assistantText.trim();
+    } catch (error) {
+      console.warn("[Preview Vision] Ne mogu opisati screenshot:", error);
+      return "";
+    }
+  },
+  [selectedModel, selectedProvider, selectedProviderModel],
+);
 
-      if (!options?.silent) {
-        const titleLine = extracted?.url ? `**URL:** ${extracted.url}` : "";
-        pushAssistantMessage(
-          [
-            options?.heading || "### Stellan vidi u previewu",
-            titleLine,
-            visible ||
-              options?.fallback ||
-              "Stranica je otvorena, ali nisam izvukao dovoljno teksta za sažetak.",
-          ]
-            .filter(Boolean)
-            .join("\n\n"),
-        );
-      }
+const describeCurrentPreview = useCallback(
+  async (options?: {
+    heading?: string;
+    fallback?: string;
+    silent?: boolean;
+  }) => {
+    const extracted = await callAgentDirect("playwright", {
+      action: "extract",
+      timeout: 15000,
+    });
 
-      return visible;
-    },
-    [pushAssistantMessage],
-  );
+    const visible = extracted?.success
+      ? extractVisibleSummary(extracted?.content || "")
+      : "";
+
+    const visionSummary =
+      previewScreenshot
+        ? await requestVisionPreviewSummary(previewScreenshot, visible)
+        : "";
+
+    const finalSummary =
+      visionSummary ||
+      visible ||
+      options?.fallback ||
+      (extracted?.success
+        ? "Stranica je otvorena, ali nisam izvukao dovoljno teksta za sažetak."
+        : "Ne mogu trenutno očitati sadržaj stranice.");
+
+    setLastPreviewSummary(finalSummary);
+
+    if (!options?.silent) {
+      const titleLine = extracted?.url ? `**URL:** ${extracted.url}` : "";
+      pushAssistantMessage(
+        [
+          options?.heading || "### Stellan vidi u previewu",
+          titleLine,
+          finalSummary,
+        ]
+          .filter(Boolean)
+          .join("\n\n"),
+      );
+    }
+
+    return finalSummary;
+  },
+  [pushAssistantMessage, previewScreenshot, requestVisionPreviewSummary],
+);
 
   const refreshPreviewScreenshot = useCallback(
     async (options?: { fullPage?: boolean; silent?: boolean }) => {
