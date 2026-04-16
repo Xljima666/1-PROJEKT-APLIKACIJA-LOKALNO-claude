@@ -2771,7 +2771,8 @@ async function runResponsesApiWithTools(
   let fullResponse = "";
   const OPENAI_MODEL = ctx.model;
   const responseTools = convertCustomToolsToResponsesTools(tools);
-  
+  let previousResponseId: string | null = null;
+
   let pendingInput: any[] = convertMessagesToResponsesInput(messages);
 
   const streamDelta = async (text: string) => {
@@ -2827,7 +2828,7 @@ async function runResponsesApiWithTools(
     }
 
     const response = await res.json();
-    
+    previousResponseId = typeof response?.id === "string" ? response.id : previousResponseId;
 
     const functionCalls = extractFunctionCallsFromResponse(response);
     const responseText = extractTextFromResponse(response);
@@ -3781,27 +3782,48 @@ const LOCAL_BRAIN_LEARN_TIMEOUT_MS = 20000;  // duži za async learning u pozadi
 async function callLocalBrain(path: string, body?: any, timeoutMs = LOCAL_BRAIN_TIMEOUT_MS): Promise<any | null> {
   const AGENT_SERVER_URL = Deno.env.get("AGENT_SERVER_URL");
   const AGENT_API_KEY = Deno.env.get("AGENT_API_KEY");
-  if (!AGENT_SERVER_URL || !AGENT_API_KEY) return null;
+  if (!AGENT_SERVER_URL) return null;
+
   const baseUrl = sanitizeAgentServerUrl(AGENT_SERVER_URL);
   if (!baseUrl) return null;
 
+  const apiKeyCandidates = getAgentApiKeyCandidates(AGENT_API_KEY || null);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+
   try {
-    const res = await fetch(`${baseUrl}${path}`, {
-      method: body !== undefined ? "POST" : "GET",
-      headers: {
-        "Content-Type": "application/json",
-        "X-API-Key": AGENT_API_KEY,
-      },
-      body: body !== undefined ? JSON.stringify(body) : undefined,
-      signal: controller.signal,
-    });
-    if (!res.ok) {
-      console.warn(`[LocalBrain] ${path} vratio ${res.status}`);
-      return null;
+    for (const apiKey of apiKeyCandidates) {
+      const res = await fetch(`${baseUrl}${path}`, {
+        method: body !== undefined ? "POST" : "GET",
+        headers: {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "X-API-Key": apiKey,
+          "x-api-key": apiKey,
+          "Authorization": `Bearer ${apiKey}`,
+          "ngrok-skip-browser-warning": "true",
+          "User-Agent": "GeoTerraAgent/1.0",
+        },
+        body: body !== undefined ? JSON.stringify(body) : undefined,
+        signal: controller.signal,
+      });
+
+      if (res.status === 401 || res.status === 403) {
+        const errText = await res.text().catch(() => "");
+        console.warn(`[LocalBrain] ${path} auth ${res.status}${errText ? `: ${errText.slice(0, 180)}` : ""}`);
+        continue;
+      }
+
+      if (!res.ok) {
+        const errText = await res.text().catch(() => "");
+        console.warn(`[LocalBrain] ${path} vratio ${res.status}${errText ? `: ${errText.slice(0, 180)}` : ""}`);
+        return null;
+      }
+
+      return await res.json();
     }
-    return await res.json();
+
+    return null;
   } catch (e: any) {
     if (e?.name !== "AbortError") {
       console.warn(`[LocalBrain] ${path} greška:`, e?.message || e);
@@ -4017,9 +4039,11 @@ serve(async (req) => {
     const supabaseAdmin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 
     // ── Resolve provider & model ──────────────────────────────
-    const activeProvider: string = (typeof requestedProvider === "string" && ["openai", "anthropic", "google", "xai"].includes(requestedProvider))
-      ? requestedProvider
-      : "xai";
+    const requestedProviderSafe = typeof requestedProvider === "string" ? requestedProvider : "";
+    const activeProvider: string =
+      ["openai", "anthropic", "google", "xai"].includes(requestedProviderSafe)
+        ? requestedProviderSafe
+        : (OPENAI_API_KEY ? "openai" : SECRET_GROK_API_KEY ? "xai" : SECRET_GOOGLE_AI_API_KEY ? "google" : "anthropic");
 
     const PROVIDER_KEY_MAP: Record<string, string> = {
       openai: "OPENAI_API_KEY",
