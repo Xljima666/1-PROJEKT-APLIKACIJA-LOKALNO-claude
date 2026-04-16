@@ -2537,7 +2537,7 @@ async function injectFileDownload(
 // ─── OPENAI VISION (fallback helper) ─────────────────────────
 async function analyzeImageWithOpenAI(base64DataUrl: string, textContext: string, apiKey: string): Promise<string> {
   try {
-    const resp = await fetch("https://api.openai.com/v1/chat/completions", {
+    const resp = await fetch(OPENAI_API_URL, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -2545,35 +2545,44 @@ async function analyzeImageWithOpenAI(base64DataUrl: string, textContext: string
       },
       body: JSON.stringify({
         model: "gpt-5.4-mini",
-        max_completion_tokens: 1024,
-        messages: [
+        store: false,
+        max_output_tokens: 1400,
+        input: [
           {
             role: "user",
             content: [
               {
-                type: "text",
+                type: "input_text",
                 text:
-                  `Precizno i detaljno opiši što točno vidiš na ovoj slici. ` +
-                  `Budi precizan s tekstom, UI elementima, nazivima, brojevima i lokacijama. ` +
-                  `Ako nešto nije jasno vidljivo, napiši [nečitko]. ` +
-                  `Ne pretpostavljaj sadržaj koji nije vidljiv.` +
-                  (textContext ? `\n\nKontekst korisnika: ${textContext}` : ""),
+                  [
+                    "Precizno opiši ISKLJUČIVO ono što je stvarno vidljivo na slici ili screenshotu.",
+                    "Prvo pročitaj sav čitljiv tekst na slici, pa tek onda opiši UI, raspored, gumbe, tabove, naslove, poruke greške i ostale elemente.",
+                    "Ne nagađaj nazive komponenti, frameworke, fileove ili logiku ako to nije doslovno vidljivo.",
+                    "Ako je nešto mutno ili nečitko, napiši [nečitko].",
+                    textContext ? `Kontekst korisnika: ${textContext}` : "",
+                  ]
+                    .filter(Boolean)
+                    .join("\n\n"),
               },
               {
-                type: "image_url",
-                image_url: { url: base64DataUrl },
+                type: "input_image",
+                image_url: base64DataUrl,
+                detail: "high",
               },
             ],
           },
         ],
       }),
     });
+
     if (!resp.ok) {
       console.error("OpenAI vision error:", resp.status, await resp.text());
       return "[OpenAI vision greška]";
     }
+
     const data = await resp.json();
-    return data.choices?.[0]?.message?.content || "[OpenAI nije vratio odgovor]";
+    const extracted = extractTextFromResponse(data);
+    return extracted || "[OpenAI nije vratio opis slike]";
   } catch (e) {
     console.error("OpenAI vision exception:", e);
     return "[OpenAI vision nedostupan]";
@@ -2588,23 +2597,53 @@ async function preprocessImagesWithOpenAI(messages: any[], openaiApiKey: string)
       result.push(msg);
       continue;
     }
+
     const matches = [...msg.content.matchAll(new RegExp(imgRegex.source, "g"))];
     if (matches.length === 0) {
       result.push(msg);
       continue;
     }
+
     const textContext = msg.content.replace(new RegExp(imgRegex.source, "g"), "").trim();
-    let processedContent = msg.content;
-    for (const m of matches) {
+    const analyses: string[] = [];
+
+    for (const m of matches.slice(-3)) {
       const description = await analyzeImageWithOpenAI(m[2], textContext, openaiApiKey);
-      processedContent = processedContent.replace(
-        m[0],
-        `\n[ANALIZA SLIKE "${m[1]}":\n${description}\n]`
-      );
+      const label = (m[1] || "slika").trim();
+      analyses.push(`ANALIZA SLIKE "${label}":
+${description}`);
     }
+
+    const processedContent = [
+      textContext,
+      analyses.length
+        ? [
+            "[VAŽNO: korisnik je poslao sliku/screenshot. Odgovor temelji prvenstveno na analizi slike ispod. Ne nagađaj ono što nije vidljivo.]",
+            analyses.join("\n\n"),
+          ].join("\n\n")
+        : "",
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+
     result.push({ ...msg, content: processedContent });
   }
   return result;
+}
+
+async function prepareMessagesForProvider(
+  messages: any[],
+  activeProvider: string,
+  openaiApiKey: string,
+): Promise<any[]> {
+  const shouldPreprocessImages =
+    !!openaiApiKey &&
+    Array.isArray(messages) &&
+    messages.some((m: any) => m?.role === "user" && typeof m?.content === "string" && /!\[[^\]]*\]\(data:image\//.test(m.content)) &&
+    activeProvider !== "openai";
+
+  if (!shouldPreprocessImages) return messages;
+  return await preprocessImagesWithOpenAI(messages, openaiApiKey);
 }
 // ──────────────────────────────────────────────────────────────
 
@@ -4108,6 +4147,16 @@ Ima li BILO KOJI code block (\`\`\`) u odgovoru? → OBRIŠI i stavi u generate_
 - Kad pišeš TypeScript/React → SVE importove, SVE funkcije, SVE exportove
 
 ═══════════════════════════════════════════════════════
+## 🖼️ SLIKE I SCREENSHOTOVI
+═══════════════════════════════════════════════════════
+
+- Kad korisnik pošalje sliku ili screenshot, prvo analiziraj STVARNO vidljiv sadržaj.
+- Prvo pročitaj sav čitljiv tekst na slici, pa tek onda tumači UI ili kontekst.
+- Ne nagađaj nazive fileova, komponenti, frameworka ili strukture projekta ako to nije doslovno vidljivo.
+- Ako nešto nije čitljivo ili je mutno, reci da je [nečitko].
+- Ako korisnik pita "što vidiš", odgovori onim što je vidljivo na slici, ne općenitim pretpostavkama.
+
+═══════════════════════════════════════════════════════
 ## 🧠 STRUKTURIRANO PAMĆENJE
 ═══════════════════════════════════════════════════════
 
@@ -4206,6 +4255,8 @@ ${knowledgeBase ? `════════════════════�
 ${memoryContext ? `═══════════════════════════════════════════════════════\n## 💾 MEMORIJA\n═══════════════════════════════════════════════════════\n${memoryContext.substring(0, 15000)}` : ""}
 `.substring(0, 200000);
 
+    const preparedMessages = await prepareMessagesForProvider(messages || [], activeProvider, OPENAI_API_KEY);
+
     // ── Tools ─────────────────────────────────────────────────
     const tools = buildTools({ enableDriveTools, hasTrello, hasFirecrawl, hasGeoterraDrive, hasAgent });
 
@@ -4230,20 +4281,20 @@ ${memoryContext ? `════════════════════�
       try {
         if (activeProvider === "anthropic") {
           shared.fullResponse = await runAnthropicWithTools(
-            effectiveApiKey, systemPrompt, messages, tools, writer, encoder, toolCtx,
+            effectiveApiKey, systemPrompt, preparedMessages, tools, writer, encoder, toolCtx,
           );
         } else if (activeProvider === "google") {
           shared.fullResponse = await runGeminiWithTools(
-            effectiveApiKey, systemPrompt, messages, tools, writer, encoder, toolCtx,
+            effectiveApiKey, systemPrompt, preparedMessages, tools, writer, encoder, toolCtx,
           );
         } else if (activeProvider === "xai") {
           shared.fullResponse = await runOpenAICompatibleWithTools(
             effectiveApiKey, "https://api.x.ai/v1/chat/completions",
-            systemPrompt, messages, tools, writer, encoder, toolCtx,
+            systemPrompt, preparedMessages, tools, writer, encoder, toolCtx,
           );
         } else {
           shared.fullResponse = await runOpenAIWithTools(
-            effectiveApiKey, systemPrompt, messages, tools, writer, encoder, toolCtx,
+            effectiveApiKey, systemPrompt, preparedMessages, tools, writer, encoder, toolCtx,
           );
         }
         await writer.write(encoder.encode("data: [DONE]\n\n"));
