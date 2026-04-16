@@ -599,7 +599,7 @@ export default function LearningPanel({ onClose }: Props) {
             }
           </div>
         </div>
-
+ 
         {/* Live Preview */}
         <div className="border-l p-4 flex flex-col gap-2" style={{ borderColor: border }}>
           <div className="flex items-center justify-between">
