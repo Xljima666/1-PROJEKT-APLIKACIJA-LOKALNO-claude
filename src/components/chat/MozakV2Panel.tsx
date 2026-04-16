@@ -519,7 +519,7 @@ export default function MozakV2Panel({ onBack, title = "Playwright Studio" }: Mo
                 ))}
               </div>
             </div>
-
+ 
             <div className={`${PANEL} min-h-[260px] p-4`}>
               <div className="flex items-center justify-between gap-2">
                 <div>
