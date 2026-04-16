@@ -208,9 +208,9 @@ const ChatDialog = ({
   const [selectedModel, setSelectedModel] = useState<
     "flash" | "pro" | "flash3" | "pro3"
   >("flash");
-  const [selectedProvider, setSelectedProvider] = useState<Provider>("xai");
+  const [selectedProvider, setSelectedProvider] = useState<Provider>("openai");
   const [selectedProviderModel, setSelectedProviderModel] =
-    useState<string>("grok-4-1-fast");
+    useState<string>("gpt-5.4-mini");
   const [previewUrl, setPreviewUrl] = useState("http://localhost:8080");
   const [isDeploying, setIsDeploying] = useState(false);
   const [deployStatus, setDeployStatus] = useState<
@@ -1111,11 +1111,11 @@ const ChatDialog = ({
       const abortController = new AbortController();
       abortControllerRef.current = abortController;
 
-      // Abort the stream after 130 s so the UI never stays locked indefinitely
+      // Abort the stream after 300 s so slower tool/r reasoning runs do not get cut off too early
       streamTimeoutId = setTimeout(() => {
-        console.warn("[Chat] Stream timeout — prekidam zahtjev nakon 130 s");
+        console.warn("[Chat] Stream timeout — prekidam zahtjev nakon 300 s");
         abortController.abort();
-      }, 130_000);
+      }, 300_000);
 
       const resp = await fetch(CHAT_URL, {
         method: "POST",
