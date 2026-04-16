@@ -2,6 +2,7 @@ import DevPanel from "../dev/DevPanel";
 import type { ConsoleLog } from "../dev/DevPanel";
 import LearningPanel from "./LearningPanel";
 import BrainPanel from "./BrainPanel";
+import MozakV2Panel from "./MozakV2Panel";
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import {
   X,
@@ -29,6 +30,7 @@ import {
   Download,
   Zap,
   Brain,
+  Bot,
 } from "lucide-react";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { Button } from "@/components/ui/button";
@@ -202,6 +204,7 @@ const ChatDialog = ({
   const [devMode, setDevMode] = useState(false);
   const [devStudioMode, setDevStudioMode] = useState(false);
   const [brainMode, setBrainMode] = useState(false);
+  const [mozakV2Mode, setMozakV2Mode] = useState(false);
   const [selectedModel, setSelectedModel] = useState<
     "flash" | "pro" | "flash3" | "pro3"
   >("flash");
@@ -376,6 +379,7 @@ const ChatDialog = ({
       setDevStudioMode(true);
       setDevMode(false);
       setBrainMode(false);
+      setMozakV2Mode(false);
     } else if (initialView === "chat") {
       setDevStudioMode(false);
     }
@@ -1184,58 +1188,6 @@ const ChatDialog = ({
         });
       };
 
-      const appendAssistantText = (chunk: unknown) => {
-        if (typeof chunk !== "string" || !chunk) return;
-        setThinkingStatus(null);
-        assistantSoFar += chunk;
-        if (!updateScheduled) {
-          updateScheduled = true;
-          requestAnimationFrame(flushUpdate);
-        }
-      };
-
-      const processSseLine = (inputLine: string) => {
-        let line = inputLine;
-        if (line.endsWith("\r")) line = line.slice(0, -1);
-        if (line.startsWith(":") || line.trim() === "") return true;
-        if (!line.startsWith("data: ")) return true;
-
-        const payload = line.slice(6).trim();
-        if (!payload) return true;
-        if (payload === "[DONE]") return false;
-
-        try {
-          const parsed = JSON.parse(payload);
-
-          if (parsed.status) {
-            setThinkingStatus(parsed.status);
-            return true;
-          }
-
-          const content =
-            parsed?.choices?.[0]?.delta?.content ??
-            parsed?.delta ??
-            parsed?.content ??
-            parsed?.message?.content ??
-            parsed?.response?.output_text ??
-            parsed?.text ??
-            "";
-
-          if (Array.isArray(content)) {
-            for (const item of content) {
-              if (typeof item === "string") appendAssistantText(item);
-              else appendAssistantText(item?.text ?? item?.content ?? "");
-            }
-            return true;
-          }
-
-          appendAssistantText(content);
-          return true;
-        } catch {
-          return true;
-        }
-      };
-
       let streamDone = false;
       while (true) {
         const { done, value } = await reader.read();
@@ -1244,23 +1196,42 @@ const ChatDialog = ({
 
         let newlineIndex: number;
         while ((newlineIndex = textBuffer.indexOf("\n")) !== -1) {
-          const line = textBuffer.slice(0, newlineIndex);
+          let line = textBuffer.slice(0, newlineIndex);
           textBuffer = textBuffer.slice(newlineIndex + 1);
-          const keepGoing = processSseLine(line);
-          if (!keepGoing) {
+          if (line.endsWith("\r")) line = line.slice(0, -1);
+          if (line.startsWith(":") || line.trim() === "") continue;
+          if (!line.startsWith("data: ")) continue;
+          const jsonStr = line.slice(6).trim();
+          if (jsonStr === "[DONE]") {
             streamDone = true;
+            break;
+          }
+          try {
+            const parsed = JSON.parse(jsonStr);
+            // Handle status events (thinking indicator)
+            if (parsed.status) {
+              setThinkingStatus(parsed.status);
+              continue;
+            }
+            const content = parsed.choices?.[0]?.delta?.content;
+            if (content) {
+              // Clear thinking status when actual content starts streaming
+              setThinkingStatus(null);
+              assistantSoFar += content;
+              // Throttle DOM updates to ~30fps for smooth rendering
+              if (!updateScheduled) {
+                updateScheduled = true;
+                requestAnimationFrame(flushUpdate);
+              }
+            }
+          } catch {
+            textBuffer = line + "\n" + textBuffer;
             break;
           }
         }
       }
-
-      const remaining = textBuffer.trim();
-      if (remaining) {
-        processSseLine(remaining);
-      }
-
+      // Final flush to ensure all content is rendered
       flushUpdate();
-
     } catch (e: any) {
       if (e?.name === "AbortError") {
         // User stopped generation (or 130 s timeout) — keep what we have so far
@@ -2922,6 +2893,7 @@ const ChatDialog = ({
                   if (!devStudioMode) {
                     setDevMode(false);
                     setBrainMode(false);
+                    setMozakV2Mode(false);
                   }
                 }}
                 title="DEV Studio — agent preview, actions, build, patch i project komande iz chata"
@@ -2941,6 +2913,7 @@ const ChatDialog = ({
                   if (!devMode) {
                     setDevStudioMode(false);
                     setBrainMode(false);
+                    setMozakV2Mode(false);
                   }
                 }}
                 title="Učenje — Browser Use automation"
@@ -2960,6 +2933,7 @@ const ChatDialog = ({
                   if (!brainMode) {
                     setDevMode(false);
                     setDevStudioMode(false);
+                    setMozakV2Mode(false);
                   }
                 }}
                 title="Mozak — Vizualni pregled Stellanovih toolova, znanja i workflowa"
@@ -2973,6 +2947,26 @@ const ChatDialog = ({
                 <Brain className="w-3 h-3" />
                 Mozak
               </button>
+<button
+  onClick={() => {
+    setMozakV2Mode(!mozakV2Mode);
+    if (!mozakV2Mode) {
+      setDevMode(false);
+      setDevStudioMode(false);
+      setBrainMode(false);
+    }
+  }}
+  title="Mozak V2 — Playwright Studio za snimanje, spremanje i pokretanje flowova"
+  className={cn(
+    "h-7 px-2.5 rounded-lg flex items-center gap-1.5 text-[10px] transition-colors",
+    mozakV2Mode
+      ? "bg-emerald-500/20 text-emerald-300 ring-1 ring-emerald-500/30"
+      : "bg-white/[0.06] text-white/40 hover:text-emerald-300 hover:bg-emerald-500/10",
+  )}
+>
+  <Bot className="w-3 h-3" />
+  Mozak V2
+</button>
               {hasMessages && (
                 <button
                   onClick={handleExport}
