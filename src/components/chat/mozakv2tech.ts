@@ -7,7 +7,7 @@ export type BrowserEventStep = {
   ts?: number;
   text?: string;
 };
-
+ 
 export type MozakFlowItem = {
   name: string;
   label: string;
