@@ -208,9 +208,9 @@ const ChatDialog = ({
   const [selectedModel, setSelectedModel] = useState<
     "flash" | "pro" | "flash3" | "pro3"
   >("flash");
-  const [selectedProvider, setSelectedProvider] = useState<Provider>("openai");
+  const [selectedProvider, setSelectedProvider] = useState<Provider>("xai");
   const [selectedProviderModel, setSelectedProviderModel] =
-    useState<string>("gpt-5.4-mini");
+    useState<string>("grok-4-1-fast");
   const [previewUrl, setPreviewUrl] = useState("http://localhost:8080");
   const [isDeploying, setIsDeploying] = useState(false);
   const [deployStatus, setDeployStatus] = useState<
@@ -1234,7 +1234,7 @@ const ChatDialog = ({
       flushUpdate();
     } catch (e: any) {
       if (e?.name === "AbortError") {
-        // User stopped generation (or 130 s timeout) — keep what we have so far
+        // User stopped generation (or timeout) — keep what we have so far
         if (!assistantSoFar) {
           assistantSoFar = "⏹ Generiranje zaustavljeno.";
           setMessages((prev) => [
@@ -3584,7 +3584,7 @@ const ChatDialog = ({
             />
           </div>
         )}
- 
+
         {/* STELLAN UČENJE — Browser Use automation panel */}
         {devMode && !isMobile && (
           <div className="flex-1 border-l border-white/[0.06] min-w-0 overflow-hidden">
