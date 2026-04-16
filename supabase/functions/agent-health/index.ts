@@ -105,7 +105,7 @@ serve(async (req) => {
       } catch {
         payload.raw = text;
       }
-
+ 
       return new Response(JSON.stringify(payload), {
         status: res.ok ? 200 : res.status,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
