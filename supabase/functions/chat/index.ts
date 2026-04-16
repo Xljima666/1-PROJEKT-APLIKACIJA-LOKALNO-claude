@@ -2772,7 +2772,7 @@ async function runResponsesApiWithTools(
   const OPENAI_MODEL = ctx.model;
   const responseTools = convertCustomToolsToResponsesTools(tools);
   let previousResponseId: string | null = null;
-
+  
   let pendingInput: any[] = convertMessagesToResponsesInput(messages);
 
   const streamDelta = async (text: string) => {
@@ -2828,7 +2828,7 @@ async function runResponsesApiWithTools(
     }
 
     const response = await res.json();
-    previousResponseId = typeof response?.id === "string" ? response.id : previousResponseId;
+    
 
     const functionCalls = extractFunctionCallsFromResponse(response);
     const responseText = extractTextFromResponse(response);
@@ -3311,7 +3311,7 @@ const XAI_RESPONSES_URL = "https://api.x.ai/v1/responses";
 
 async function runOpenAICompatibleWithTools(
   apiKey: string,
-  _apiUrl: string, // ignored — always uses Responses API
+  _apiUrl: string, // ignored — koristi xAI Responses API
   systemPrompt: string,
   messages: any[],
   tools: any[],
@@ -3331,7 +3331,6 @@ async function runOpenAICompatibleWithTools(
   let fullResponse = "";
   const isReasoning = ctx.model.includes("4.20") || ctx.model.includes("reasoning");
 
-  // Convert custom tools to Responses API format + add web_search & x_search
   const responseTools: any[] = [
     { type: "web_search" },
     { type: "x_search" },
@@ -3347,7 +3346,6 @@ async function runOpenAICompatibleWithTools(
 
   let pendingInput: any[] = convertMessagesToResponsesInput(messages);
 
-  // Clean xAI internal markup from streamed text
   function cleanGrokMarkup(text: string): string {
     return text
       .replace(/<grok:render[^>]*type="render_inline_citation"[^>]*>\s*<argument[^>]*name="citation_id"[^>]*>(\d+)<\/argument>\s*<\/grok:render>/g, '[$1]')
@@ -3356,33 +3354,19 @@ async function runOpenAICompatibleWithTools(
       .replace(/<\/?argument[^>]*>/g, '');
   }
 
-  let tagBuffer = "";
-
   const streamDelta = async (text: string) => {
-    if (!text) return;
-    tagBuffer += text;
-    // Buffer partial <grok:render> tags that span across deltas
-    if (tagBuffer.includes("<grok:") && !tagBuffer.includes("</grok:render>")) {
-      return;
-    }
-    const cleaned = cleanGrokMarkup(tagBuffer);
-    tagBuffer = "";
+    const cleaned = cleanGrokMarkup((text || "").trim());
     if (!cleaned) return;
     const sseData = JSON.stringify({ choices: [{ delta: { content: cleaned } }] });
-    await writer.write(encoder.encode(`data: ${sseData}\n\n`));
+    await writer.write(encoder.encode(`data: ${sseData}
+
+`));
   };
-  const flushTagBuffer = async () => {
-    if (tagBuffer) {
-      const cleaned = cleanGrokMarkup(tagBuffer);
-      tagBuffer = "";
-      if (cleaned) {
-        const sseData = JSON.stringify({ choices: [{ delta: { content: cleaned } }] });
-        await writer.write(encoder.encode(`data: ${sseData}\n\n`));
-      }
-    }
-  };
+
   const emitStatus = async (status: string) => {
-    await writer.write(encoder.encode(`data: ${JSON.stringify({ status })}\n\n`));
+    await writer.write(encoder.encode(`data: ${JSON.stringify({ status })}
+
+`));
   };
 
   const toolStatusMap: Record<string, string> = {
@@ -3402,17 +3386,14 @@ async function runOpenAICompatibleWithTools(
   };
 
   for (let iteration = 0; iteration < 10; iteration++) {
-    const inputWithSystem = iteration === 0
-      ? [{ role: "system", content: systemPrompt }, ...pendingInput]
-      : pendingInput;
-
     const requestBody: any = {
       model: ctx.model,
-      input: inputWithSystem,
+      instructions: systemPrompt,
+      input: pendingInput,
       tools: responseTools,
       tool_choice: "auto",
       max_output_tokens: isReasoning ? 16384 : 8192,
-      stream: true,
+      stream: false,
       store: false,
       include: ["web_search_call.action.sources"],
     };
@@ -3421,7 +3402,6 @@ async function runOpenAICompatibleWithTools(
       requestBody.reasoning = { effort: "high" };
     }
 
-    // ── Retry logika (do 3 pokušaja) ──────────────
     let res: Response | null = null;
     let lastError = "";
     for (let attempt = 0; attempt < 3; attempt++) {
@@ -3433,12 +3413,11 @@ async function runOpenAICompatibleWithTools(
             "Content-Type": "application/json",
           },
           body: JSON.stringify(requestBody),
-        }, 180000); // 3min timeout za streaming
+        }, 180000);
         if (res.ok) break;
 
         const errText = await res.text();
         lastError = errText;
-
         if (res.status !== 429 && res.status < 500) break;
 
         console.warn(`[Grok] Attempt ${attempt + 1} failed (${res.status}), retrying...`);
@@ -3453,134 +3432,43 @@ async function runOpenAICompatibleWithTools(
 
     if (!res || !res.ok) {
       let detail = lastError.substring(0, 300);
-      try { const j = JSON.parse(lastError); detail = j?.error?.message || detail; } catch {}
+      try {
+        const j = JSON.parse(lastError);
+        detail = j?.error?.message || detail;
+      } catch {}
       const errMsg = `⚠️ Grok greška nakon 3 pokušaja: ${detail}`;
       await streamDelta(errMsg);
       fullResponse += errMsg;
       break;
     }
 
-    // ── Parse SSE stream ──────────────────────────
-    const reader = res.body!.getReader();
-    const decoder = new TextDecoder();
-    let sseBuffer = "";
-    let currentEvent = "";
-    let responseText = "";
-    const functionCalls: Array<{ call_id: string; name: string; arguments: string }> = [];
-    const webSources: Array<{ title: string; url: string }> = [];
-    let emittedWebSearchStatus = false;
-
+    let response: any = null;
     try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        sseBuffer += decoder.decode(value, { stream: true });
-        const lines = sseBuffer.split("\n");
-        sseBuffer = lines.pop() || ""; // keep incomplete line in buffer
-
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed) continue;
-
-          if (trimmed.startsWith("event: ")) {
-            currentEvent = trimmed.slice(7).trim();
-            continue;
-          }
-
-          if (!trimmed.startsWith("data: ")) continue;
-          const dataStr = trimmed.slice(6);
-          if (dataStr === "[DONE]") continue;
-
-          let data: any;
-          try { data = JSON.parse(dataStr); } catch { continue; }
-
-          switch (currentEvent) {
-            // ── Text streaming (word by word) ──────
-            case "response.output_text.delta": {
-              const delta = data.delta || "";
-              if (delta) {
-                await streamDelta(delta);
-                responseText += delta;
-                fullResponse += delta;
-              }
-              break;
-            }
-
-            // ── Function call complete ─────────────
-            case "response.function_call_arguments.done": {
-              const callId = data.call_id || data.id || "";
-              const name = data.name || "";
-              const args = data.arguments || "{}";
-              if (name && callId) {
-                functionCalls.push({ call_id: callId, name, arguments: args });
-              }
-              break;
-            }
-
-            // ── Web search status ─────────────────
-            case "response.web_search_call.in_progress":
-            case "response.web_search_call.searching": {
-              if (!emittedWebSearchStatus) {
-                await emitStatus("🌐 Pretražujem web...");
-                emittedWebSearchStatus = true;
-              }
-              break;
-            }
-
-            // ── Web search completed (sources) ────
-            case "response.web_search_call.completed": {
-              try {
-                const sources = data?.action?.sources || data?.sources || [];
-                for (const s of sources) {
-                  if (s.url && s.title) webSources.push({ title: s.title, url: s.url });
-                }
-              } catch { /* ignore */ }
-              break;
-            }
-
-            // ── Response completed ────────────────
-            case "response.completed": {
-              // Extract any remaining web sources from completed response
-              try {
-                const output = data?.response?.output || data?.output || [];
-                for (const item of output) {
-                  if (item.type === "web_search_call" && item.action?.sources) {
-                    for (const s of item.action.sources) {
-                      if (s.url && s.title && !webSources.find(ws => ws.url === s.url)) {
-                        webSources.push({ title: s.title, url: s.url });
-                      }
-                    }
-                  }
-                }
-              } catch { /* ignore */ }
-              break;
-            }
-          }
-        }
-      }
-    } catch (streamErr) {
-      console.error("[Grok Stream] Error reading SSE:", streamErr);
+      response = await res.json();
+    } catch (e) {
+      const errMsg = `⚠️ Grok je vratio nečitljiv odgovor: ${e instanceof Error ? e.message : String(e)}`;
+      await streamDelta(errMsg);
+      fullResponse += errMsg;
+      break;
     }
 
-    // Flush any remaining buffered text
-    await flushTagBuffer();
-    fullResponse = cleanGrokMarkup(fullResponse);
+    const functionCalls = extractFunctionCallsFromResponse(response);
+    const responseText = cleanGrokMarkup(extractTextFromResponse(response));
+    const webSources = extractWebSourcesFromResponse(response);
 
-    // ── Append web sources as citations ────────────
-    if (webSources.length > 0 && responseText) {
-      const sourcesText = "\n\n" + webSources.slice(0, 8).map((s, i) => `[${i + 1}] [${s.title}](${s.url})`).join("\n");
-      // Only append if not already in response
-      if (!fullResponse.includes("[1]")) {
-        await streamDelta(sourcesText);
-        fullResponse += sourcesText;
+    if (functionCalls.length === 0) {
+      const finalText = appendWebSourcesToAnswer(responseText, webSources);
+      if (finalText) {
+        await streamDelta(finalText);
+        fullResponse += finalText;
+      } else {
+        const emptyMsg = "⚠️ Grok nije vratio tekstualni odgovor. Prebaci model na GPT da potvrdiš da frontend radi, a zatim popravi Grok parser.";
+        await streamDelta(emptyMsg);
+        fullResponse += emptyMsg;
       }
+      break;
     }
 
-    // ── If no function calls, we're done ──────────
-    if (functionCalls.length === 0) break;
-
-    // ── Execute tool calls ────────────────────────
     for (const call of functionCalls) {
       await emitStatus(toolStatusMap[call.name] || `🔍 ${call.name}...`);
     }
@@ -3600,18 +3488,26 @@ async function runOpenAICompatibleWithTools(
         try {
           const parsed = JSON.parse(result);
           if (parsed.display && (parsed.display.includes("![") || parsed.display.includes("data:image"))) {
-            await streamDelta("\n\n" + parsed.display + "\n\n");
-            fullResponse += "\n\n" + parsed.display + "\n\n";
+            await streamDelta("
+
+" + parsed.display + "
+
+");
+            fullResponse += "
+
+" + parsed.display + "
+
+";
             toolContent = JSON.stringify({ ...parsed, display: "[prikazano korisniku]" });
           }
-        } catch { /* ignore */ }
+        } catch {}
 
         return {
           type: "function_call_output",
           call_id: call.call_id,
           output: toolContent,
         };
-      })
+      }),
     );
 
     pendingInput = functionOutputs;
@@ -3782,48 +3678,27 @@ const LOCAL_BRAIN_LEARN_TIMEOUT_MS = 20000;  // duži za async learning u pozadi
 async function callLocalBrain(path: string, body?: any, timeoutMs = LOCAL_BRAIN_TIMEOUT_MS): Promise<any | null> {
   const AGENT_SERVER_URL = Deno.env.get("AGENT_SERVER_URL");
   const AGENT_API_KEY = Deno.env.get("AGENT_API_KEY");
-  if (!AGENT_SERVER_URL) return null;
-
+  if (!AGENT_SERVER_URL || !AGENT_API_KEY) return null;
   const baseUrl = sanitizeAgentServerUrl(AGENT_SERVER_URL);
   if (!baseUrl) return null;
 
-  const apiKeyCandidates = getAgentApiKeyCandidates(AGENT_API_KEY || null);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
-
   try {
-    for (const apiKey of apiKeyCandidates) {
-      const res = await fetch(`${baseUrl}${path}`, {
-        method: body !== undefined ? "POST" : "GET",
-        headers: {
-          "Content-Type": "application/json",
-          "Accept": "application/json",
-          "X-API-Key": apiKey,
-          "x-api-key": apiKey,
-          "Authorization": `Bearer ${apiKey}`,
-          "ngrok-skip-browser-warning": "true",
-          "User-Agent": "GeoTerraAgent/1.0",
-        },
-        body: body !== undefined ? JSON.stringify(body) : undefined,
-        signal: controller.signal,
-      });
-
-      if (res.status === 401 || res.status === 403) {
-        const errText = await res.text().catch(() => "");
-        console.warn(`[LocalBrain] ${path} auth ${res.status}${errText ? `: ${errText.slice(0, 180)}` : ""}`);
-        continue;
-      }
-
-      if (!res.ok) {
-        const errText = await res.text().catch(() => "");
-        console.warn(`[LocalBrain] ${path} vratio ${res.status}${errText ? `: ${errText.slice(0, 180)}` : ""}`);
-        return null;
-      }
-
-      return await res.json();
+    const res = await fetch(`${baseUrl}${path}`, {
+      method: body !== undefined ? "POST" : "GET",
+      headers: {
+        "Content-Type": "application/json",
+        "X-API-Key": AGENT_API_KEY,
+      },
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      console.warn(`[LocalBrain] ${path} vratio ${res.status}`);
+      return null;
     }
-
-    return null;
+    return await res.json();
   } catch (e: any) {
     if (e?.name !== "AbortError") {
       console.warn(`[LocalBrain] ${path} greška:`, e?.message || e);
@@ -4039,11 +3914,9 @@ serve(async (req) => {
     const supabaseAdmin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 
     // ── Resolve provider & model ──────────────────────────────
-    const requestedProviderSafe = typeof requestedProvider === "string" ? requestedProvider : "";
-    const activeProvider: string =
-      ["openai", "anthropic", "google", "xai"].includes(requestedProviderSafe)
-        ? requestedProviderSafe
-        : (OPENAI_API_KEY ? "openai" : SECRET_GROK_API_KEY ? "xai" : SECRET_GOOGLE_AI_API_KEY ? "google" : "anthropic");
+    const activeProvider: string = (typeof requestedProvider === "string" && ["openai", "anthropic", "google", "xai"].includes(requestedProvider))
+      ? requestedProvider
+      : "xai";
 
     const PROVIDER_KEY_MAP: Record<string, string> = {
       openai: "OPENAI_API_KEY",
