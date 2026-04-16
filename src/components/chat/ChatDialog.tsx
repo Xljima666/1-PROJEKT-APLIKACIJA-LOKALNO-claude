@@ -3584,7 +3584,7 @@ const ChatDialog = ({
             />
           </div>
         )}
-
+ 
         {/* STELLAN UČENJE — Browser Use automation panel */}
         {devMode && !isMobile && (
           <div className="flex-1 border-l border-white/[0.06] min-w-0 overflow-hidden">
