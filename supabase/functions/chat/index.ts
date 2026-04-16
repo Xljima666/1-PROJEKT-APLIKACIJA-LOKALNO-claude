@@ -2790,7 +2790,6 @@ async function runResponsesApiWithTools(
   for (let iteration = 0; iteration < 10; iteration++) {
     const requestBody: any = {
       model: OPENAI_MODEL,
-      instructions: systemPrompt,
       input: pendingInput,
       tools: responseTools,
       tool_choice: "auto",
@@ -2802,6 +2801,8 @@ async function runResponsesApiWithTools(
 
     if (previousResponseId) {
       requestBody.previous_response_id = previousResponseId;
+    } else {
+      requestBody.instructions = systemPrompt;
     }
 
     const res = await fetchWithTimeout(OPENAI_API_URL, {
@@ -3389,7 +3390,6 @@ async function runOpenAICompatibleWithTools(
   for (let iteration = 0; iteration < 10; iteration++) {
     const requestBody: any = {
       model: ctx.model,
-      instructions: systemPrompt,
       input: pendingInput,
       tools: responseTools,
       tool_choice: "auto",
@@ -3401,6 +3401,8 @@ async function runOpenAICompatibleWithTools(
 
     if (previousResponseId) {
       requestBody.previous_response_id = previousResponseId;
+    } else {
+      requestBody.instructions = systemPrompt;
     }
 
     let res: Response | null = null;
