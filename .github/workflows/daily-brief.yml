@@ -1,5 +1,5 @@
 name: Daily Brief
-
+ 
 on:
   schedule:
     - cron: '0 6 * * *'   # Svaki dan u 8:00 po hrvatskom vremenu
