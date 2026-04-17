@@ -521,8 +521,8 @@ export default function DevPanel({
           </div>
         </div>
 
-        <div className="relative z-10 grid min-h-0 flex-1 gap-4 p-4 xl:grid-cols-[420px_minmax(0,1fr)]">
-          <div className="min-h-0 space-y-4">
+        <div className="relative z-10 grid min-h-0 flex-1 gap-4 overflow-hidden p-4 xl:grid-cols-[420px_minmax(0,1fr)]">
+          <div className="min-h-0 space-y-4 overflow-y-auto pr-1">
             <Section
               title="Project root"
               subtitle="Lokalni repo koji DEV koristi za build, backup i deploy"
@@ -699,7 +699,7 @@ export default function DevPanel({
             ) : null}
           </div>
 
-          <div className="grid min-h-0 gap-4 grid-rows-[minmax(0,1.1fr)_minmax(0,0.9fr)_minmax(0,0.9fr)]">
+          <div className="min-h-0 space-y-4 overflow-y-auto pr-1">
             <Section
               title="Radni panel"
               subtitle="Aktivnost agenta, fileovi, logovi i zadnji output umjesto Playwright previewa"
@@ -729,7 +729,7 @@ export default function DevPanel({
                     <TerminalSquare className="h-4 w-4 text-cyan-300" />
                     Live output / logovi
                   </div>
-                  <ScrollArea className="h-[290px] pr-3">
+                  <ScrollArea className="max-h-[320px] pr-3">
                     {mergedLogs.length === 0 ? (
                       <div className="rounded-[18px] border border-dashed border-white/10 p-4 text-sm text-white/42">
                         Još nema logova. Kad agent krene raditi build, git ili file izmjene, ovdje ćeš vidjeti što se događa.
@@ -766,9 +766,9 @@ export default function DevPanel({
               </div>
             </Section>
 
-            <div className="grid min-h-0 gap-4 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+            <div className="grid min-h-0 gap-4 2xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
               <Section title="Koraci" subtitle="Što je DEV stvarno napravio zadnje">
-                <ScrollArea className="h-[250px] pr-3">
+                <ScrollArea className="max-h-[260px] pr-3">
                   {steps.length === 0 ? (
                     <div className="rounded-[22px] border border-white/10 bg-white/[0.03] p-4 text-sm text-white/42">
                       Još nema zabilježenih koraka.
@@ -787,7 +787,7 @@ export default function DevPanel({
               </Section>
 
               <Section title="Promijenjeni fileovi" subtitle="Što će build/commit zapravo dirati">
-                <ScrollArea className="h-[250px] pr-3">
+                <ScrollArea className="max-h-[260px] pr-3">
                   {latestChangedFiles.length === 0 ? (
                     <div className="rounded-[22px] border border-white/10 bg-white/[0.03] p-4 text-sm text-white/42">
                       Trenutno nema popisa promijenjenih fileova.
@@ -812,7 +812,7 @@ export default function DevPanel({
             </div>
 
             <Section title="Build & deploy status" subtitle="Zadnji build i deployment podaci">
-              <div className="grid gap-4 lg:grid-cols-2">
+              <div className="grid gap-4 2xl:grid-cols-2">
                 <div className="rounded-[24px] border border-cyan-400/10 bg-black/15 p-4">
                   <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-white/92">
                     <Rocket className="h-4 w-4 text-cyan-300" />
@@ -866,7 +866,7 @@ export default function DevPanel({
                     <CheckCircle2 className="h-4 w-4 text-emerald-300" />
                     Zadnji deploymenti
                   </div>
-                  <ScrollArea className="h-[220px] pr-3">
+                  <ScrollArea className="max-h-[220px] pr-3">
                     <div className="space-y-2">
                       {latestDeployments.length === 0 ? (
                         <div className="text-sm text-white/42">Još nema deployment podataka.</div>
