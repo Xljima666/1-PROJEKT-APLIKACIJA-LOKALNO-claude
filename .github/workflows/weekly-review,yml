@@ -2,16 +2,27 @@ name: Weekly Review
 
 on:
   schedule:
-    - cron: '0 8 * * 1'
+    - cron: '0 7 * * 1'   # Svaki ponedjeljak u 9:00
   workflow_dispatch:
 
 jobs:
-  review:
+  weekly-review:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: python scripts/generate_weekly_review.py
-      - run: python scripts/update_memory.py
+          
+      - name: Generate Weekly Review
+        run: python scripts/generate_weekly_review.py > 0 MOZAK/weekly-review.md
+        
+      - name: Commit and push
+        run: |
+          git config user.name "Stellan"
+          git config user.email "stellan@geoterra.hr"
+          git add 0 MOZAK/weekly-review.md
+          git commit -m "📅 Weekly Review (v2.3)" || echo "No changes"
+          git push
