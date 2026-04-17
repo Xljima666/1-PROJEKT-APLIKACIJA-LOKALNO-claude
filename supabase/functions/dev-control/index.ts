@@ -268,17 +268,22 @@ serve(async (req) => {
           });
         }
         if (action === "deploy") {
-          const message = normalizeMessage(body?.message as string) || `deploy ${new Date().toISOString().slice(0, 16).replace("T", " ")}`;
-          const backupResult = await agentRequest(agentBaseUrl, agentApiKeys, "backup_project", { repo_path: projectRoot });
+          const message = normalizeMessage(body?.message as string) || `publish ${new Date().toISOString().slice(0, 16).replace("T", " ")}`;
           const buildResult = await agentRequest(agentBaseUrl, agentApiKeys, "run_build", { cwd: projectRoot });
+          const backupResult = await agentRequest(agentBaseUrl, agentApiKeys, "backup_project", { repo_path: projectRoot });
           const commitResult = await agentRequest(agentBaseUrl, agentApiKeys, "git_commit", { repo_path: projectRoot, message });
           const pushResult = await agentRequest(agentBaseUrl, agentApiKeys, "git_push", { repo_path: projectRoot });
           return json({
             success: true,
             action,
-            message: `Deploy flow završen: ${message}`,
-            result: { backupResult, buildResult, commitResult, pushResult },
-            summary: [backupResult?.backup_path, buildResult?.stdout, commitResult?.stdout, pushResult?.stdout]
+            message: `Safe publish završen: ${message}`,
+            result: { buildResult, backupResult, commitResult, pushResult },
+            summary: [
+              buildResult?.stdout,
+              backupResult?.backup_path || backupResult?.backup_name,
+              commitResult?.stdout,
+              pushResult?.stdout,
+            ]
               .filter(Boolean)
               .join("\n\n"),
           });
