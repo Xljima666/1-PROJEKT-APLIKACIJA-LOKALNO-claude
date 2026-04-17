@@ -44,7 +44,7 @@ import { motion } from "framer-motion";
 import { useAuth } from "@/hooks/useAuth";
 import ProviderSelector, { PROVIDERS, type Provider } from "./ProviderSelector";
 import { useDevOpsStatus } from "@/hooks/useDevOpsStatus";
-
+ 
 interface Message {
   role: "user" | "assistant";
   content: string;
