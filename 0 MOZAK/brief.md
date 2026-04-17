@@ -1,38 +1,25 @@
-# ☀️ Dnevni brief — 16.04.2026. (Četvrtak)
+# ☀️ Dnevni brief v2.2
 
-**Stellan v2.1** • Automatski generiran
-
----
-
-## 🎯 Hitno danas (rok < 48h)
-
+> Stellan generira ovaj file svako jutro u 6:30.
+> Zadnji update: 17.04.2026
 
 ---
 
-## 🔥 Najvažniji prioritet današnjeg dana
-
-
----
-
-## 📬 Emailovi koji čekaju odgovor (>24h)
-
+## Danas
+**Petak • 17. travnja 2026.**
 
 ---
 
-## 📊 SDGE — Promjene statusa aktivnih predmeta
+## Hitno danas (rok < 48h)
 
-
----
-
-## 💰 Financije / Solo (neplaćeno, otvorene ponude)
-
+- [ ]
 
 ---
 
-## 🛠 Stellanov komentar i preporuka za danas
+## Stellanov komentar
 
-**Najvažniji zadatak danas:**
+**Najvažnije danas:** Implementirali smo kompletan brain upgrade v2.2.
 
 ---
 
-**Ovaj brief se generira svako jutro preko GitHub Actions + skripte. Slobodno mi reci što želiš da dodam ili automatiziram jače (npr. stvarno povlačenje podataka iz SDGE/Gmaila).**
+*Auto-generirano od Stellana v2.2*
