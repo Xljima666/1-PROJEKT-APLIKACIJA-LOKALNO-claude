@@ -293,21 +293,36 @@ export default function DevPanel({
     return [...(devOps?.errors || [])].filter(Boolean).slice(0, 12);
   }, [devOps?.errors]);
 
+  const resolvedAgentOnline =
+    typeof devOps?.agent?.online === "boolean"
+      ? devOps.agent.online
+      : agentOnline;
+
+  const hasProjectRoot = Boolean(projectRoot?.trim());
+
   const gitValue = devOps?.git?.branch
     ? `${devOps.git.branch}${devOps.git.dirty ? " · dirty" : " · clean"}`
-    : devOps?.git?.configured
-      ? "Repo connected"
-      : "Repo not configured";
+    : hasProjectRoot
+      ? resolvedAgentOnline === true
+        ? "Local repo ready"
+        : "Root saved"
+      : devOps?.git?.configured
+        ? "Repo connected"
+        : "Repo not configured";
 
   const buildValue = isDeploying
     ? "Deploy running"
     : devOps?.build?.label
       ? devOps.build.label
-      : deployStatus === "success"
-        ? "Success"
-        : deployStatus === "error"
-          ? "Error"
-          : "Unknown";
+      : hasProjectRoot
+        ? resolvedAgentOnline === true
+          ? "Local build ready"
+          : "Awaiting agent"
+        : deployStatus === "success"
+          ? "Success"
+          : deployStatus === "error"
+            ? "Error"
+            : "Unknown";
 
   const handleCommit = () => {
     const message = commitMessage.trim();
@@ -381,14 +396,14 @@ export default function DevPanel({
                   variant="outline"
                   className={cn(
                     "rounded-full px-3 py-1 text-[11px]",
-                    statusTone(agentOnline),
+                    statusTone(resolvedAgentOnline),
                   )}
                 >
                   <Activity className="mr-1 h-3 w-3" />
                   Agent{" "}
-                  {agentOnline === true
+                  {resolvedAgentOnline === true
                     ? "online"
-                    : agentOnline === false
+                    : resolvedAgentOnline === false
                       ? "offline"
                       : "..."}
                 </Badge>
