@@ -7,7 +7,7 @@ interface UseDevOpsStatusOptions {
   projectRoot?: string | null;
   pollMs?: number;
 }
-
+ 
 const DEV_CONTROL_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/dev-control`;
 const SUPABASE_PUBLIC_KEY =
   import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
