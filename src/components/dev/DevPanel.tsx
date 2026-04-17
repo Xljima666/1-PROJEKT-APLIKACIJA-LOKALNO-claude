@@ -8,6 +8,7 @@ import {
   CheckCircle2,
   Copy,
   ExternalLink,
+  FileCode2,
   FolderOpen,
   GitBranch,
   Loader2,
@@ -237,6 +238,36 @@ function MiniInfo({ label, value }: { label: string; value: string }) {
   );
 }
 
+function StepRow({ step }: { step: DevStep }) {
+  return (
+    <div className="rounded-[22px] border border-white/10 bg-white/[0.03] px-3 py-2.5 text-sm text-white/78">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <div className="truncate font-medium text-white/92">{step.label}</div>
+          <div className="mt-0.5 text-[11px] text-white/42">
+            {step.detail || step.target || step.action}
+          </div>
+        </div>
+        <Badge
+          variant="outline"
+          className={cn(
+            "rounded-full text-[10px]",
+            step.status === "done"
+              ? "border-emerald-400/20 bg-emerald-400/10 text-emerald-100"
+              : step.status === "error"
+                ? "border-rose-400/20 bg-rose-400/10 text-rose-100"
+                : step.status === "running"
+                  ? "border-cyan-400/20 bg-cyan-400/10 text-cyan-100"
+                  : "border-white/10 bg-white/[0.03] text-white/60",
+          )}
+        >
+          {step.status}
+        </Badge>
+      </div>
+    </div>
+  );
+}
+
 export default function DevPanel({
   title = "DEV Studio",
   steps = [],
@@ -250,9 +281,6 @@ export default function DevPanel({
   projectRoot,
   devOps,
   devOpsLoading = false,
-  onDescribePreview,
-  onWaitForLoad,
-  onRefreshScreenshot,
   onRefreshDevOps,
   onDeploy,
   onStartAgent,
@@ -272,42 +300,53 @@ export default function DevPanel({
   }, [projectRoot]);
 
   const mergedLogs = useMemo(() => {
-    const localLogs: DevOpsLogEntry[] = consoleLogs
-      .slice(-20)
-      .map((log, index) => ({
-        id: `console-${index}-${log.msg.slice(0, 20)}`,
-        source: "system",
-        level:
-          log.t === "warn" || log.t === "err"
-            ? "warning"
-            : log.t === "ok"
-              ? "success"
-              : "info",
-        title: log.msg,
-      }));
+    const localLogs: DevOpsLogEntry[] = consoleLogs.slice(-30).map((log, index) => ({
+      id: `console-${index}-${log.msg.slice(0, 20)}`,
+      source: "system",
+      level:
+        log.t === "warn" || log.t === "err"
+          ? "warning"
+          : log.t === "ok"
+            ? "success"
+            : "info",
+      title: log.msg,
+    }));
 
-    return [...(devOps?.logs || []), ...localLogs].slice(0, 40);
+    return [...(devOps?.logs || []), ...localLogs].slice(0, 60);
   }, [consoleLogs, devOps?.logs]);
 
   const derivedErrors = useMemo(() => {
     return [...(devOps?.errors || [])].filter(Boolean).slice(0, 12);
   }, [devOps?.errors]);
 
+  const resolvedAgentOnline =
+    typeof devOps?.agent?.online === "boolean" ? devOps.agent.online : agentOnline;
+
+  const hasProjectRoot = Boolean(projectRoot?.trim());
+
   const gitValue = devOps?.git?.branch
     ? `${devOps.git.branch}${devOps.git.dirty ? " · dirty" : " · clean"}`
-    : devOps?.git?.configured
-      ? "Repo connected"
-      : "Repo not configured";
+    : hasProjectRoot
+      ? resolvedAgentOnline === true
+        ? "Local repo ready"
+        : "Root saved"
+      : devOps?.git?.configured
+        ? "Repo connected"
+        : "Repo not configured";
 
   const buildValue = isDeploying
     ? "Deploy running"
     : devOps?.build?.label
       ? devOps.build.label
-      : deployStatus === "success"
-        ? "Success"
-        : deployStatus === "error"
-          ? "Error"
-          : "Unknown";
+      : hasProjectRoot
+        ? resolvedAgentOnline === true
+          ? "Local build ready"
+          : "Awaiting agent"
+        : deployStatus === "success"
+          ? "Success"
+          : deployStatus === "error"
+            ? "Error"
+            : "Unknown";
 
   const handleCommit = () => {
     const message = commitMessage.trim();
@@ -324,6 +363,10 @@ export default function DevPanel({
     }
     onDeploy?.();
   };
+
+  const lastLog = mergedLogs[0];
+  const latestChangedFiles = devOps?.git?.changedFiles?.slice(0, 16) || [];
+  const latestDeployments = (devOps?.deployments || []).slice(0, 6);
 
   return (
     <div
@@ -342,16 +385,6 @@ export default function DevPanel({
             backgroundSize: "42px 42px",
             maskImage:
               "linear-gradient(to bottom, rgba(0,0,0,0.75), transparent 90%)",
-          }}
-        />
-        <div
-          className="absolute inset-0 opacity-[0.10]"
-          style={{
-            backgroundImage:
-              "linear-gradient(rgba(34,211,238,0.08) 1px, transparent 1px), linear-gradient(90deg, rgba(34,211,238,0.08) 1px, transparent 1px)",
-            backgroundSize: "126px 126px",
-            maskImage:
-              "linear-gradient(to bottom, rgba(0,0,0,0.65), transparent 95%)",
           }}
         />
       </div>
@@ -381,16 +414,11 @@ export default function DevPanel({
                   variant="outline"
                   className={cn(
                     "rounded-full px-3 py-1 text-[11px]",
-                    statusTone(agentOnline),
+                    statusTone(resolvedAgentOnline),
                   )}
                 >
                   <Activity className="mr-1 h-3 w-3" />
-                  Agent{" "}
-                  {agentOnline === true
-                    ? "online"
-                    : agentOnline === false
-                      ? "offline"
-                      : "..."}
+                  Agent {resolvedAgentOnline === true ? "online" : resolvedAgentOnline === false ? "offline" : "..."}
                 </Badge>
                 <Badge
                   variant="outline"
@@ -407,8 +435,7 @@ export default function DevPanel({
                 </Badge>
               </div>
               <div className="mt-3 text-sm text-white/68">
-                DEV je sada fokusiran samo na git, commit, build, deploy, status
-                i logove.
+                DEV je sada fokusiran samo na git, commit, build, deploy, status i logove.
               </div>
             </div>
 
@@ -436,12 +463,7 @@ export default function DevPanel({
                 Check agent
               </Button>
               {isAgentRunning ? (
-                <Button
-                  size="sm"
-                  variant="destructive"
-                  className="h-10 rounded-2xl px-4"
-                  onClick={onStopAgent}
-                >
+                <Button size="sm" variant="destructive" className="h-10 rounded-2xl px-4" onClick={onStopAgent}>
                   <Square className="mr-2 h-4 w-4" />
                   Stop
                 </Button>
@@ -462,13 +484,7 @@ export default function DevPanel({
             <StatCard
               icon={Server}
               label="Agent"
-              value={
-                devOps?.agent?.online
-                  ? "Online"
-                  : devOps?.agent?.configured
-                    ? "Offline"
-                    : "Not configured"
-              }
+              value={devOps?.agent?.online ? "Online" : devOps?.agent?.configured ? "Offline" : "Not configured"}
               tone={statusTone(devOps?.agent?.online)}
               hint={devOps?.agent?.workspace || undefined}
             />
@@ -500,11 +516,7 @@ export default function DevPanel({
               icon={FolderOpen}
               label="Project root"
               value={projectRoot || "Not set"}
-              hint={
-                projectRoot
-                  ? "Lokalni root za git/build/deploy akcije"
-                  : "Upiši lokalni root projekta ispod i spremi ga."
-              }
+              hint={projectRoot ? "Lokalni root za git/build/deploy akcije" : "Upiši lokalni root projekta ispod i spremi ga."}
             />
           </div>
         </div>
@@ -533,9 +545,7 @@ export default function DevPanel({
                   </Button>
                 </div>
                 <div className="rounded-[20px] border border-white/10 bg-white/[0.03] px-3 py-2.5 text-[12px] leading-5 text-white/58">
-                  Ovdje upiši lokalni folder repozitorija. Sve DEV akcije —
-                  backup, build, commit, push i deploy — vrte se nad tim
-                  folderom.
+                  Ovdje upiši lokalni folder repozitorija. Sve DEV akcije — backup, build, commit, push i deploy — vrte se nad tim folderom.
                 </div>
               </div>
             </Section>
@@ -545,10 +555,7 @@ export default function DevPanel({
               subtitle="Glavne akcije za lokalni repo"
               right={
                 projectRoot ? (
-                  <Badge
-                    variant="outline"
-                    className="rounded-full border-emerald-400/20 bg-emerald-400/10 text-[10px] text-emerald-100"
-                  >
+                  <Badge variant="outline" className="rounded-full border-emerald-400/20 bg-emerald-400/10 text-[10px] text-emerald-100">
                     Local-first cockpit
                   </Badge>
                 ) : undefined
@@ -594,25 +601,21 @@ export default function DevPanel({
                     onClick={() => onPortalAction?.("git push")}
                   >
                     <UploadCloud className="mr-2 h-4 w-4 text-white/80" />
-                    Git push
+                    Push na GitHub
                   </Button>
                   <Button
                     className="h-12 justify-start rounded-2xl bg-emerald-400 text-slate-950 hover:bg-emerald-300"
                     onClick={handleDeployWithMessage}
                   >
                     <Rocket className="mr-2 h-4 w-4" />
-                    One-click deploy
+                    Safe publish
                   </Button>
                 </div>
 
                 <div className="rounded-[22px] border border-emerald-400/10 bg-black/15 p-3.5">
-                  <div className="mb-2 text-sm font-medium text-white/92">
-                    Commit poruka
-                  </div>
+                  <div className="mb-2 text-sm font-medium text-white/92">Commit poruka</div>
                   <div className="mb-3 text-[11px] leading-5 text-white/42">
-                    Upiši poruku pa klikni <strong>Commit</strong>. Kod{" "}
-                    <strong>One-click deploy</strong> prvo se radi backup, zatim
-                    build, commit i push.
+                    Upiši poruku pa klikni <strong>Commit</strong>. Kod <strong>Safe publish</strong> prvo se radi backup, zatim build, commit i push.
                   </div>
                   <div className="flex gap-2">
                     <Input
@@ -633,18 +636,12 @@ export default function DevPanel({
               </div>
             </Section>
 
-            <Section
-              title="Repo status"
-              subtitle="Brzi pregled repozitorija i zadnjih promjena"
-            >
+            <Section title="Repo status" subtitle="Brzi pregled repozitorija i zadnjih promjena">
               <div className="space-y-3 text-sm text-white/75">
                 <div className="grid gap-2">
                   <MiniInfo label="Repo" value={devOps?.git?.repo || "—"} />
                   <MiniInfo label="Branch" value={devOps?.git?.branch || "—"} />
-                  <MiniInfo
-                    label="State"
-                    value={devOps?.git?.dirty ? "Dirty" : "Clean"}
-                  />
+                  <MiniInfo label="State" value={devOps?.git?.dirty ? "Dirty" : "Clean"} />
                   {devOps?.git?.latestCommit ? (
                     <MiniInfo
                       label="Latest commit"
@@ -652,39 +649,13 @@ export default function DevPanel({
                     />
                   ) : null}
                 </div>
-
-                <div className="rounded-[22px] border border-emerald-400/10 bg-black/15 p-3.5">
-                  <div className="mb-2 text-sm font-medium text-white/92">
-                    Promijenjeni fileovi
-                  </div>
-                  {!devOps?.git?.changedFiles?.length ? (
-                    <div className="text-[12px] text-white/42">
-                      Trenutno nema popisa promijenjenih fileova.
-                    </div>
-                  ) : (
-                    <div className="space-y-1.5 text-[12px]">
-                      {devOps.git.changedFiles.slice(0, 12).map((file) => (
-                        <div
-                          key={file}
-                          className="rounded-2xl border border-white/8 bg-white/[0.03] px-2.5 py-2 font-mono text-white/84"
-                        >
-                          {file}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
               </div>
             </Section>
 
-            <Section
-              title="Backupi"
-              subtitle="Zadnji snapshoti lokalnog projekta"
-            >
+            <Section title="Backupi" subtitle="Zadnji snapshoti lokalnog projekta">
               {(devOps?.backups || []).length === 0 ? (
                 <div className="rounded-[22px] border border-white/10 bg-white/[0.03] p-4 text-sm text-white/42">
-                  Još nema backupova. Klikni <strong>Backup projekta</strong>{" "}
-                  prije većih izmjena ili deploya.
+                  Još nema backupova. Klikni <strong>Backup projekta</strong> prije većih izmjena ili deploya.
                 </div>
               ) : (
                 <div className="space-y-2">
@@ -695,23 +666,14 @@ export default function DevPanel({
                     >
                       <div className="flex items-center justify-between gap-2">
                         <div className="min-w-0">
-                          <div className="truncate font-medium text-white/92">
-                            {backup.name}
-                          </div>
-                          <div className="truncate text-[11px] text-white/42">
-                            {backup.path || "_agent_backups"}
-                          </div>
+                          <div className="truncate font-medium text-white/92">{backup.name}</div>
+                          <div className="truncate text-[11px] text-white/42">{backup.path || "_agent_backups"}</div>
                         </div>
-                        <Badge
-                          variant="outline"
-                          className="rounded-full border-amber-400/18 bg-amber-400/10 text-[10px] text-amber-100"
-                        >
+                        <Badge variant="outline" className="rounded-full border-amber-400/18 bg-amber-400/10 text-[10px] text-amber-100">
                           {formatBytes(backup.size)}
                         </Badge>
                       </div>
-                      <div className="mt-1 text-[11px] text-white/42">
-                        {formatTime(backup.modifiedAt)}
-                      </div>
+                      <div className="mt-1 text-[11px] text-white/42">{formatTime(backup.modifiedAt)}</div>
                     </div>
                   ))}
                 </div>
@@ -719,10 +681,7 @@ export default function DevPanel({
             </Section>
 
             {derivedErrors.length > 0 ? (
-              <Section
-                title="Greške"
-                subtitle="Aktivni problemi iz DEV statusa"
-              >
+              <Section title="Greške" subtitle="Aktivni problemi iz DEV statusa">
                 <div className="space-y-2">
                   {derivedErrors.map((item, index) => (
                     <div
@@ -731,9 +690,7 @@ export default function DevPanel({
                     >
                       <div className="flex items-start gap-2">
                         <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-                        <div className="whitespace-pre-wrap leading-6">
-                          {item}
-                        </div>
+                        <div className="whitespace-pre-wrap leading-6">{item}</div>
                       </div>
                     </div>
                   ))}
@@ -742,131 +699,119 @@ export default function DevPanel({
             ) : null}
           </div>
 
-          <div className="min-h-0 space-y-4">
+          <div className="grid min-h-0 gap-4 grid-rows-[minmax(0,1.1fr)_minmax(0,0.9fr)_minmax(0,0.9fr)]">
             <Section
-              title="Preview"
-              subtitle="Aktivni Playwright prikaz i zadnji sažetak"
+              title="Radni panel"
+              subtitle="Aktivnost agenta, fileovi, logovi i zadnji output umjesto Playwright previewa"
               right={
                 <div className="flex flex-wrap gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-9 rounded-2xl border-white/10 bg-white/[0.04] px-3 text-white hover:bg-white/[0.08]"
-                    onClick={onRefreshScreenshot}
-                  >
-                    <RefreshCw className="mr-2 h-4 w-4" />
-                    Screenshot
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-9 rounded-2xl border-white/10 bg-white/[0.04] px-3 text-white hover:bg-white/[0.08]"
-                    onClick={onWaitForLoad}
-                  >
-                    <Loader2 className="mr-2 h-4 w-4" />
-                    Pričekaj load
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-9 rounded-2xl border-white/10 bg-white/[0.04] px-3 text-white hover:bg-white/[0.08]"
-                    onClick={onDescribePreview}
-                  >
-                    <TerminalSquare className="mr-2 h-4 w-4" />
-                    Opiši
-                  </Button>
+                  <Badge variant="outline" className={cn("rounded-full text-[10px]", statusTone(resolvedAgentOnline))}>
+                    {resolvedAgentOnline ? "Agent live" : "Agent offline"}
+                  </Badge>
+                  {lastLog ? (
+                    <Badge variant="outline" className={cn("rounded-full text-[10px]", levelTone(lastLog.level))}>
+                      Zadnji log: {lastLog.level}
+                    </Badge>
+                  ) : null}
                 </div>
               }
             >
-              <div className="grid gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(300px,0.8fr)]">
-                <div className="rounded-[24px] border border-white/10 bg-black/20 p-3">
-                  {preview?.screenshotUrl ? (
-                    <img
-                      src={preview.screenshotUrl}
-                      alt={preview?.title || "Preview"}
-                      className="h-[320px] w-full rounded-[18px] border border-white/8 object-cover"
-                    />
-                  ) : (
-                    <div className="flex h-[320px] items-center justify-center rounded-[18px] border border-dashed border-white/10 text-sm text-white/40">
-                      Nema screenshot previewa
-                    </div>
-                  )}
-                </div>
+              <div className="grid gap-4 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
                 <div className="space-y-3">
-                  <MiniInfo label="URL" value={preview?.url || "—"} />
-                  <MiniInfo
-                    label="Naslov"
-                    value={preview?.title || "Playwright preview"}
-                  />
-                  <MiniInfo
-                    label="Status"
-                    value={preview?.isLive ? "Live" : "Offline"}
-                  />
-                  <div className="rounded-[24px] border border-white/10 bg-black/20 p-4">
-                    <div className="text-[10px] uppercase tracking-[0.12em] text-white/36">
-                      Sažetak
-                    </div>
-                    <div className="mt-2 whitespace-pre-wrap text-sm leading-6 text-white/78">
-                      {preview?.summary || "Još nema sažetka previewa."}
-                    </div>
-                  </div>
+                  <MiniInfo label="Workspace" value={devOps?.agent?.workspace || projectRoot || "—"} />
+                  <MiniInfo label="Zadnja akcija" value={steps.length ? steps[steps.length - 1]?.label || "—" : lastLog?.title || "Nema aktivnosti"} />
+                  <MiniInfo label="Target / URL" value={preview?.url || devOps?.build?.url || "—"} />
+                  <MiniInfo label="Build state" value={devOps?.build?.label || buildValue} />
                 </div>
-              </div>
-            </Section>
 
-            <Section
-              title="Koraci"
-              subtitle="Što je DEV stvarno napravio zadnje"
-            >
-              <div className="space-y-2">
-                {steps.length === 0 ? (
-                  <div className="rounded-[22px] border border-white/10 bg-white/[0.03] p-4 text-sm text-white/42">
-                    Još nema zabilježenih koraka.
+                <div className="rounded-[24px] border border-white/10 bg-black/20 p-4">
+                  <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-white/92">
+                    <TerminalSquare className="h-4 w-4 text-cyan-300" />
+                    Live output / logovi
                   </div>
-                ) : (
-                  steps
-                    .slice(-8)
-                    .reverse()
-                    .map((step) => (
-                      <div
-                        key={step.id}
-                        className="rounded-[22px] border border-white/10 bg-white/[0.03] px-3 py-2.5 text-sm text-white/78"
-                      >
-                        <div className="flex items-center justify-between gap-3">
-                          <div className="min-w-0">
-                            <div className="truncate font-medium text-white/92">
-                              {step.label}
-                            </div>
-                            <div className="mt-0.5 truncate text-[11px] text-white/42">
-                              {step.detail || step.target || step.action}
-                            </div>
-                          </div>
-                          <Badge
-                            variant="outline"
+                  <ScrollArea className="h-[290px] pr-3">
+                    {mergedLogs.length === 0 ? (
+                      <div className="rounded-[18px] border border-dashed border-white/10 p-4 text-sm text-white/42">
+                        Još nema logova. Kad agent krene raditi build, git ili file izmjene, ovdje ćeš vidjeti što se događa.
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {mergedLogs.map((item) => (
+                          <div
+                            key={item.id}
                             className={cn(
-                              "rounded-full text-[10px]",
-                              step.status === "done"
-                                ? "border-emerald-400/20 bg-emerald-400/10 text-emerald-100"
-                                : step.status === "error"
-                                  ? "border-rose-400/20 bg-rose-400/10 text-rose-100"
-                                  : step.status === "running"
-                                    ? "border-cyan-400/20 bg-cyan-400/10 text-cyan-100"
-                                    : "border-white/10 bg-white/[0.03] text-white/60",
+                              "rounded-[18px] border px-3 py-2.5 text-sm",
+                              levelTone(item.level),
                             )}
                           >
-                            {step.status}
-                          </Badge>
-                        </div>
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <div className="font-medium text-white/92">{item.title}</div>
+                                {item.detail ? (
+                                  <div className="mt-1 whitespace-pre-wrap text-[12px] leading-5 text-white/72">
+                                    {item.detail}
+                                  </div>
+                                ) : null}
+                              </div>
+                              <div className="shrink-0 text-[10px] uppercase tracking-[0.12em] text-white/42">
+                                {item.source || "system"}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
                       </div>
-                    ))
-                )}
+                    )}
+                  </ScrollArea>
+                </div>
               </div>
             </Section>
 
-            <Section
-              title="Build & deploy status"
-              subtitle="Zadnji build i deployment podaci"
-            >
+            <div className="grid min-h-0 gap-4 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+              <Section title="Koraci" subtitle="Što je DEV stvarno napravio zadnje">
+                <ScrollArea className="h-[250px] pr-3">
+                  {steps.length === 0 ? (
+                    <div className="rounded-[22px] border border-white/10 bg-white/[0.03] p-4 text-sm text-white/42">
+                      Još nema zabilježenih koraka.
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {steps
+                        .slice()
+                        .reverse()
+                        .map((step) => (
+                          <StepRow key={step.id} step={step} />
+                        ))}
+                    </div>
+                  )}
+                </ScrollArea>
+              </Section>
+
+              <Section title="Promijenjeni fileovi" subtitle="Što će build/commit zapravo dirati">
+                <ScrollArea className="h-[250px] pr-3">
+                  {latestChangedFiles.length === 0 ? (
+                    <div className="rounded-[22px] border border-white/10 bg-white/[0.03] p-4 text-sm text-white/42">
+                      Trenutno nema popisa promijenjenih fileova.
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {latestChangedFiles.map((file) => (
+                        <div
+                          key={file}
+                          className="rounded-[20px] border border-white/10 bg-white/[0.03] px-3 py-2.5 font-mono text-[12px] text-white/84"
+                        >
+                          <div className="flex items-start gap-2">
+                            <FileCode2 className="mt-0.5 h-4 w-4 shrink-0 text-cyan-300" />
+                            <span className="break-all">{file}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </ScrollArea>
+              </Section>
+            </div>
+
+            <Section title="Build & deploy status" subtitle="Zadnji build i deployment podaci">
               <div className="grid gap-4 lg:grid-cols-2">
                 <div className="rounded-[24px] border border-cyan-400/10 bg-black/15 p-4">
                   <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-white/92">
@@ -875,25 +820,20 @@ export default function DevPanel({
                   </div>
                   <div className="space-y-2 text-sm text-white/75">
                     <div>
-                      <span className="text-white/42">Status:</span>{" "}
-                      {devOps?.build?.label || "—"}
+                      <span className="text-white/42">Status:</span> {devOps?.build?.label || "—"}
                     </div>
                     <div>
-                      <span className="text-white/42">Target:</span>{" "}
-                      {devOps?.build?.target || "—"}
+                      <span className="text-white/42">Target:</span> {devOps?.build?.target || "—"}
                     </div>
                     <div>
-                      <span className="text-white/42">Branch:</span>{" "}
-                      {devOps?.build?.branch || "—"}
+                      <span className="text-white/42">Branch:</span> {devOps?.build?.branch || "—"}
                     </div>
                     <div>
-                      <span className="text-white/42">Time:</span>{" "}
-                      {formatTime(devOps?.build?.createdAt)}
+                      <span className="text-white/42">Time:</span> {formatTime(devOps?.build?.createdAt)}
                     </div>
                     {devOps?.build?.commitMessage ? (
                       <div>
-                        <span className="text-white/42">Commit:</span>{" "}
-                        {devOps.build.commitMessage}
+                        <span className="text-white/42">Commit:</span> {devOps.build.commitMessage}
                       </div>
                     ) : null}
                   </div>
@@ -926,115 +866,56 @@ export default function DevPanel({
                     <CheckCircle2 className="h-4 w-4 text-emerald-300" />
                     Zadnji deploymenti
                   </div>
-                  <div className="space-y-2">
-                    {(devOps?.deployments || []).length === 0 ? (
-                      <div className="text-sm text-white/42">
-                        Još nema deployment podataka.
-                      </div>
-                    ) : (
-                      devOps!.deployments!.slice(0, 6).map((deployment) => (
-                        <div
-                          key={deployment.id}
-                          className="rounded-[20px] border border-white/10 bg-white/[0.03] px-3 py-2.5 text-sm text-white/75"
-                        >
-                          <div className="flex items-center justify-between gap-2">
-                            <div className="min-w-0">
-                              <div className="truncate font-medium text-white/92">
-                                {deployment.branch ||
-                                  deployment.target ||
-                                  deployment.id}
+                  <ScrollArea className="h-[220px] pr-3">
+                    <div className="space-y-2">
+                      {latestDeployments.length === 0 ? (
+                        <div className="text-sm text-white/42">Još nema deployment podataka.</div>
+                      ) : (
+                        latestDeployments.map((deployment) => (
+                          <div
+                            key={deployment.id}
+                            className="rounded-[20px] border border-white/10 bg-white/[0.03] px-3 py-2.5 text-sm text-white/75"
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="min-w-0">
+                                <div className="truncate font-medium text-white/92">
+                                  {deployment.branch || deployment.target || deployment.id}
+                                </div>
+                                <div className="truncate text-[11px] text-white/42">
+                                  {deployment.commitMessage || deployment.url || "Deployment"}
+                                </div>
                               </div>
-                              <div className="truncate text-[11px] text-white/42">
-                                {deployment.commitMessage ||
-                                  deployment.url ||
-                                  "Deployment"}
-                              </div>
-                            </div>
-                            <Badge
-                              variant="outline"
-                              className={cn(
-                                "rounded-full border-white/10 bg-white/[0.03] text-white/75",
-                                statusTone(
-                                  deployment.status === "ready"
-                                    ? true
-                                    : deployment.status === "error"
-                                      ? false
-                                      : null,
-                                ),
-                              )}
-                            >
-                              {deployment.status}
-                            </Badge>
-                          </div>
-                          <div className="mt-1 text-[11px] text-white/42">
-                            {formatTime(deployment.createdAt)}
-                          </div>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
-              </div>
-            </Section>
-
-            <Section
-              title="Logs"
-              subtitle="DEV logovi, build output i status događaji"
-            >
-              <ScrollArea className="h-[540px] pr-3">
-                <div className="space-y-3">
-                  {mergedLogs.length === 0 ? (
-                    <div className="rounded-[22px] border border-white/10 bg-white/[0.03] p-4 text-sm text-white/42">
-                      Još nema logova.
-                    </div>
-                  ) : (
-                    mergedLogs.map((log) => (
-                      <div
-                        key={log.id}
-                        className={cn(
-                          "rounded-[22px] border p-3.5",
-                          levelTone(log.level),
-                        )}
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0 flex-1">
-                            <div className="flex flex-wrap items-center gap-2 text-sm font-medium">
-                              <TerminalSquare className="h-4 w-4" />
-                              <span>{log.title}</span>
                               <Badge
                                 variant="outline"
-                                className="rounded-full border-current/20 bg-transparent text-[10px] text-current"
+                                className={cn(
+                                  "rounded-full border-white/10 bg-white/[0.03] text-white/75",
+                                  statusTone(
+                                    deployment.status === "ready"
+                                      ? true
+                                      : deployment.status === "error"
+                                        ? false
+                                        : null,
+                                  ),
+                                )}
                               >
-                                {log.source}
+                                {deployment.status || "queued"}
                               </Badge>
                             </div>
-                            {log.detail ? (
-                              <div className="mt-2 whitespace-pre-wrap text-[12px] leading-5 opacity-90">
-                                {log.detail}
-                              </div>
-                            ) : null}
-                            {log.at ? (
-                              <div className="mt-2 text-[11px] opacity-70">
-                                {formatTime(log.at)}
-                              </div>
-                            ) : null}
+                            <div className="mt-1 flex items-center justify-between gap-2 text-[11px] text-white/42">
+                              <span>{formatTime(deployment.createdAt)}</span>
+                              {deployment.url ? (
+                                <a href={deployment.url} target="_blank" rel="noreferrer" className="text-cyan-200 hover:text-cyan-100">
+                                  Otvori
+                                </a>
+                              ) : null}
+                            </div>
                           </div>
-                          {log.href ? (
-                            <a
-                              href={log.href}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="shrink-0 text-current opacity-80 hover:opacity-100"
-                            >
-                              <ExternalLink className="h-4 w-4" />
-                            </a>
-                          ) : null}
-                        </div>
-                      </div>
-                    ))
-                  )}
+                        ))
+                      )}
+                    </div>
+                  </ScrollArea>
                 </div>
-              </ScrollArea>
+              </div>
             </Section>
           </div>
         </div>
