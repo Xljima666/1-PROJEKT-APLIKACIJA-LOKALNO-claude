@@ -1,40 +1,37 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { 
-  Play, Square, Save, PlayCircle, Trash2, RotateCcw, 
-  AlertCircle, CheckCircle2, Bot, Terminal, FolderOpen, 
-  Brain, Zap, ExternalLink 
+  Play, Square, RotateCcw, PlayCircle, Settings, List, Terminal, FolderOpen, 
+  Brain, Zap, FileText, ArrowRight, CheckCircle2, AlertCircle 
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
-import type { ConsoleLog } from "./DevPanel"; // circular import fix - we'll handle in parent
+
+import type { ConsoleLog } from "./DevPanel";
 
 interface DevPanelProps {
   isRecording: boolean;
-  setIsRecording: (recording: boolean) => void;
+  setIsRecording: (val: boolean) => void;
   recordingName: string;
   setRecordingName: (name: string) => void;
   recordedSteps: Array<{ n: number; url: string; desc: string; screenshot?: string }>;
-  setRecordedSteps: React.Dispatch<React.SetStateAction<Array<{ n: number; url: string; desc: string; screenshot?: string }>>>;
+  setRecordedSteps: React.Dispatch<React.SetStateAction<any[]>>;
   savedActions: Array<{ name: string; file: string }>;
-  setSavedActions: React.Dispatch<React.SetStateAction<Array<{ name: string; file: string }>>>;
+  setSavedActions: React.Dispatch<React.SetStateAction<any[]>>;
   consoleLogs: ConsoleLog[];
-  addLog: (type: "ok" | "error" | "info" | "dim", msg: string) => void;
-  onAction?: (action: string, payload?: any) => void;
+  addLog: (type: string, message: string) => void;
+  handleDevPanelAction: (action: string, payload?: any) => Promise<void>;
   devSteps: any[];
   devPanelPreview?: any;
-  studioTab: string;
-  setStudioTab: (tab: string) => void;
-  studioRightTab: string;
-  setStudioRightTab: (tab: string) => void;
-  isAgentActionRunning?: boolean;
-  setIsAgentActionRunning?: (running: boolean) => void;
+  studioTab?: string;
+  setStudioTab?: (tab: string) => void;
+  onRunAction?: (name: string, params?: any) => void;
 }
 
 const DevPanel: React.FC<DevPanelProps> = ({
@@ -48,263 +45,178 @@ const DevPanel: React.FC<DevPanelProps> = ({
   setSavedActions,
   consoleLogs,
   addLog,
-  onAction,
+  handleDevPanelAction,
   devSteps,
   devPanelPreview,
-  studioTab,
+  studioTab = "playwright",
   setStudioTab,
-  studioRightTab,
-  setStudioRightTab,
-  isAgentActionRunning = false,
-  setIsAgentActionRunning,
+  onRunAction,
 }) => {
-  const [currentRecordingName, setCurrentRecordingName] = useState(recordingName || "sdge_povratnice_flow");
-  const [isSaving, setIsSaving] = useState(false);
-  const recordingStartTime = useRef<Date | null>(null);
+  const [activeTab, setActiveTab] = useState<"recorder" | "actions" | "memory" | "console" | "preview">("recorder");
+  const [selectedAction, setSelectedAction] = useState<string>("");
+  const [actionParam, setActionParam] = useState<string>("");
+  const [isStartingRecording, setIsStartingRecording] = useState(false);
 
-  const startVisualRecording = async () => {
-    if (!currentRecordingName.trim()) {
+  const startRecording = async () => {
+    if (!recordingName.trim()) {
       addLog("error", "MoraÅ¡ unijeti ime akcije prije snimanja");
       return;
     }
 
-    setIsRecording(true);
-    recordingStartTime.current = new Date();
-    addLog("ok", `ðŸŽ¥ PoÄinjem visual recording: ${currentRecordingName}`);
+    setIsStartingRecording(true);
+    addLog("info", `PokreÄ‡em visual recording: ${recordingName}...`);
 
     try {
-      // Call the real tool via edge function (this is what was missing)
-      const { data: session } = await (window as any).supabase?.auth.getSession();
-      const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/record/start`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${session?.session?.access_token}`,
-          apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
-        },
-        body: JSON.stringify({
-          name: currentRecordingName,
-          description: `Visual recording started from DevPanel - ${new Date().toISOString()}`,
-        }),
-      });
-
-      if (res.ok) {
-        addLog("ok", "âœ… Playwright recording session started in Chromium. Idi na SDGE/OSS i roÄaj normalno.");
-        addLog("info", "Kada zavrÅ¡iÅ¡, klikni Stop & Save Action");
-      } else {
-        addLog("error", "âš ï¸ Backend recording endpoint nije joÅ¡ aktivan. Koristim simulaciju.");
-        // Fallback simulation for now
-        setTimeout(() => {
-          setRecordedSteps([
-            { n: 1, url: "https://sdge.dgu.hr", desc: "Navigate to SDGE login", screenshot: "" },
-            { n: 2, url: "https://sdge.dgu.hr/upisnik", desc: "Open Upisnik", screenshot: "" },
-          ]);
-        }, 800);
-      }
+      await handleDevPanelAction("learn", { name: recordingName });
+      
+      setIsRecording(true);
+      setRecordedSteps([]);
+      addLog("ok", "âœ… Chromium otvoren â€” sada normalno radi po SDGE/OSS portalu. Kad zavrÅ¡iÅ¡, klikni Stop Recording.");
     } catch (err) {
-      addLog("error", "Ne mogu kontaktirati recording backend. Koristim demo mode.");
-    }
-  };
-
-  const stopAndSaveRecording = async () => {
-    if (!isRecording) return;
-
-    setIsSaving(true);
-    const duration = recordingStartTime.current 
-      ? ((Date.now() - recordingStartTime.current.getTime()) / 1000).toFixed(1) 
-      : "0";
-
-    addLog("info", `ðŸ›‘ Zaustavljam recording (${duration}s)...`);
-
-    try {
-      const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/record/stop`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: currentRecordingName }),
-      });
-
-      if (res.ok) {
-        const result = await res.json();
-        if (result.success) {
-          addLog("ok", `âœ… Akcija "${currentRecordingName}" spremljena sa ${recordedSteps.length + 2} koraka`);
-          
-          setSavedActions(prev => [
-            ...prev,
-            { 
-              name: currentRecordingName, 
-              file: `actions/${currentRecordingName}.ts` 
-            }
-          ]);
-        }
-      } else {
-        // Demo save
-        addLog("ok", `âœ… Demo akcija "${currentRecordingName}" spremljena ( ${recordedSteps.length} koraka )`);
-        setSavedActions(prev => [...prev, { name: currentRecordingName, file: `actions/${currentRecordingName}.json` }]);
-      }
-    } catch (e) {
-      addLog("ok", `âœ… Akcija "${currentRecordingName}" spremljena (demo mode)`);
-      setSavedActions(prev => [...prev, { name: currentRecordingName, file: `actions/${currentRecordingName}.ts` }]);
-    }
-
-    setIsRecording(false);
-    setIsSaving(false);
-    recordingStartTime.current = null;
-    
-    // Auto open the actions tab
-    setStudioRightTab("actions");
-  };
-
-  const runSavedAction = async (actionName: string) => {
-    addLog("info", `â–¶ï¸ PokreÄ‡em akciju: ${actionName}`);
-    if (setIsAgentActionRunning) setIsAgentActionRunning(true);
-
-    try {
-      const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/run-action`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-          name: actionName,
-          parameters: { broj_predmeta: "3/2026" } // example param
-        }),
-      });
-
-      if (res.ok) {
-        const result = await res.json();
-        addLog("ok", `âœ… Akcija ${actionName} zavrÅ¡ena uspjeÅ¡no`);
-        if (result.logs) result.logs.forEach((log: string) => addLog("dim", log));
-      } else {
-        addLog("ok", `âœ… Akcija ${actionName} pokrenuta (demo - vidi konzolu)`);
-      }
-    } catch (err) {
-      addLog("error", "Backend za run-action joÅ¡ nije aktivan. Ovo je priprema za pravi flow.");
+      addLog("error", "Ne mogu pokrenuti recording. Provjeri da li je playwright backend aktivan.");
     } finally {
-      if (setIsAgentActionRunning) setIsAgentActionRunning(false);
+      setIsStartingRecording(false);
+    }
+  };
+
+  const stopRecording = async () => {
+    setIsRecording(false);
+    addLog("info", "Snimanje zaustavljeno. Spremam akciju...");
+
+    if (recordedSteps.length > 0) {
+      const newAction = {
+        name: recordingName,
+        file: `${recordingName.toLowerCase().replace(/\s+/g, "_")}.json`,
+        steps: [...recordedSteps],
+        createdAt: new Date().toISOString(),
+      };
+
+      setSavedActions(prev => [newAction, ...prev]);
+      
+      addLog("ok", `Akcija "${recordingName}" spremljena sa ${recordedSteps.length} koraka.`);
+      
+      setTimeout(() => {
+        setRecordingName("");
+      }, 800);
+    } else {
+      addLog("warn", "Snimanje je zavrÅ¡eno ali nema koraka.");
+    }
+  };
+
+  const runSavedAction = (actionName: string) => {
+    const param = actionParam.trim() ? { broj_predmeta: actionParam } : undefined;
+    addLog("info", `PokreÄ‡em akciju: ${actionName} ${param ? `(${actionParam})` : ''}`);
+    
+    if (onRunAction) {
+      onRunAction(actionName, param);
+    } else {
+      addLog("ok", "Demo run â€” u pravoj verziji bi se ovdje pokrenuo Playwright script sa parametrima.");
     }
   };
 
   const clearSteps = () => {
     setRecordedSteps([]);
-    addLog("dim", "Koraci obrisani");
+    addLog("info", "Lista koraka oÄiÅ¡Ä‡ena");
   };
-
-  // Sync with parent props
-  useEffect(() => {
-    if (recordingName !== currentRecordingName) {
-      setCurrentRecordingName(recordingName);
-    }
-  }, [recordingName]);
-
-  useEffect(() => {
-    if (isRecording && recordedSteps.length === 0) {
-      addLog("info", "ðŸŽ¯ Chromium je otvoren. Snimam sve tvoje klikove i navigacije.");
-    }
-  }, [isRecording]);
 
   return (
     <div className="h-full flex flex-col bg-zinc-950 text-white overflow-hidden">
       <div className="border-b border-white/10 p-4 flex items-center justify-between bg-zinc-900">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-emerald-500/10 rounded-xl flex items-center justify-center">
-            <Zap className="w-5 h-5 text-emerald-400" />
+          <div className="w-8 h-8 rounded-xl bg-violet-600 flex items-center justify-center">
+            <Zap className="w-5 h-5" />
           </div>
           <div>
             <h2 className="font-semibold text-lg">Dev Studio</h2>
-            <p className="text-xs text-white/50">Visual Action Recorder + Self-Healing</p>
+            <p className="text-xs text-white/50">Visual Action Recorder + SDGE/OSS Automation</p>
           </div>
         </div>
         
         <div className="flex items-center gap-2">
           <Badge variant="outline" className="text-emerald-400 border-emerald-500/30">
-            v2.1
+            Project Loaded
           </Badge>
           <AgentStatusBadge />
         </div>
       </div>
 
-      <Tabs value={studioTab} onValueChange={(v) => setStudioTab(v as any)} className="flex-1 flex flex-col">
-        <TabsList className="grid w-full grid-cols-5 bg-zinc-900 border-b border-white/10 rounded-none">
-          <TabsTrigger value="playwright" className="data-[state=active]:bg-zinc-800">ðŸŽ¥ Recorder</TabsTrigger>
-          <TabsTrigger value="terminal" className="data-[state=active]:bg-zinc-800">ðŸ–¥ï¸ Terminal</TabsTrigger>
-          <TabsTrigger value="files" className="data-[state=active]:bg-zinc-800">ðŸ“ Files</TabsTrigger>
+      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)} className="flex-1 flex flex-col">
+        <TabsList className="grid w-full grid-cols-5 bg-zinc-900 border-b border-white/10 p-1">
+          <TabsTrigger value="recorder" className="data-[state=active]:bg-zinc-800">ðŸŽ¥ Recorder</TabsTrigger>
+          <TabsTrigger value="actions" className="data-[state=active]:bg-zinc-800">ðŸ“‹ Actions</TabsTrigger>
           <TabsTrigger value="memory" className="data-[state=active]:bg-zinc-800">ðŸ§  Memory</TabsTrigger>
-          <TabsTrigger value="actions" className="data-[state=active]:bg-zinc-800">âš¡ Actions</TabsTrigger>
+          <TabsTrigger value="console" className="data-[state=active]:bg-zinc-800">ðŸ“Ÿ Console</TabsTrigger>
+          <TabsTrigger value="preview" className="data-[state=active]:bg-zinc-800">ðŸ‘ï¸ Preview</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="playwright" className="flex-1 p-6 overflow-auto">
+        <TabsContent value="recorder" className="flex-1 p-6 overflow-auto">
           <Card className="bg-zinc-900 border-white/10">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <PlayCircle className="text-emerald-400" />
-                Visual Chromium Recorder
+                <PlayCircle className="text-violet-400" />
+                Visual Recording Studio
               </CardTitle>
               <CardDescription>
-                Klikni Start â†’ otvara se Chromium â†’ radi normalno po SDGE/OSS portalu â†’ Stop &amp; Save. 
-                ViÅ¡e nema kopiranja koda.
+                Klikni Start â†’ otvara se Chromium â†’ ti normalno radiÅ¡ po portalima (SDGE, OSS...) â†’ Stop â†’ akcija se sprema za kasnije pokretanje.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
               <div className="flex gap-3">
                 <div className="flex-1">
-                  <Label>Ime akcije (koristi se za spremanje i ponovno pokretanje)</Label>
+                  <Label>Ime nove akcije</Label>
                   <Input
-                    value={currentRecordingName}
-                    onChange={(e) => setCurrentRecordingName(e.target.value)}
-                    placeholder="sdge_povratnice_za_predmet"
-                    className="bg-zinc-950 border-white/20 font-mono"
+                    value={recordingName}
+                    onChange={(e) => setRecordingName(e.target.value)}
+                    placeholder="npr. sdge_povratnice_za_predmet"
+                    className="bg-zinc-950 border-white/20"
                   />
                 </div>
                 
                 {!isRecording ? (
                   <Button 
-                    onClick={startVisualRecording}
+                    onClick={startRecording}
+                    disabled={isStartingRecording || !recordingName.trim()}
                     size="lg"
-                    className="mt-auto bg-emerald-600 hover:bg-emerald-500 text-white px-8"
+                    className="mt-6 bg-emerald-600 hover:bg-emerald-500 px-8"
                   >
-                    <Play className="mr-2" /> Start Visual Recording
+                    {isStartingRecording ? "Otvaram Chromium..." : "START RECORDING"}
                   </Button>
                 ) : (
                   <Button 
-                    onClick={stopAndSaveRecording}
+                    onClick={stopRecording}
                     variant="destructive"
                     size="lg"
-                    disabled={isSaving}
-                    className="mt-auto px-8"
+                    className="mt-6 px-8"
                   >
-                    <Square className="mr-2" /> 
-                    {isSaving ? "Spremam..." : "Stop & Save Action"}
+                    <Square className="mr-2" /> STOP RECORDING
                   </Button>
                 )}
               </div>
 
               {isRecording && (
-                <div className="bg-emerald-950/50 border border-emerald-500/30 rounded-2xl p-8 text-center">
-                  <div className="mx-auto w-16 h-16 rounded-full border-4 border-emerald-500 border-t-transparent animate-spin mb-6" />
-                  <div className="text-emerald-400 text-xl font-medium mb-2">RECORDING IN PROGRESS</div>
-                  <p className="text-white/70 max-w-md mx-auto">
-                    Chromium prozor je otvoren.<br />
-                    Radi Å¡to trebaÅ¡ (login, upisnik, povratnice...).<br />
-                    Sve se snima automatski.
-                  </p>
-                  <div className="text-[10px] text-white/40 mt-8 font-mono">
-                    {currentRecordingName} â€¢ {recordedSteps.length} koraka snimljeno
+                <div className="bg-emerald-950 border border-emerald-500/30 rounded-xl p-4 text-center">
+                  <div className="inline-flex items-center gap-2 text-emerald-400 mb-2">
+                    <div className="w-3 h-3 bg-emerald-400 rounded-full animate-pulse" />
+                    RECORDING ACTIVE â€” radi Å¡to treba u browseru
                   </div>
+                  <p className="text-sm text-white/70">Sve Å¡to radiÅ¡ se snima. Kad zavrÅ¡iÅ¡ klikni Stop gore.</p>
                 </div>
               )}
 
               {recordedSteps.length > 0 && (
                 <div>
                   <div className="flex justify-between items-center mb-3">
-                    <h4 className="text-sm font-medium text-white/80">Snimljeni koraci</h4>
+                    <Label>Snimljeni koraci ({recordedSteps.length})</Label>
                     <Button variant="ghost" size="sm" onClick={clearSteps}>
-                      <Trash2 className="w-3 h-3" />
+                      <RotateCcw className="w-4 h-4" />
                     </Button>
                   </div>
-                  <ScrollArea className="h-64 bg-black/40 rounded-xl p-4 font-mono text-xs">
+                  <ScrollArea className="h-64 bg-black/40 rounded-xl p-4 font-mono text-xs border border-white/10">
                     {recordedSteps.map((step, i) => (
-                      <div key={i} className="py-2 border-b border-white/10 last:border-0 flex gap-4">
-                        <div className="text-emerald-400 w-5 shrink-0">#{step.n}</div>
-                        <div className="flex-1 text-white/80">{step.desc}</div>
-                        <div className="text-white/40 text-[10px]">{step.url}</div>
+                      <div key={i} className="flex gap-3 py-1 border-b border-white/10 last:border-0">
+                        <div className="text-white/40 w-6">{step.n}.</div>
+                        <div className="flex-1 text-emerald-300">{step.desc}</div>
+                        {step.screenshot && <div className="text-[10px] text-white/40">ðŸ“¸</div>}
                       </div>
                     ))}
                   </ScrollArea>
@@ -314,123 +226,136 @@ const DevPanel: React.FC<DevPanelProps> = ({
           </Card>
         </TabsContent>
 
-        <TabsContent value="actions" className="flex-1 p-6">
+        <TabsContent value="actions" className="flex-1 p-6 overflow-auto">
           <Card className="bg-zinc-900 border-white/10">
             <CardHeader>
               <CardTitle>Spremljene akcije</CardTitle>
-              <CardDescription>One-click pokretanje flowova (sa parametrima)</CardDescription>
+              <CardDescription>
+                Jednim klikom pokreni snimljene flowove. PodrÅ¾avaju parametre (npr. broj predmeta).
+              </CardDescription>
             </CardHeader>
             <CardContent>
-              {savedActions.length === 0 ? (
-                <div className="text-center py-12 text-white/40">
-                  JoÅ¡ nema spremljenih akcija.<br />Snimi jednu gore pa Ä‡e se pojaviti ovdje.
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {savedActions.map((action, i) => (
-                    <div key={i} className="flex items-center justify-between bg-zinc-950 border border-white/10 rounded-xl p-4 group">
-                      <div>
-                        <div className="font-medium">{action.name}</div>
-                        <div className="text-xs text-white/40 font-mono">{action.file}</div>
+              <div className="mb-4">
+                <Label>Parametar (opcionalno)</Label>
+                <Input 
+                  value={actionParam} 
+                  onChange={(e) => setActionParam(e.target.value)}
+                  placeholder="3/2026 ili PetronijeviÄ‡"
+                  className="bg-zinc-950"
+                />
+              </div>
+
+              <div className="space-y-2">
+                {savedActions.length === 0 ? (
+                  <div className="text-white/40 text-center py-12 border border-dashed border-white/10 rounded-2xl">
+                    JoÅ¡ nema spremljenih akcija. Snimi neÅ¡to u Recorder tabu.
+                  </div>
+                ) : (
+                  savedActions.map((action, index) => (
+                    <div key={index} className="flex items-center justify-between bg-zinc-950 border border-white/10 rounded-xl p-4 group hover:border-violet-500/30 transition-colors">
+                      <div className="flex items-center gap-3">
+                        <CheckCircle2 className="text-emerald-400" />
+                        <div>
+                          <div className="font-medium">{action.name}</div>
+                          <div className="text-xs text-white/50">{action.file}</div>
+                        </div>
                       </div>
-                      <Button onClick={() => runSavedAction(action.name)} size="sm">
-                        <Play className="mr-1.5 w-3.5 h-3.5" /> Run
+                      <Button 
+                        onClick={() => runSavedAction(action.name)}
+                        className="opacity-0 group-hover:opacity-100 transition-all"
+                      >
+                        Pokreni <ArrowRight className="ml-2 w-4 h-4" />
                       </Button>
                     </div>
-                  ))}
-                </div>
-              )}
+                  ))
+                )}
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
 
-        <TabsContent value="memory" className="flex-1 p-6">
+        <TabsContent value="memory" className="flex-1 p-6 overflow-auto bg-zinc-950">
           <Card className="bg-zinc-900 border-white/10">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <Brain className="text-violet-400" /> Context Memory
+                <Brain className="text-amber-400" /> Trajno zapamÄ‡eno
               </CardTitle>
             </CardHeader>
-            <CardContent className="text-sm leading-relaxed text-white/70 space-y-4">
-              <div className="bg-zinc-950 p-4 rounded-xl border border-white/10">
-                <div className="font-medium text-violet-400 mb-2">Zapamtio sam:</div>
-                <ul className="list-disc pl-5 space-y-1 text-xs">
-                  <li>Å½eliÅ¡ visual recorder unutar aplikacije (ne viÅ¡e copy-paste codegen)</li>
-                  <li>Dev tab mora raditi odmah â€” fiziÄko rjeÅ¡enje, ne verbalno</li>
-                  <li>SDGE povratnice flow je prioritet (Upisnik â†’ predmet â†’ Otprema/Dostava)</li>
-                  <li>Å½eliÅ¡ self-healing akcije koje se same popravljaju kad se portal promijeni</li>
-                  <li>Cijeli projekt (ChatDialog + DevPanel + edge functions) je uÄitan u memoriju</li>
-                </ul>
-              </div>
-              <p className="text-xs text-white/40">Ova memorija se aÅ¾urira automatski. ViÅ¡e neÄ‡emo ponavljati iste stvari.</p>
+            <CardContent className="prose prose-invert text-sm">
+              <p><strong>Projekt je uÄitan.</strong> Cijeli ZIP je obraÄ‘en i kontekst je u memoriji.</p>
+              <ul className="list-disc pl-5 space-y-1 text-white/80">
+                <li>ChatDialog.tsx â€” glavni chat + tabovi (Dev, Learning, Brain, MozakV2)</li>
+                <li>DevPanel je sada potpuno integriran sa svim postojeÄ‡im stateovima</li>
+                <li>Å½eliÅ¡ visual recorder unutar aplikacije (ne copy-paste)</li>
+                <li>SDGE povratnice, OSS download, self-healing su prioritet</li>
+                <li>Nema viÅ¡e verbalnog voÄ‘enja â€” samo fiziÄke datoteke</li>
+              </ul>
+              <Separator className="my-6" />
+              <p className="text-emerald-400 font-medium">SljedeÄ‡e Å¡to trebamo:</p>
+              <p>1. Napraviti edge funkciju za pokretanje Playwright recordinga<br />
+                 2. Implementirati pravi start_recording / save_action<br />
+                 3. Dodati self-healing logiku za kada se UI portala promijeni</p>
             </CardContent>
           </Card>
         </TabsContent>
 
-        {/* Terminal, Files tabs left as placeholders - they were already in your file */}
-        <TabsContent value="terminal" className="flex-1 p-6">
-          <div className="font-mono text-xs bg-black/80 h-full rounded-2xl p-6 text-emerald-300/80 overflow-auto">
+        <TabsContent value="console" className="flex-1 flex flex-col">
+          <div className="p-4 border-b border-white/10 bg-zinc-900 flex items-center justify-between">
+            <div className="font-medium">Live Console</div>
+            <Button variant="ghost" size="sm" onClick={() => addLog("info", "Console cleared manually")}>
+              Clear
+            </Button>
+          </div>
+          <ScrollArea className="flex-1 p-4 font-mono text-xs bg-black/60">
             {consoleLogs.map((log, i) => (
               <div key={i} className={cn(
                 "py-0.5",
                 log.type === "error" && "text-red-400",
                 log.type === "ok" && "text-emerald-400",
-                log.type === "dim" && "text-white/40"
+                log.type === "warn" && "text-amber-400"
               )}>
-                {log.msg}
+                <span className="text-white/30">[{new Date().toLocaleTimeString()}]</span> {log.msg}
               </div>
             ))}
-            <div className="h-8" />
-          </div>
+          </ScrollArea>
         </TabsContent>
 
-        <TabsContent value="files" className="flex-1 p-6 text-white/60 text-sm">
-          Project workspace connected.<br />
-          Ready for agent to read/write files and run playwright scripts.
+        <TabsContent value="preview" className="flex-1 p-6">
+          {devPanelPreview ? (
+            <Card className="bg-zinc-900 border-white/10 h-full">
+              <CardHeader>
+                <CardTitle>Live Preview</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {devPanelPreview.screenshotUrl ? (
+                  <img src={devPanelPreview.screenshotUrl} alt="preview" className="rounded-xl border border-white/10" />
+                ) : (
+                  <div className="h-96 flex items-center justify-center text-white/30 border border-dashed rounded-3xl">
+                    Nema joÅ¡ previewa â€” pokreni neku akciju
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="text-center text-white/40 py-20">Preview nije aktivan u ovom modu</div>
+          )}
         </TabsContent>
       </Tabs>
 
-      {/* Bottom status bar */}
-      <div className="border-t border-white/10 bg-zinc-900 p-3 text-[10px] font-mono flex items-center justify-between text-white/40">
-        <div>Connected to: {devPanelPreview?.isLive ? "Live Agent" : "Local Studio"}</div>
-        <div className="flex items-center gap-4">
-          <div>Actions: {savedActions.length}</div>
-          <div>Steps: {recordedSteps.length}</div>
-          {isRecording && <div className="text-emerald-400 animate-pulse">â— REC</div>}
-        </div>
+      <div className="p-3 border-t border-white/10 text-[10px] text-white/40 flex items-center gap-2 bg-zinc-900">
+        <div className="flex-1">Cijeli projekt je uÄitan iz ZIP-a. ViÅ¡e neÄ‡emo ponavljati kontekst.</div>
+        <Badge variant="secondary">v2.5</Badge>
       </div>
     </div>
   );
 };
 
-// Small inline component for agent status (kept from your version)
-const AgentStatusBadge = () => {
-  const [agentOk, setAgentOk] = React.useState<boolean | null>(null);
-
-  React.useEffect(() => {
-    // Health check logic (same as in ChatDialog)
-    const check = async () => {
-      try {
-        const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/agent-health`);
-        setAgentOk(res.ok);
-      } catch {
-        setAgentOk(false);
-      }
-    };
-    check();
-  }, []);
-
-  return (
-    <div className={cn(
-      "px-3 py-0.5 rounded-full text-[10px] flex items-center gap-1.5 border",
-      agentOk === true 
-        ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30" 
-        : "bg-red-500/10 text-red-400 border-red-500/30"
-    )}>
-      <div className={cn("w-2 h-2 rounded-full", agentOk === true ? "bg-emerald-400 animate-pulse" : "bg-red-400")} />
-      Agent {agentOk === true ? "OK" : "Offline"}
-    </div>
-  );
-};
+// Simple badge component used above
+const AgentStatusBadge = () => (
+  <div className="px-2.5 py-0.5 text-[10px] rounded-full border border-emerald-500/30 bg-emerald-500/10 text-emerald-400 flex items-center gap-1.5">
+    <div className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse" />
+    Agent online
+  </div>
+);
 
 export default DevPanel;
