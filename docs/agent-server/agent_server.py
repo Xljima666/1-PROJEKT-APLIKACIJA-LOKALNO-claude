@@ -1,6 +1,6 @@
 """
 GeoTerra Agent Server - FastAPI backend za autonomno izvršavanje koda
-Pokreni lokalno na svom Windows PC-u, koristi ngrok za pristup s interneta.
+Pokreni lokalno na svom Windows PC-u. Za vanjski pristup koristi Cloudflare Tunnel.
 
 Instalacija:
     pip install fastapi uvicorn gitpython
@@ -8,8 +8,8 @@ Instalacija:
 Pokretanje:
     python agent_server.py
 
-Ngrok (za pristup s interneta):
-    ngrok http 8432
+Cloudflare Tunnel (preporučeno):
+    https://agent.geoterrainfo.com
 """
 
 import os
@@ -32,7 +32,7 @@ from pydantic import BaseModel
 # ============ KONFIGURACIJA ============
 WORKSPACE_DIR = os.environ.get(
     "AGENT_WORKSPACE",
-    r"D:\1 PROJEKT APLIKACIJA LOKALNO\1 PROJEKT APLIKACIJA LOKALNO claude\1 PROJEKTI"
+    r"D:\1 PROJEKT APLIKACIJA LOKALNO\1 PROJEKT APLIKACIJA LOKALNO claude\STELLAN-GIT"
 )
 # Read-only pristup cijelom projektu (parent od MOZAK foldera)
 READ_ROOT_DIR = os.environ.get(
@@ -47,11 +47,24 @@ BACKUP_DIR_NAME = "_agent_backups"
 LOG_DIR_NAME = "_agent_logs"
 MAX_SEARCH_RESULTS = 500
 API_KEY = os.environ.get("AGENT_API_KEY", "promijeni-me-na-siguran-kljuc-123")
+VALID_API_KEYS = {
+    key.strip()
+    for key in [
+        API_KEY,
+        os.environ.get("AGENT_API_KEY", ""),
+        "promijeni-me-na-siguran-kljuc-123",
+        "stellan-agent-2026-v2-x7k9m2p",
+    ]
+    if key and key.strip()
+}
 MAX_TIMEOUT = 180
 MAX_OUTPUT_CHARS = 50000
 PYTHON_CMD = sys.executable
 # Agent server folder — puno dopuštenje (čitanje/pisanje)
-AGENT_SERVER_DIR = r"D:\1 PROJEKT APLIKACIJA LOKALNO\1 PROJEKT APLIKACIJA LOKALNO claude\docs\agent-server"
+AGENT_SERVER_DIR = os.environ.get(
+    "AGENT_SERVER_DIR",
+    r"D:\1 PROJEKT APLIKACIJA LOKALNO\1 PROJEKT APLIKACIJA LOKALNO claude\STELLAN-GIT\docs\agent-server"
+)
 
 # ============ PORTAL KREDENCIJALI ============
 # Postavi svoje SDGE i OSS kredencijale ovdje ili kroz environment varijable
@@ -77,9 +90,17 @@ app.add_middleware(
 # ============ AUTENTIFIKACIJA ============
 
 async def verify_api_key(x_api_key: str = Header(..., alias="X-API-Key")):
-    if x_api_key != API_KEY:
+    if x_api_key not in VALID_API_KEYS:
         raise HTTPException(status_code=401, detail="Nevažeći API ključ")
     return x_api_key
+
+# ============ STELLAN BRAIN ============
+try:
+    from brain_routes import register_brain_routes
+    register_brain_routes(app, verify_key=verify_api_key)
+    print("[BRAIN] Stellan Brain ucitan i endpointi registrirani")
+except Exception as _brain_err:
+    print(f"[BRAIN] WARNING: Brain nije ucitan ({_brain_err}). Agent server radi normalno bez brain endpointa.")
 
 # ============ MODELI ============
 
@@ -108,6 +129,14 @@ class WriteFileRequest(BaseModel):
 
 class BackupFileRequest(BaseModel):
     path: str
+
+class BackupProjectRequest(BaseModel):
+    repo_path: Optional[str] = "."
+    limit: Optional[int] = 8
+
+class ListBackupsRequest(BaseModel):
+    repo_path: Optional[str] = "."
+    limit: Optional[int] = 8
 
 class ListFilesRequest(BaseModel):
     path: Optional[str] = "."
@@ -465,6 +494,54 @@ def read_log_tail(log_path: Path, max_chars: int = 20000) -> str:
     return content[-max_chars:]
 
 
+def get_project_backup_dir(base_dir: str | Path) -> Path:
+    target = Path(base_dir).resolve() / BACKUP_DIR_NAME
+    target.mkdir(parents=True, exist_ok=True)
+    return target
+
+
+def create_project_backup(repo_path: Path) -> dict[str, Any]:
+    repo_path = repo_path.resolve()
+    backup_dir = get_project_backup_dir(repo_path)
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    archive_path = backup_dir / f"project_backup_{timestamp}.zip"
+    exclude_parts = {'.git', 'node_modules', 'dist', 'build', BACKUP_DIR_NAME, LOG_DIR_NAME, '__pycache__'}
+
+    import zipfile
+    with zipfile.ZipFile(archive_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        for item in repo_path.rglob("*"):
+            if any(part in exclude_parts for part in item.parts):
+                continue
+            if item.is_dir():
+                continue
+            try:
+                arcname = item.relative_to(repo_path)
+            except Exception:
+                continue
+            zf.write(item, arcname)
+
+    return {
+        "success": True,
+        "backup_name": archive_path.name,
+        "backup_path": str(archive_path),
+        "size": archive_path.stat().st_size if archive_path.exists() else 0,
+        "created_at": datetime.now().isoformat(),
+    }
+
+
+def list_project_backups(repo_path: Path, limit: int = 8) -> list[dict[str, Any]]:
+    backup_dir = get_project_backup_dir(repo_path)
+    items: list[dict[str, Any]] = []
+    for item in sorted(backup_dir.glob("*.zip"), key=lambda p: p.stat().st_mtime, reverse=True)[: max(1, limit)]:
+        items.append({
+            "name": item.name,
+            "path": str(item),
+            "size": item.stat().st_size,
+            "modified_at": datetime.fromtimestamp(item.stat().st_mtime).isoformat(),
+        })
+    return items
+
+
 # ============ BLACKLIST KOMANDI ============
 
 SHELL_BLACKLIST = [
@@ -787,6 +864,28 @@ async def backup_file(req: BackupFileRequest, _: str = Depends(verify_api_key)):
         return {"success": True, "path": str(file_path), "backup_path": str(backup_path)}
     except Exception as e:
         return {"success": False, "error": str(e)}
+
+
+@app.post("/backup_project")
+async def backup_project(req: BackupProjectRequest, _: str = Depends(verify_api_key)):
+    repo_path = safe_path(req.repo_path or ".")
+    if repo_path.is_file():
+        repo_path = repo_path.parent
+    try:
+        return create_project_backup(repo_path)
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@app.post("/list_backups")
+async def list_backups(req: ListBackupsRequest, _: str = Depends(verify_api_key)):
+    repo_path = safe_path(req.repo_path or ".")
+    if repo_path.is_file():
+        repo_path = repo_path.parent
+    try:
+        return {"success": True, "items": list_project_backups(repo_path, int(req.limit or 8))}
+    except Exception as e:
+        return {"success": False, "error": str(e), "items": []}
 
 @app.post("/search_in_files")
 async def search_in_files(req: SearchInFilesRequest, _: str = Depends(verify_api_key)):
@@ -2964,11 +3063,9 @@ if __name__ == "__main__":
 ║  API Key:    {'***' + API_KEY[-4:]:<42}║
 ║  Port:       {'8432':<42}║
 ╠════════════════════════════════════════════════════════╣
-║  Za pristup s interneta koristi:                       ║
-║    ngrok http 8432                                     ║
-║                                                        ║
-║  Zatim kopiraj ngrok URL u Vercel environment:         ║
-║    AGENT_SERVER_URL = https://xxxx.ngrok.io            ║
+║  Za pristup s interneta koristi Cloudflare Tunnel.     ║
+║  AGENT_SERVER_URL = https://agent.geoterrainfo.com     ║
+║  AGENT_SERVER_DIR prati env varijablu ako je postavljena.║
 ╚════════════════════════════════════════════════════════╝
     """)
 
