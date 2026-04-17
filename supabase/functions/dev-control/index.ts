@@ -8,7 +8,7 @@ const corsHeaders = {
 
 type DevOpsLogLevel = "info" | "success" | "warning" | "error";
 type DevOpsSource = "agent" | "git" | "vercel" | "github" | "system";
-
+ 
 type DevOpsLogEntry = {
   id: string;
   source: DevOpsSource;
