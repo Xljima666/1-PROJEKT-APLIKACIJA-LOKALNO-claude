@@ -7,12 +7,8 @@ interface UseDevOpsStatusOptions {
   projectRoot?: string | null;
   pollMs?: number;
 }
- 
+
 const DEV_CONTROL_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/dev-control`;
-const SUPABASE_PUBLIC_KEY =
-  import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
-  import.meta.env.VITE_SUPABASE_ANON_KEY ||
-  "";
 
 export function useDevOpsStatus({
   enabled = true,
@@ -61,7 +57,7 @@ export function useDevOpsStatus({
             ...(session?.access_token
               ? { Authorization: `Bearer ${session.access_token}` }
               : {}),
-            apikey: SUPABASE_PUBLIC_KEY,
+            apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
           },
           body: JSON.stringify({
             action: "status",
