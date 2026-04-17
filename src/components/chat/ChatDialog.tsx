@@ -2790,14 +2790,14 @@ const describeCurrentPreview = useCallback(
       await checkAgentHealth();
       await refreshDevOps();
       pushAssistantMessage(
-        "ℹ️ Start agent iz web sučelja ne može sam pokrenuti lokalni Windows proces. Pokreni `start_agent.bat` u folderu `3 AGENT`, pa zatim klikni `Check agent` ili `Refresh status`.",
+        "ℹ️ Start agent iz web sučelja ne može sam pokrenuti lokalni Windows proces. Pokreni `start_agent.bat` u folderu `docs/agent-server`, pa zatim klikni `Check agent` ili `Refresh status`.",
       );
       addLog(
         "info",
         "Pokreni start_agent.bat lokalno, zatim klikni Check agent.",
       );
       setInput(
-        "Pokreni start_agent.bat iz foldera: D:\\1 PROJEKT APLIKACIJA LOKALNO\\1 PROJEKT APLIKACIJA LOKALNO claude\\3 AGENT",
+        "Pokreni start_agent.bat iz foldera: D:\\1 PROJEKT APLIKACIJA LOKALNO\\1 PROJEKT APLIKACIJA LOKALNO claude\\STELLAN-GIT\\docs\\agent-server",
       );
       setTimeout(() => inputRef.current?.focus(), 100);
     } finally {
