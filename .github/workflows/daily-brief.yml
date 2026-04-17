@@ -2,23 +2,27 @@ name: Daily Brief
 
 on:
   schedule:
-    - cron: '30 6 * * *'
+    - cron: '0 6 * * *'   # Svaki dan u 8:00 po hrvatskom vremenu
   workflow_dispatch:
 
 jobs:
-  brief:
+  generate-brief:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Setup Python
+      
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Generate Brief
-        run: python scripts/generate_daily_brief.py
-      - name: Commit changes
+          
+      - name: Generate Daily Brief
+        run: python scripts/generate_daily_brief.py > 0 MOZAK/brief.md
+        
+      - name: Commit and push
         run: |
           git config user.name "Stellan"
           git config user.email "stellan@geoterra.hr"
           git add 0 MOZAK/brief.md
-          git diff --staged --quiet || git commit -m "🤖 Auto: Daily brief (v2.2)" && git push || echo "No changes"
+          git commit -m "🤖 Auto daily brief (v2.3)" || echo "No changes"
+          git push
