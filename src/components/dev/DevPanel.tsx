@@ -293,36 +293,21 @@ export default function DevPanel({
     return [...(devOps?.errors || [])].filter(Boolean).slice(0, 12);
   }, [devOps?.errors]);
 
-  const resolvedAgentOnline =
-    typeof devOps?.agent?.online === "boolean"
-      ? devOps.agent.online
-      : agentOnline;
-
-  const hasProjectRoot = Boolean(projectRoot?.trim());
-
   const gitValue = devOps?.git?.branch
     ? `${devOps.git.branch}${devOps.git.dirty ? " · dirty" : " · clean"}`
-    : hasProjectRoot
-      ? resolvedAgentOnline === true
-        ? "Local repo ready"
-        : "Root saved"
-      : devOps?.git?.configured
-        ? "Repo connected"
-        : "Repo not configured";
+    : devOps?.git?.configured
+      ? "Repo connected"
+      : "Repo not configured";
 
   const buildValue = isDeploying
     ? "Deploy running"
     : devOps?.build?.label
       ? devOps.build.label
-      : hasProjectRoot
-        ? resolvedAgentOnline === true
-          ? "Local build ready"
-          : "Awaiting agent"
-        : deployStatus === "success"
-          ? "Success"
-          : deployStatus === "error"
-            ? "Error"
-            : "Unknown";
+      : deployStatus === "success"
+        ? "Success"
+        : deployStatus === "error"
+          ? "Error"
+          : "Unknown";
 
   const handleCommit = () => {
     const message = commitMessage.trim();
@@ -396,14 +381,14 @@ export default function DevPanel({
                   variant="outline"
                   className={cn(
                     "rounded-full px-3 py-1 text-[11px]",
-                    statusTone(resolvedAgentOnline),
+                    statusTone(agentOnline),
                   )}
                 >
                   <Activity className="mr-1 h-3 w-3" />
                   Agent{" "}
-                  {resolvedAgentOnline === true
+                  {agentOnline === true
                     ? "online"
-                    : resolvedAgentOnline === false
+                    : agentOnline === false
                       ? "offline"
                       : "..."}
                 </Badge>
@@ -564,7 +549,7 @@ export default function DevPanel({
                     variant="outline"
                     className="rounded-full border-emerald-400/20 bg-emerald-400/10 text-[10px] text-emerald-100"
                   >
-                    One-click cockpit
+                    Local-first cockpit
                   </Badge>
                 ) : undefined
               }
