@@ -419,8 +419,7 @@ serve(async (req) => {
         snapshot.git.latestCommit = {
           sha: commitData?.sha || "",
           shortSha: shortSha(commitData?.sha),
-          message: String(commitData?.commit?.message || "").split("
-")[0],
+          message: String(commitData?.commit?.message || "").split("\n")[0],
           author: commitData?.commit?.author?.name || null,
           date: commitData?.commit?.author?.date || null,
           url: commitData?.html_url || null,
@@ -431,8 +430,7 @@ serve(async (req) => {
           source: "github",
           level: "info",
           title: `GitHub commit ${shortSha(commitData?.sha)}`,
-          detail: String(commitData?.commit?.message || "").split("
-")[0],
+          detail: String(commitData?.commit?.message || "").split("\n")[0],
           at: commitData?.commit?.author?.date || undefined,
           href: commitData?.html_url || undefined,
         });
