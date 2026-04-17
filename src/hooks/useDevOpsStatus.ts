@@ -9,6 +9,15 @@ interface UseDevOpsStatusOptions {
 }
 
 const DEV_CONTROL_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/dev-control`;
+const SUPABASE_PUBLIC_KEY =
+  import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
+  import.meta.env.VITE_SUPABASE_ANON_KEY ||
+  "";
+
+type RefreshOptions = {
+  silent?: boolean;
+  projectRootOverride?: string | null;
+};
 
 export function useDevOpsStatus({
   enabled = true,
@@ -32,8 +41,17 @@ export function useDevOpsStatus({
   }, []);
 
   const refresh = useCallback(
-    async (silent = false) => {
+    async (options: boolean | RefreshOptions = false) => {
+      const normalizedOptions =
+        typeof options === "boolean" ? { silent: options } : options;
+      const silent = normalizedOptions.silent === true;
+
       if (!enabled || inFlightRef.current) return null;
+
+      const effectiveProjectRoot =
+        typeof normalizedOptions.projectRootOverride === "string"
+          ? normalizedOptions.projectRootOverride.trim() || null
+          : projectRoot?.trim() || null;
 
       inFlightRef.current = true;
 
@@ -57,11 +75,11 @@ export function useDevOpsStatus({
             ...(session?.access_token
               ? { Authorization: `Bearer ${session.access_token}` }
               : {}),
-            apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+            ...(SUPABASE_PUBLIC_KEY ? { apikey: SUPABASE_PUBLIC_KEY } : {}),
           },
           body: JSON.stringify({
             action: "status",
-            projectRoot: projectRoot?.trim() || null,
+            projectRoot: effectiveProjectRoot,
           }),
         });
 
@@ -98,12 +116,12 @@ export function useDevOpsStatus({
   useEffect(() => {
     if (!enabled) return;
 
-    void refresh(false);
+    void refresh({ silent: false });
 
     if (!pollMs || pollMs <= 0) return;
 
     const interval = window.setInterval(() => {
-      void refresh(true);
+      void refresh({ silent: true });
     }, pollMs);
 
     return () => {
