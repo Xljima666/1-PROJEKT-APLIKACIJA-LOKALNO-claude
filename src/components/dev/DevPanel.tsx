@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
-  Activity,
   AlertCircle,
   ArrowLeft,
   Bot,
@@ -12,14 +11,11 @@ import {
   FolderOpen,
   GitBranch,
   Loader2,
-  Play,
   RefreshCw,
   Rocket,
   Server,
-  Square,
   TerminalSquare,
   UploadCloud,
-  Wrench,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -62,9 +58,7 @@ type Props = {
   steps: DevStep[];
   preview: DevPreviewState;
   consoleLogs?: ConsoleLog[];
-  isAgentRunning?: boolean;
   agentOnline?: boolean | null;
-  modelBadge?: string;
   isRecording?: boolean;
   recordingName?: string;
   isDeploying?: boolean;
@@ -74,7 +68,6 @@ type Props = {
   devOps?: DevOpsSnapshot | null;
   devOpsLoading?: boolean;
   onRunAction?: (action: DevActionType, payload?: ActionPayload) => void;
-  onStopAgent?: () => void;
   onClearSteps?: () => void;
   onDeleteStep?: (stepId: string) => void;
   onSelectStep?: (step: DevStep) => void;
@@ -83,7 +76,6 @@ type Props = {
   onRefreshScreenshot?: () => void;
   onRefreshDevOps?: () => void;
   onDeploy?: () => void;
-  onStartAgent?: () => void;
   onStartRecording?: () => void;
   onSaveRecording?: () => void;
   onCancelRecording?: () => void;
@@ -210,15 +202,15 @@ function StatCard({
         tone || "border-white/10 bg-white/[0.03] text-white/80",
       )}
     >
-      <div className="flex items-center gap-2 text-[10px] font-medium uppercase tracking-[0.14em] text-white/42">
+      <div className="flex items-center gap-2 text-[9px] font-medium uppercase tracking-[0.12em] text-white/40">
         <Icon className="h-3.5 w-3.5" />
         {label}
       </div>
-      <div className="mt-1.5 text-[14px] font-semibold tracking-tight text-white/94 leading-5">
+      <div className="mt-0.5 text-[12px] font-semibold tracking-tight text-white/94 leading-4">
         {value}
       </div>
       {hint ? (
-        <div className="mt-1 break-words text-[10px] leading-4 text-white/38">
+        <div className="mt-0.5 line-clamp-1 break-words text-[9px] leading-4 text-white/34">
           {hint}
         </div>
       ) : null}
@@ -274,9 +266,7 @@ export default function DevPanel({
   steps = [],
   preview,
   consoleLogs = [],
-  isAgentRunning = false,
   agentOnline = null,
-  modelBadge = "FAST",
   isDeploying = false,
   deployStatus = "idle",
   projectRoot,
@@ -284,8 +274,6 @@ export default function DevPanel({
   devOpsLoading = false,
   onRefreshDevOps,
   onDeploy,
-  onStartAgent,
-  onStopAgent,
   onCheckHealth,
   onPortalAction,
   onSaveProjectRoot,
@@ -393,51 +381,16 @@ export default function DevPanel({
       <div className="relative z-10 flex h-full flex-col">
         <div className="border-b border-white/8 px-5 py-4">
           <div className="flex flex-wrap items-start justify-between gap-4">
-            <div>
-              <div className="flex flex-wrap items-center gap-2">
-                {backHandler ? (
-                  <>
-                    <button
-                      onClick={backHandler}
-                      className="inline-flex h-10 items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.04] px-4 text-[12px] font-medium text-white/75 transition hover:bg-white/[0.08] hover:text-white"
-                    >
-                      <ArrowLeft className="h-4 w-4" />
-                      Nazad na Stellan
-                    </button>
-                    <div className="h-6 w-px bg-white/10" />
-                  </>
-                ) : null}
-
-                <div className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-100">
-                  {title}
-                </div>
-                <Badge
-                  variant="outline"
-                  className={cn(
-                    "rounded-full px-3 py-1 text-[11px]",
-                    statusTone(resolvedAgentOnline),
-                  )}
+            <div className="flex items-center gap-3">
+              {backHandler ? (
+                <button
+                  onClick={backHandler}
+                  className="inline-flex h-10 items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.04] px-4 text-[12px] font-medium text-white/75 transition hover:bg-white/[0.08] hover:text-white"
                 >
-                  <Activity className="mr-1 h-3 w-3" />
-                  Agent {resolvedAgentOnline === true ? "online" : resolvedAgentOnline === false ? "offline" : "..."}
-                </Badge>
-                <Badge
-                  variant="outline"
-                  className="rounded-full border-cyan-400/20 bg-cyan-400/10 px-3 py-1 text-[11px] text-cyan-100"
-                >
-                  <Wrench className="mr-1 h-3 w-3" />
-                  Commit / Build / Deploy
-                </Badge>
-                <Badge
-                  variant="outline"
-                  className="rounded-full border-white/10 bg-white/[0.03] px-3 py-1 text-[11px] text-white/70"
-                >
-                  {modelBadge}
-                </Badge>
-              </div>
-              <div className="mt-3 text-sm text-white/68">
-                DEV je sada fokusiran samo na git, commit, build, deploy, status i logove.
-              </div>
+                  <ArrowLeft className="h-4 w-4" />
+                  Nazad na Stellan
+                </button>
+              ) : null}
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
@@ -463,25 +416,10 @@ export default function DevPanel({
                 <Bot className="mr-2 h-4 w-4" />
                 Check agent
               </Button>
-              {isAgentRunning ? (
-                <Button size="sm" variant="destructive" className="h-10 rounded-2xl px-4" onClick={onStopAgent}>
-                  <Square className="mr-2 h-4 w-4" />
-                  Stop
-                </Button>
-              ) : (
-                <Button
-                  size="sm"
-                  className="h-10 rounded-2xl bg-cyan-400 px-4 text-slate-950 hover:bg-cyan-300"
-                  onClick={onStartAgent}
-                >
-                  <Play className="mr-2 h-4 w-4" />
-                  Start agent
-                </Button>
-              )}
             </div>
           </div>
 
-          <div className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+          <div className="mt-2 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
             <StatCard
               icon={Server}
               label="Agent"
@@ -522,7 +460,7 @@ export default function DevPanel({
           </div>
         </div>
 
-        <div className="relative z-10 grid min-h-0 flex-1 gap-4 overflow-hidden p-4 xl:grid-cols-[420px_minmax(0,1fr)]">
+        <div className="relative z-10 grid min-h-0 flex-1 gap-4 overflow-hidden p-4 xl:grid-cols-[400px_minmax(0,1fr)]">
           <div className={`min-h-0 space-y-4 ${HIDE_SCROLL}`}>
             <Section
               title="Project root"
@@ -554,13 +492,6 @@ export default function DevPanel({
             <Section
               title="Commit / backup / deploy"
               subtitle="Glavne akcije za lokalni repo"
-              right={
-                projectRoot ? (
-                  <Badge variant="outline" className="rounded-full border-emerald-400/20 bg-emerald-400/10 text-[10px] text-emerald-100">
-                    Local-first cockpit
-                  </Badge>
-                ) : undefined
-              }
             >
               <div className="space-y-3">
                 <div className="grid gap-2 sm:grid-cols-2">
@@ -689,28 +620,9 @@ export default function DevPanel({
           <div className={`min-h-0 space-y-4 ${HIDE_SCROLL}`}>
             <Section
               title="Radni panel"
-              subtitle="Čisti pregled zadnje akcije, logova i promjena bez duplih informacija"
-              right={
-                <div className="flex flex-wrap gap-2">
-                  <Badge variant="outline" className={cn("rounded-full text-[10px]", statusTone(resolvedAgentOnline))}>
-                    {resolvedAgentOnline ? "Agent live" : "Agent offline"}
-                  </Badge>
-                  {lastLog ? (
-                    <Badge variant="outline" className={cn("rounded-full text-[10px]", levelTone(lastLog.level))}>
-                      Zadnji log: {lastLog.level}
-                    </Badge>
-                  ) : null}
-                </div>
-              }
+              subtitle="Pregled logova i promjena"
             >
-              <div className="grid gap-4 xl:grid-cols-[minmax(0,0.82fr)_minmax(0,1.18fr)]">
-                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
-                  <MiniInfo label="Zadnja akcija" value={steps.length ? steps[steps.length - 1]?.label || "—" : lastLog?.title || "Nema aktivnosti"} />
-                  <MiniInfo label="Status builda" value={devOps?.build?.label || buildValue} />
-                  <MiniInfo label="Promjene" value={latestChangedFiles.length ? `${latestChangedFiles.length} fileova spremno` : "Nema promjena"} />
-                  <MiniInfo label="Zadnji commit" value={devOps?.git?.latestCommit?.shortSha ? `${devOps.git.latestCommit.shortSha} • ${devOps.git.latestCommit.message || ""}` : "—"} />
-                </div>
-
+              <div className="grid gap-4">
                 <div className="rounded-[22px] border border-white/10 bg-black/20 p-4">
                   <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-white/92">
                     <TerminalSquare className="h-4 w-4 text-cyan-300" />
