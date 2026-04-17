@@ -60,6 +60,22 @@ interface Conversation {
 // CodeBlock type imported from ChatMessage
 const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/chat`;
 
+const SUPABASE_EDGE_KEY =
+  import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
+  import.meta.env.VITE_SUPABASE_ANON_KEY ||
+  "";
+
+const buildEdgeHeaders = (
+  accessToken?: string,
+  options?: { json?: boolean },
+) => {
+  const headers: Record<string, string> = {};
+  if (options?.json) headers["Content-Type"] = "application/json";
+  if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
+  if (SUPABASE_EDGE_KEY) headers.apikey = SUPABASE_EDGE_KEY;
+  return headers;
+};
+
 const MODEL_LABELS: Record<"flash" | "pro" | "flash3" | "pro3", string> = {
   flash: "GPT-5.4-mini",
   pro: "GPT-5.4",
@@ -134,10 +150,7 @@ const AgentStatusBadge = () => {
         const res = await fetch(
           `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/agent-health`,
           {
-            headers: {
-              Authorization: `Bearer ${session.access_token}`,
-              apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
-            },
+            headers: buildEdgeHeaders(session.access_token),
           },
         );
         setAgentOk(res.ok);
@@ -1362,13 +1375,7 @@ const ChatDialog = ({
         `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/dev-control`,
         {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...(session?.access_token
-              ? { Authorization: `Bearer ${session.access_token}` }
-              : {}),
-            apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
-          },
+          headers: buildEdgeHeaders(session?.access_token, { json: true }),
           body: JSON.stringify({
             action,
             projectRoot: projectRoot || null,
@@ -1401,16 +1408,22 @@ const ChatDialog = ({
       const res = await fetch(
         `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/agent-health`,
         {
-          headers: {
-            Authorization: `Bearer ${session.access_token}`,
-            apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
-          },
+          headers: buildEdgeHeaders(session.access_token),
         },
       );
-      setAgentOnline(res.ok);
+
+      if (res.ok) {
+        setAgentOnline(true);
+        addLog("ok", "✓ agent online :8432");
+        return;
+      }
+
+      const statusSnapshot = await callDevControl("status").catch(() => null);
+      const fallbackOnline = statusSnapshot?.agent?.online === true;
+      setAgentOnline(fallbackOnline);
       addLog(
-        res.ok ? "ok" : "warn",
-        res.ok ? "✓ agent online :8432" : "✗ agent offline",
+        fallbackOnline ? "ok" : "warn",
+        fallbackOnline ? "✓ agent online (fallback status)" : "✗ agent offline",
       );
     } catch {
       setAgentOnline(false);
