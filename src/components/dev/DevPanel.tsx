@@ -1,436 +1,1044 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
-import { 
-  Play, Square, Save, PlayCircle, Trash2, RotateCcw, 
-  AlertCircle, CheckCircle2, Bot, Terminal, FolderOpen, 
-  Brain, Zap, ExternalLink 
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import type { LucideIcon } from "lucide-react";
+import {
+  Activity,
+  AlertCircle,
+  ArrowLeft,
+  Bot,
+  CheckCircle2,
+  Copy,
+  ExternalLink,
+  FolderOpen,
+  GitBranch,
+  Loader2,
+  Play,
+  RefreshCw,
+  Rocket,
+  Server,
+  Square,
+  TerminalSquare,
+  UploadCloud,
+  Wrench,
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Badge } from "@/components/ui/badge";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
-import type { ConsoleLog } from "./DevPanel"; // circular import fix - we'll handle in parent
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import type { DevOpsLogEntry, DevOpsSnapshot } from "@/types/devops";
 
-interface DevPanelProps {
-  isRecording: boolean;
-  setIsRecording: (recording: boolean) => void;
-  recordingName: string;
-  setRecordingName: (name: string) => void;
-  recordedSteps: Array<{ n: number; url: string; desc: string; screenshot?: string }>;
-  setRecordedSteps: React.Dispatch<React.SetStateAction<Array<{ n: number; url: string; desc: string; screenshot?: string }>>>;
-  savedActions: Array<{ name: string; file: string }>;
-  setSavedActions: React.Dispatch<React.SetStateAction<Array<{ name: string; file: string }>>>;
-  consoleLogs: ConsoleLog[];
-  addLog: (type: "ok" | "error" | "info" | "dim", msg: string) => void;
-  onAction?: (action: string, payload?: any) => void;
-  devSteps: any[];
-  devPanelPreview?: any;
-  studioTab: string;
-  setStudioTab: (tab: string) => void;
-  studioRightTab: string;
-  setStudioRightTab: (tab: string) => void;
-  isAgentActionRunning?: boolean;
-  setIsAgentActionRunning?: (running: boolean) => void;
+export type DevActionType = "open" | "click" | "type" | "screenshot" | "learn";
+export type StepStatus = "queued" | "running" | "done" | "error";
+
+export type DevStep = {
+  id: string;
+  action: DevActionType;
+  label: string;
+  status: StepStatus;
+  detail?: string;
+  target?: string;
+  value?: string;
+  createdAt?: string;
+};
+
+export type DevPreviewState = {
+  url?: string;
+  title?: string;
+  screenshotUrl?: string | null;
+  isLive?: boolean;
+  summary?: string;
+};
+
+export type ConsoleLog = { t: string; msg: string };
+
+type ActionPayload = {
+  url?: string;
+  target?: string;
+  value?: string;
+};
+
+type Props = {
+  title?: string;
+  steps: DevStep[];
+  preview: DevPreviewState;
+  consoleLogs?: ConsoleLog[];
+  isAgentRunning?: boolean;
+  agentOnline?: boolean | null;
+  modelBadge?: string;
+  isRecording?: boolean;
+  recordingName?: string;
+  isDeploying?: boolean;
+  deployStatus?: "idle" | "success" | "error";
+  savedActions?: { name: string; file: string }[];
+  projectRoot?: string;
+  devOps?: DevOpsSnapshot | null;
+  devOpsLoading?: boolean;
+  onRunAction?: (action: DevActionType, payload?: ActionPayload) => void;
+  onStopAgent?: () => void;
+  onClearSteps?: () => void;
+  onDeleteStep?: (stepId: string) => void;
+  onSelectStep?: (step: DevStep) => void;
+  onDescribePreview?: () => void;
+  onWaitForLoad?: () => void;
+  onRefreshScreenshot?: () => void;
+  onRefreshDevOps?: () => void;
+  onDeploy?: () => void;
+  onStartAgent?: () => void;
+  onStartRecording?: () => void;
+  onSaveRecording?: () => void;
+  onCancelRecording?: () => void;
+  onRunSavedAction?: (name: string) => void;
+  onRefreshActions?: () => void;
+  onCheckHealth?: () => void;
+  onPortalAction?: (cmd: string) => void;
+  onSaveProjectRoot?: (value: string) => void;
+  onBackToStellan?: () => void;
+  onBack?: () => void;
+};
+
+function statusTone(ok: boolean | null | undefined) {
+  if (ok === true)
+    return "border-emerald-400/20 bg-emerald-400/10 text-emerald-200";
+  if (ok === false) return "border-rose-400/20 bg-rose-400/10 text-rose-200";
+  return "border-white/10 bg-white/[0.03] text-white/60";
 }
 
-const DevPanel: React.FC<DevPanelProps> = ({
-  isRecording,
-  setIsRecording,
-  recordingName,
-  setRecordingName,
-  recordedSteps,
-  setRecordedSteps,
-  savedActions,
-  setSavedActions,
-  consoleLogs,
-  addLog,
-  onAction,
-  devSteps,
-  devPanelPreview,
-  studioTab,
-  setStudioTab,
-  studioRightTab,
-  setStudioRightTab,
-  isAgentActionRunning = false,
-  setIsAgentActionRunning,
-}) => {
-  const [currentRecordingName, setCurrentRecordingName] = useState(recordingName || "sdge_povratnice_flow");
-  const [isSaving, setIsSaving] = useState(false);
-  const recordingStartTime = useRef<Date | null>(null);
+function levelTone(level: DevOpsLogEntry["level"]) {
+  switch (level) {
+    case "success":
+      return "border-emerald-400/18 bg-emerald-400/10 text-emerald-100";
+    case "warning":
+      return "border-amber-400/18 bg-amber-400/10 text-amber-100";
+    case "error":
+      return "border-rose-400/18 bg-rose-400/10 text-rose-100";
+    default:
+      return "border-cyan-400/18 bg-cyan-400/10 text-cyan-100";
+  }
+}
 
-  const startVisualRecording = async () => {
-    if (!currentRecordingName.trim()) {
-      addLog("error", "MoraÅ¡ unijeti ime akcije prije snimanja");
-      return;
-    }
+function formatTime(value?: string | null) {
+  if (!value) return "—";
+  try {
+    return new Date(value).toLocaleString("hr-HR", {
+      day: "2-digit",
+      month: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } catch {
+    return value;
+  }
+}
 
-    setIsRecording(true);
-    recordingStartTime.current = new Date();
-    addLog("ok", `ðŸŽ¥ PoÄinjem visual recording: ${currentRecordingName}`);
+function formatBytes(value?: number | null) {
+  if (!value || value <= 0) return "—";
+  const units = ["B", "KB", "MB", "GB"];
+  let size = value;
+  let idx = 0;
+  while (size >= 1024 && idx < units.length - 1) {
+    size /= 1024;
+    idx += 1;
+  }
+  return `${size.toFixed(idx === 0 ? 0 : 1)} ${units[idx]}`;
+}
 
-    try {
-      // Call the real tool via edge function (this is what was missing)
-      const { data: session } = await (window as any).supabase?.auth.getSession();
-      const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/record/start`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${session?.session?.access_token}`,
-          apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
-        },
-        body: JSON.stringify({
-          name: currentRecordingName,
-          description: `Visual recording started from DevPanel - ${new Date().toISOString()}`,
-        }),
-      });
-
-      if (res.ok) {
-        addLog("ok", "âœ… Playwright recording session started in Chromium. Idi na SDGE/OSS i roÄaj normalno.");
-        addLog("info", "Kada zavrÅ¡iÅ¡, klikni Stop & Save Action");
-      } else {
-        addLog("error", "âš ï¸ Backend recording endpoint nije joÅ¡ aktivan. Koristim simulaciju.");
-        // Fallback simulation for now
-        setTimeout(() => {
-          setRecordedSteps([
-            { n: 1, url: "https://sdge.dgu.hr", desc: "Navigate to SDGE login", screenshot: "" },
-            { n: 2, url: "https://sdge.dgu.hr/upisnik", desc: "Open Upisnik", screenshot: "" },
-          ]);
-        }, 800);
-      }
-    } catch (err) {
-      addLog("error", "Ne mogu kontaktirati recording backend. Koristim demo mode.");
-    }
-  };
-
-  const stopAndSaveRecording = async () => {
-    if (!isRecording) return;
-
-    setIsSaving(true);
-    const duration = recordingStartTime.current 
-      ? ((Date.now() - recordingStartTime.current.getTime()) / 1000).toFixed(1) 
-      : "0";
-
-    addLog("info", `ðŸ›‘ Zaustavljam recording (${duration}s)...`);
-
-    try {
-      const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/record/stop`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: currentRecordingName }),
-      });
-
-      if (res.ok) {
-        const result = await res.json();
-        if (result.success) {
-          addLog("ok", `âœ… Akcija "${currentRecordingName}" spremljena sa ${recordedSteps.length + 2} koraka`);
-          
-          setSavedActions(prev => [
-            ...prev,
-            { 
-              name: currentRecordingName, 
-              file: `actions/${currentRecordingName}.ts` 
-            }
-          ]);
-        }
-      } else {
-        // Demo save
-        addLog("ok", `âœ… Demo akcija "${currentRecordingName}" spremljena ( ${recordedSteps.length} koraka )`);
-        setSavedActions(prev => [...prev, { name: currentRecordingName, file: `actions/${currentRecordingName}.json` }]);
-      }
-    } catch (e) {
-      addLog("ok", `âœ… Akcija "${currentRecordingName}" spremljena (demo mode)`);
-      setSavedActions(prev => [...prev, { name: currentRecordingName, file: `actions/${currentRecordingName}.ts` }]);
-    }
-
-    setIsRecording(false);
-    setIsSaving(false);
-    recordingStartTime.current = null;
-    
-    // Auto open the actions tab
-    setStudioRightTab("actions");
-  };
-
-  const runSavedAction = async (actionName: string) => {
-    addLog("info", `â–¶ï¸ PokreÄ‡em akciju: ${actionName}`);
-    if (setIsAgentActionRunning) setIsAgentActionRunning(true);
-
-    try {
-      const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/run-action`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-          name: actionName,
-          parameters: { broj_predmeta: "3/2026" } // example param
-        }),
-      });
-
-      if (res.ok) {
-        const result = await res.json();
-        addLog("ok", `âœ… Akcija ${actionName} zavrÅ¡ena uspjeÅ¡no`);
-        if (result.logs) result.logs.forEach((log: string) => addLog("dim", log));
-      } else {
-        addLog("ok", `âœ… Akcija ${actionName} pokrenuta (demo - vidi konzolu)`);
-      }
-    } catch (err) {
-      addLog("error", "Backend za run-action joÅ¡ nije aktivan. Ovo je priprema za pravi flow.");
-    } finally {
-      if (setIsAgentActionRunning) setIsAgentActionRunning(false);
-    }
-  };
-
-  const clearSteps = () => {
-    setRecordedSteps([]);
-    addLog("dim", "Koraci obrisani");
-  };
-
-  // Sync with parent props
-  useEffect(() => {
-    if (recordingName !== currentRecordingName) {
-      setCurrentRecordingName(recordingName);
-    }
-  }, [recordingName]);
-
-  useEffect(() => {
-    if (isRecording && recordedSteps.length === 0) {
-      addLog("info", "ðŸŽ¯ Chromium je otvoren. Snimam sve tvoje klikove i navigacije.");
-    }
-  }, [isRecording]);
+function CopyChip({ value }: { value: string }) {
+  const [copied, setCopied] = useState(false);
 
   return (
-    <div className="h-full flex flex-col bg-zinc-950 text-white overflow-hidden">
-      <div className="border-b border-white/10 p-4 flex items-center justify-between bg-zinc-900">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-emerald-500/10 rounded-xl flex items-center justify-center">
-            <Zap className="w-5 h-5 text-emerald-400" />
-          </div>
-          <div>
-            <h2 className="font-semibold text-lg">Dev Studio</h2>
-            <p className="text-xs text-white/50">Visual Action Recorder + Self-Healing</p>
-          </div>
+    <button
+      type="button"
+      onClick={async () => {
+        await navigator.clipboard.writeText(value);
+        setCopied(true);
+        window.setTimeout(() => setCopied(false), 1200);
+      }}
+      className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.03] px-2.5 py-1 text-[10px] text-white/65 transition hover:bg-white/[0.06]"
+    >
+      <Copy className="h-3 w-3" />
+      {copied ? "Copied" : "Copy"}
+    </button>
+  );
+}
+
+function Section({
+  title,
+  subtitle,
+  right,
+  children,
+}: {
+  title: string;
+  subtitle?: string;
+  right?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <div className="rounded-[26px] border border-emerald-400/10 bg-[linear-gradient(180deg,rgba(8,18,16,0.9),rgba(8,14,18,0.86))] shadow-[0_18px_48px_rgba(0,0,0,0.28)] backdrop-blur-xl">
+      <div className="flex items-center justify-between gap-3 border-b border-white/8 px-4 py-3.5">
+        <div>
+          <div className="text-sm font-semibold text-white/92">{title}</div>
+          {subtitle ? (
+            <div className="mt-0.5 text-[11px] text-white/42">{subtitle}</div>
+          ) : null}
         </div>
-        
-        <div className="flex items-center gap-2">
-          <Badge variant="outline" className="text-emerald-400 border-emerald-500/30">
-            v2.1
-          </Badge>
-          <AgentStatusBadge />
+        {right}
+      </div>
+      <div className="p-4">{children}</div>
+    </div>
+  );
+}
+
+function StatCard({
+  icon: Icon,
+  label,
+  value,
+  tone,
+  hint,
+}: {
+  icon: LucideIcon;
+  label: string;
+  value: string;
+  tone?: string;
+  hint?: string;
+}) {
+  return (
+    <div
+      className={cn(
+        "rounded-[24px] border px-4 py-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]",
+        tone || "border-white/10 bg-white/[0.03] text-white/80",
+      )}
+    >
+      <div className="flex items-center gap-2 text-[10px] font-medium uppercase tracking-[0.14em] text-white/42">
+        <Icon className="h-3.5 w-3.5" />
+        {label}
+      </div>
+      <div className="mt-2.5 text-[18px] font-semibold tracking-tight text-white/94">
+        {value}
+      </div>
+      {hint ? (
+        <div className="mt-1.5 break-words text-[11px] leading-5 text-white/42">
+          {hint}
         </div>
+      ) : null}
+    </div>
+  );
+}
+
+function MiniInfo({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-2xl border border-white/8 bg-black/15 px-3 py-2.5">
+      <div className="text-[10px] uppercase tracking-[0.12em] text-white/36">
+        {label}
+      </div>
+      <div className="mt-1 break-words text-sm text-white/84">
+        {value || "—"}
+      </div>
+    </div>
+  );
+}
+
+export default function DevPanel({
+  title = "DEV Studio",
+  steps = [],
+  preview,
+  consoleLogs = [],
+  isAgentRunning = false,
+  agentOnline = null,
+  modelBadge = "FAST",
+  isDeploying = false,
+  deployStatus = "idle",
+  projectRoot,
+  devOps,
+  devOpsLoading = false,
+  onDescribePreview,
+  onWaitForLoad,
+  onRefreshScreenshot,
+  onRefreshDevOps,
+  onDeploy,
+  onStartAgent,
+  onStopAgent,
+  onCheckHealth,
+  onPortalAction,
+  onSaveProjectRoot,
+  onBackToStellan,
+  onBack,
+}: Props) {
+  const [commitMessage, setCommitMessage] = useState("");
+  const [projectRootInput, setProjectRootInput] = useState(projectRoot || "");
+  const backHandler = onBackToStellan || onBack;
+
+  useEffect(() => {
+    setProjectRootInput(projectRoot || "");
+  }, [projectRoot]);
+
+  const mergedLogs = useMemo(() => {
+    const localLogs: DevOpsLogEntry[] = consoleLogs
+      .slice(-20)
+      .map((log, index) => ({
+        id: `console-${index}-${log.msg.slice(0, 20)}`,
+        source: "system",
+        level:
+          log.t === "warn" || log.t === "err"
+            ? "warning"
+            : log.t === "ok"
+              ? "success"
+              : "info",
+        title: log.msg,
+      }));
+
+    return [...(devOps?.logs || []), ...localLogs].slice(0, 40);
+  }, [consoleLogs, devOps?.logs]);
+
+  const derivedErrors = useMemo(() => {
+    return [...(devOps?.errors || [])].filter(Boolean).slice(0, 12);
+  }, [devOps?.errors]);
+
+  const gitValue = devOps?.git?.branch
+    ? `${devOps.git.branch}${devOps.git.dirty ? " · dirty" : " · clean"}`
+    : devOps?.git?.configured
+      ? "Repo connected"
+      : "Repo not configured";
+
+  const buildValue = isDeploying
+    ? "Deploy running"
+    : devOps?.build?.label
+      ? devOps.build.label
+      : deployStatus === "success"
+        ? "Success"
+        : deployStatus === "error"
+          ? "Error"
+          : "Unknown";
+
+  const handleCommit = () => {
+    const message = commitMessage.trim();
+    if (!message) return;
+    const safeMessage = message.replace(/"/g, "'");
+    onPortalAction?.(`git commit \"${safeMessage}\"`);
+  };
+
+  const handleDeployWithMessage = () => {
+    const message = commitMessage.trim().replace(/"/g, "'");
+    if (message) {
+      onPortalAction?.(`deploy \"${message}\"`);
+      return;
+    }
+    onDeploy?.();
+  };
+
+  return (
+    <div
+      className="relative flex h-full flex-col overflow-hidden text-white"
+      style={{
+        background:
+          "radial-gradient(ellipse 120% 90% at 20% 0%, rgba(16,185,129,0.10) 0%, transparent 32%), radial-gradient(ellipse 90% 70% at 80% 0%, rgba(34,211,238,0.08) 0%, transparent 28%), linear-gradient(180deg, rgba(4,14,12,1) 0%, rgba(5,11,18,1) 100%)",
+      }}
+    >
+      <div className="pointer-events-none absolute inset-0 overflow-hidden">
+        <div
+          className="absolute inset-0 opacity-[0.18]"
+          style={{
+            backgroundImage:
+              "linear-gradient(rgba(52,211,153,0.08) 1px, transparent 1px), linear-gradient(90deg, rgba(52,211,153,0.08) 1px, transparent 1px)",
+            backgroundSize: "42px 42px",
+            maskImage:
+              "linear-gradient(to bottom, rgba(0,0,0,0.75), transparent 90%)",
+          }}
+        />
+        <div
+          className="absolute inset-0 opacity-[0.10]"
+          style={{
+            backgroundImage:
+              "linear-gradient(rgba(34,211,238,0.08) 1px, transparent 1px), linear-gradient(90deg, rgba(34,211,238,0.08) 1px, transparent 1px)",
+            backgroundSize: "126px 126px",
+            maskImage:
+              "linear-gradient(to bottom, rgba(0,0,0,0.65), transparent 95%)",
+          }}
+        />
       </div>
 
-      <Tabs value={studioTab} onValueChange={(v) => setStudioTab(v as any)} className="flex-1 flex flex-col">
-        <TabsList className="grid w-full grid-cols-5 bg-zinc-900 border-b border-white/10 rounded-none">
-          <TabsTrigger value="playwright" className="data-[state=active]:bg-zinc-800">ðŸŽ¥ Recorder</TabsTrigger>
-          <TabsTrigger value="terminal" className="data-[state=active]:bg-zinc-800">ðŸ–¥ï¸ Terminal</TabsTrigger>
-          <TabsTrigger value="files" className="data-[state=active]:bg-zinc-800">ðŸ“ Files</TabsTrigger>
-          <TabsTrigger value="memory" className="data-[state=active]:bg-zinc-800">ðŸ§  Memory</TabsTrigger>
-          <TabsTrigger value="actions" className="data-[state=active]:bg-zinc-800">âš¡ Actions</TabsTrigger>
-        </TabsList>
+      <div className="relative z-10 flex h-full flex-col">
+        <div className="border-b border-white/8 px-5 py-4">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                {backHandler ? (
+                  <>
+                    <button
+                      onClick={backHandler}
+                      className="inline-flex h-10 items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.04] px-4 text-[12px] font-medium text-white/75 transition hover:bg-white/[0.08] hover:text-white"
+                    >
+                      <ArrowLeft className="h-4 w-4" />
+                      Nazad na Stellan
+                    </button>
+                    <div className="h-6 w-px bg-white/10" />
+                  </>
+                ) : null}
 
-        <TabsContent value="playwright" className="flex-1 p-6 overflow-auto">
-          <Card className="bg-zinc-900 border-white/10">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <PlayCircle className="text-emerald-400" />
-                Visual Chromium Recorder
-              </CardTitle>
-              <CardDescription>
-                Klikni Start â†’ otvara se Chromium â†’ radi normalno po SDGE/OSS portalu â†’ Stop &amp; Save. 
-                ViÅ¡e nema kopiranja koda.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="flex gap-3">
-                <div className="flex-1">
-                  <Label>Ime akcije (koristi se za spremanje i ponovno pokretanje)</Label>
-                  <Input
-                    value={currentRecordingName}
-                    onChange={(e) => setCurrentRecordingName(e.target.value)}
-                    placeholder="sdge_povratnice_za_predmet"
-                    className="bg-zinc-950 border-white/20 font-mono"
-                  />
+                <div className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-100">
+                  {title}
                 </div>
-                
-                {!isRecording ? (
-                  <Button 
-                    onClick={startVisualRecording}
-                    size="lg"
-                    className="mt-auto bg-emerald-600 hover:bg-emerald-500 text-white px-8"
-                  >
-                    <Play className="mr-2" /> Start Visual Recording
-                  </Button>
-                ) : (
-                  <Button 
-                    onClick={stopAndSaveRecording}
-                    variant="destructive"
-                    size="lg"
-                    disabled={isSaving}
-                    className="mt-auto px-8"
-                  >
-                    <Square className="mr-2" /> 
-                    {isSaving ? "Spremam..." : "Stop & Save Action"}
-                  </Button>
-                )}
+                <Badge
+                  variant="outline"
+                  className={cn(
+                    "rounded-full px-3 py-1 text-[11px]",
+                    statusTone(agentOnline),
+                  )}
+                >
+                  <Activity className="mr-1 h-3 w-3" />
+                  Agent{" "}
+                  {agentOnline === true
+                    ? "online"
+                    : agentOnline === false
+                      ? "offline"
+                      : "..."}
+                </Badge>
+                <Badge
+                  variant="outline"
+                  className="rounded-full border-cyan-400/20 bg-cyan-400/10 px-3 py-1 text-[11px] text-cyan-100"
+                >
+                  <Wrench className="mr-1 h-3 w-3" />
+                  Commit / Build / Deploy
+                </Badge>
+                <Badge
+                  variant="outline"
+                  className="rounded-full border-white/10 bg-white/[0.03] px-3 py-1 text-[11px] text-white/70"
+                >
+                  {modelBadge}
+                </Badge>
               </div>
+              <div className="mt-3 text-sm text-white/68">
+                DEV je sada fokusiran samo na git, commit, build, deploy, status
+                i logove.
+              </div>
+            </div>
 
-              {isRecording && (
-                <div className="bg-emerald-950/50 border border-emerald-500/30 rounded-2xl p-8 text-center">
-                  <div className="mx-auto w-16 h-16 rounded-full border-4 border-emerald-500 border-t-transparent animate-spin mb-6" />
-                  <div className="text-emerald-400 text-xl font-medium mb-2">RECORDING IN PROGRESS</div>
-                  <p className="text-white/70 max-w-md mx-auto">
-                    Chromium prozor je otvoren.<br />
-                    Radi Å¡to trebaÅ¡ (login, upisnik, povratnice...).<br />
-                    Sve se snima automatski.
-                  </p>
-                  <div className="text-[10px] text-white/40 mt-8 font-mono">
-                    {currentRecordingName} â€¢ {recordedSteps.length} koraka snimljeno
-                  </div>
-                </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-10 rounded-2xl border-white/10 bg-white/[0.04] px-4 text-white hover:bg-white/[0.08]"
+                onClick={onRefreshDevOps}
+              >
+                {devOpsLoading ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                )}
+                Refresh status
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-10 rounded-2xl border-white/10 bg-white/[0.04] px-4 text-white hover:bg-white/[0.08]"
+                onClick={onCheckHealth}
+              >
+                <Bot className="mr-2 h-4 w-4" />
+                Check agent
+              </Button>
+              {isAgentRunning ? (
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  className="h-10 rounded-2xl px-4"
+                  onClick={onStopAgent}
+                >
+                  <Square className="mr-2 h-4 w-4" />
+                  Stop
+                </Button>
+              ) : (
+                <Button
+                  size="sm"
+                  className="h-10 rounded-2xl bg-cyan-400 px-4 text-slate-950 hover:bg-cyan-300"
+                  onClick={onStartAgent}
+                >
+                  <Play className="mr-2 h-4 w-4" />
+                  Start agent
+                </Button>
               )}
+            </div>
+          </div>
 
-              {recordedSteps.length > 0 && (
-                <div>
-                  <div className="flex justify-between items-center mb-3">
-                    <h4 className="text-sm font-medium text-white/80">Snimljeni koraci</h4>
-                    <Button variant="ghost" size="sm" onClick={clearSteps}>
-                      <Trash2 className="w-3 h-3" />
+          <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <StatCard
+              icon={Server}
+              label="Agent"
+              value={
+                devOps?.agent?.online
+                  ? "Online"
+                  : devOps?.agent?.configured
+                    ? "Offline"
+                    : "Not configured"
+              }
+              tone={statusTone(devOps?.agent?.online)}
+              hint={devOps?.agent?.workspace || undefined}
+            />
+            <StatCard
+              icon={GitBranch}
+              label="Git"
+              value={gitValue}
+              tone={statusTone(devOps ? !devOps.git.dirty : null)}
+              hint={
+                devOps?.git?.latestCommit?.shortSha
+                  ? `${devOps.git.latestCommit.shortSha} • ${devOps.git.latestCommit.message}`
+                  : undefined
+              }
+            />
+            <StatCard
+              icon={Rocket}
+              label="Build / Deploy"
+              value={buildValue}
+              tone={statusTone(
+                devOps?.build?.status === "ready"
+                  ? true
+                  : devOps?.build?.status === "error"
+                    ? false
+                    : null,
+              )}
+              hint={devOps?.build?.branch || undefined}
+            />
+            <StatCard
+              icon={FolderOpen}
+              label="Project root"
+              value={projectRoot || "Not set"}
+              hint={
+                projectRoot
+                  ? "Lokalni root za git/build/deploy akcije"
+                  : "Upiši lokalni root projekta ispod i spremi ga."
+              }
+            />
+          </div>
+        </div>
+
+        <div className="relative z-10 grid min-h-0 flex-1 gap-4 p-4 xl:grid-cols-[420px_minmax(0,1fr)]">
+          <div className="min-h-0 space-y-4">
+            <Section
+              title="Project root"
+              subtitle="Lokalni repo koji DEV koristi za build, backup i deploy"
+              right={projectRoot ? <CopyChip value={projectRoot} /> : undefined}
+            >
+              <div className="space-y-3">
+                <div className="flex gap-2">
+                  <Input
+                    value={projectRootInput}
+                    onChange={(e) => setProjectRootInput(e.target.value)}
+                    placeholder="D:/1 PROJEKT APLIKACIJA LOKALNO/..."
+                    className="h-11 rounded-2xl border-white/10 bg-white/[0.04] text-white placeholder:text-white/25"
+                  />
+                  <Button
+                    className="h-11 rounded-2xl bg-white px-4 text-slate-950 hover:bg-white/90"
+                    onClick={() => onSaveProjectRoot?.(projectRootInput.trim())}
+                    disabled={!projectRootInput.trim()}
+                  >
+                    Spremi root
+                  </Button>
+                </div>
+                <div className="rounded-[20px] border border-white/10 bg-white/[0.03] px-3 py-2.5 text-[12px] leading-5 text-white/58">
+                  Ovdje upiši lokalni folder repozitorija. Sve DEV akcije —
+                  backup, build, commit, push i deploy — vrte se nad tim
+                  folderom.
+                </div>
+              </div>
+            </Section>
+
+            <Section
+              title="Commit / backup / deploy"
+              subtitle="Glavne akcije za lokalni repo"
+              right={
+                projectRoot ? (
+                  <Badge
+                    variant="outline"
+                    className="rounded-full border-emerald-400/20 bg-emerald-400/10 text-[10px] text-emerald-100"
+                  >
+                    One-click cockpit
+                  </Badge>
+                ) : undefined
+              }
+            >
+              <div className="space-y-3">
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <Button
+                    variant="outline"
+                    className="h-12 justify-start rounded-2xl border-emerald-400/12 bg-emerald-400/[0.03] text-white hover:bg-emerald-400/[0.08]"
+                    onClick={() => onPortalAction?.("git status")}
+                  >
+                    <GitBranch className="mr-2 h-4 w-4 text-emerald-300" />
+                    Git status
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="h-12 justify-start rounded-2xl border-cyan-400/12 bg-cyan-400/[0.03] text-white hover:bg-cyan-400/[0.08]"
+                    onClick={() => onPortalAction?.("git pull rebase")}
+                  >
+                    <RefreshCw className="mr-2 h-4 w-4 text-cyan-300" />
+                    Pull / rebase
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="h-12 justify-start rounded-2xl border-amber-400/12 bg-amber-400/[0.03] text-white hover:bg-amber-400/[0.08]"
+                    onClick={() => onPortalAction?.("backup project")}
+                  >
+                    <FolderOpen className="mr-2 h-4 w-4 text-amber-300" />
+                    Backup projekta
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="h-12 justify-start rounded-2xl border-cyan-400/12 bg-cyan-400/[0.03] text-white hover:bg-cyan-400/[0.08]"
+                    onClick={() => onPortalAction?.("pokreni build")}
+                  >
+                    <Play className="mr-2 h-4 w-4 text-cyan-300" />
+                    Build
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="h-12 justify-start rounded-2xl border-white/10 bg-white/[0.04] text-white hover:bg-white/[0.08]"
+                    onClick={() => onPortalAction?.("git push")}
+                  >
+                    <UploadCloud className="mr-2 h-4 w-4 text-white/80" />
+                    Git push
+                  </Button>
+                  <Button
+                    className="h-12 justify-start rounded-2xl bg-emerald-400 text-slate-950 hover:bg-emerald-300"
+                    onClick={handleDeployWithMessage}
+                  >
+                    <Rocket className="mr-2 h-4 w-4" />
+                    One-click deploy
+                  </Button>
+                </div>
+
+                <div className="rounded-[22px] border border-emerald-400/10 bg-black/15 p-3.5">
+                  <div className="mb-2 text-sm font-medium text-white/92">
+                    Commit poruka
+                  </div>
+                  <div className="mb-3 text-[11px] leading-5 text-white/42">
+                    Upiši poruku pa klikni <strong>Commit</strong>. Kod{" "}
+                    <strong>One-click deploy</strong> prvo se radi backup, zatim
+                    build, commit i push.
+                  </div>
+                  <div className="flex gap-2">
+                    <Input
+                      value={commitMessage}
+                      onChange={(e) => setCommitMessage(e.target.value)}
+                      placeholder="npr. feat: dev tab full cockpit"
+                      className="h-11 rounded-2xl border-white/10 bg-white/[0.04] text-white placeholder:text-white/25"
+                    />
+                    <Button
+                      className="h-11 rounded-2xl bg-white px-4 text-slate-950 hover:bg-white/90"
+                      onClick={handleCommit}
+                      disabled={!commitMessage.trim()}
+                    >
+                      Commit
                     </Button>
                   </div>
-                  <ScrollArea className="h-64 bg-black/40 rounded-xl p-4 font-mono text-xs">
-                    {recordedSteps.map((step, i) => (
-                      <div key={i} className="py-2 border-b border-white/10 last:border-0 flex gap-4">
-                        <div className="text-emerald-400 w-5 shrink-0">#{step.n}</div>
-                        <div className="flex-1 text-white/80">{step.desc}</div>
-                        <div className="text-white/40 text-[10px]">{step.url}</div>
-                      </div>
-                    ))}
-                  </ScrollArea>
                 </div>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
+              </div>
+            </Section>
 
-        <TabsContent value="actions" className="flex-1 p-6">
-          <Card className="bg-zinc-900 border-white/10">
-            <CardHeader>
-              <CardTitle>Spremljene akcije</CardTitle>
-              <CardDescription>One-click pokretanje flowova (sa parametrima)</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {savedActions.length === 0 ? (
-                <div className="text-center py-12 text-white/40">
-                  JoÅ¡ nema spremljenih akcija.<br />Snimi jednu gore pa Ä‡e se pojaviti ovdje.
+            <Section
+              title="Repo status"
+              subtitle="Brzi pregled repozitorija i zadnjih promjena"
+            >
+              <div className="space-y-3 text-sm text-white/75">
+                <div className="grid gap-2">
+                  <MiniInfo label="Repo" value={devOps?.git?.repo || "—"} />
+                  <MiniInfo label="Branch" value={devOps?.git?.branch || "—"} />
+                  <MiniInfo
+                    label="State"
+                    value={devOps?.git?.dirty ? "Dirty" : "Clean"}
+                  />
+                  {devOps?.git?.latestCommit ? (
+                    <MiniInfo
+                      label="Latest commit"
+                      value={`${devOps.git.latestCommit.shortSha || devOps.git.latestCommit.sha || "—"} • ${devOps.git.latestCommit.message || "—"}`}
+                    />
+                  ) : null}
+                </div>
+
+                <div className="rounded-[22px] border border-emerald-400/10 bg-black/15 p-3.5">
+                  <div className="mb-2 text-sm font-medium text-white/92">
+                    Promijenjeni fileovi
+                  </div>
+                  {!devOps?.git?.changedFiles?.length ? (
+                    <div className="text-[12px] text-white/42">
+                      Trenutno nema popisa promijenjenih fileova.
+                    </div>
+                  ) : (
+                    <div className="space-y-1.5 text-[12px]">
+                      {devOps.git.changedFiles.slice(0, 12).map((file) => (
+                        <div
+                          key={file}
+                          className="rounded-2xl border border-white/8 bg-white/[0.03] px-2.5 py-2 font-mono text-white/84"
+                        >
+                          {file}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </Section>
+
+            <Section
+              title="Backupi"
+              subtitle="Zadnji snapshoti lokalnog projekta"
+            >
+              {(devOps?.backups || []).length === 0 ? (
+                <div className="rounded-[22px] border border-white/10 bg-white/[0.03] p-4 text-sm text-white/42">
+                  Još nema backupova. Klikni <strong>Backup projekta</strong>{" "}
+                  prije većih izmjena ili deploya.
                 </div>
               ) : (
                 <div className="space-y-2">
-                  {savedActions.map((action, i) => (
-                    <div key={i} className="flex items-center justify-between bg-zinc-950 border border-white/10 rounded-xl p-4 group">
-                      <div>
-                        <div className="font-medium">{action.name}</div>
-                        <div className="text-xs text-white/40 font-mono">{action.file}</div>
+                  {devOps!.backups!.slice(0, 6).map((backup) => (
+                    <div
+                      key={backup.path || backup.name}
+                      className="rounded-[20px] border border-white/10 bg-white/[0.03] px-3 py-2.5 text-sm text-white/75"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="truncate font-medium text-white/92">
+                            {backup.name}
+                          </div>
+                          <div className="truncate text-[11px] text-white/42">
+                            {backup.path || "_agent_backups"}
+                          </div>
+                        </div>
+                        <Badge
+                          variant="outline"
+                          className="rounded-full border-amber-400/18 bg-amber-400/10 text-[10px] text-amber-100"
+                        >
+                          {formatBytes(backup.size)}
+                        </Badge>
                       </div>
-                      <Button onClick={() => runSavedAction(action.name)} size="sm">
-                        <Play className="mr-1.5 w-3.5 h-3.5" /> Run
-                      </Button>
+                      <div className="mt-1 text-[11px] text-white/42">
+                        {formatTime(backup.modifiedAt)}
+                      </div>
                     </div>
                   ))}
                 </div>
               )}
-            </CardContent>
-          </Card>
-        </TabsContent>
+            </Section>
 
-        <TabsContent value="memory" className="flex-1 p-6">
-          <Card className="bg-zinc-900 border-white/10">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Brain className="text-violet-400" /> Context Memory
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="text-sm leading-relaxed text-white/70 space-y-4">
-              <div className="bg-zinc-950 p-4 rounded-xl border border-white/10">
-                <div className="font-medium text-violet-400 mb-2">Zapamtio sam:</div>
-                <ul className="list-disc pl-5 space-y-1 text-xs">
-                  <li>Å½eliÅ¡ visual recorder unutar aplikacije (ne viÅ¡e copy-paste codegen)</li>
-                  <li>Dev tab mora raditi odmah â€” fiziÄko rjeÅ¡enje, ne verbalno</li>
-                  <li>SDGE povratnice flow je prioritet (Upisnik â†’ predmet â†’ Otprema/Dostava)</li>
-                  <li>Å½eliÅ¡ self-healing akcije koje se same popravljaju kad se portal promijeni</li>
-                  <li>Cijeli projekt (ChatDialog + DevPanel + edge functions) je uÄitan u memoriju</li>
-                </ul>
-              </div>
-              <p className="text-xs text-white/40">Ova memorija se aÅ¾urira automatski. ViÅ¡e neÄ‡emo ponavljati iste stvari.</p>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* Terminal, Files tabs left as placeholders - they were already in your file */}
-        <TabsContent value="terminal" className="flex-1 p-6">
-          <div className="font-mono text-xs bg-black/80 h-full rounded-2xl p-6 text-emerald-300/80 overflow-auto">
-            {consoleLogs.map((log, i) => (
-              <div key={i} className={cn(
-                "py-0.5",
-                log.type === "error" && "text-red-400",
-                log.type === "ok" && "text-emerald-400",
-                log.type === "dim" && "text-white/40"
-              )}>
-                {log.msg}
-              </div>
-            ))}
-            <div className="h-8" />
+            {derivedErrors.length > 0 ? (
+              <Section
+                title="Greške"
+                subtitle="Aktivni problemi iz DEV statusa"
+              >
+                <div className="space-y-2">
+                  {derivedErrors.map((item, index) => (
+                    <div
+                      key={`${item}-${index}`}
+                      className="rounded-[22px] border border-rose-400/18 bg-rose-400/10 p-3 text-sm text-rose-100"
+                    >
+                      <div className="flex items-start gap-2">
+                        <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                        <div className="whitespace-pre-wrap leading-6">
+                          {item}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </Section>
+            ) : null}
           </div>
-        </TabsContent>
 
-        <TabsContent value="files" className="flex-1 p-6 text-white/60 text-sm">
-          Project workspace connected.<br />
-          Ready for agent to read/write files and run playwright scripts.
-        </TabsContent>
-      </Tabs>
+          <div className="min-h-0 space-y-4">
+            <Section
+              title="Preview"
+              subtitle="Aktivni Playwright prikaz i zadnji sažetak"
+              right={
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-9 rounded-2xl border-white/10 bg-white/[0.04] px-3 text-white hover:bg-white/[0.08]"
+                    onClick={onRefreshScreenshot}
+                  >
+                    <RefreshCw className="mr-2 h-4 w-4" />
+                    Screenshot
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-9 rounded-2xl border-white/10 bg-white/[0.04] px-3 text-white hover:bg-white/[0.08]"
+                    onClick={onWaitForLoad}
+                  >
+                    <Loader2 className="mr-2 h-4 w-4" />
+                    Pričekaj load
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-9 rounded-2xl border-white/10 bg-white/[0.04] px-3 text-white hover:bg-white/[0.08]"
+                    onClick={onDescribePreview}
+                  >
+                    <TerminalSquare className="mr-2 h-4 w-4" />
+                    Opiši
+                  </Button>
+                </div>
+              }
+            >
+              <div className="grid gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(300px,0.8fr)]">
+                <div className="rounded-[24px] border border-white/10 bg-black/20 p-3">
+                  {preview?.screenshotUrl ? (
+                    <img
+                      src={preview.screenshotUrl}
+                      alt={preview?.title || "Preview"}
+                      className="h-[320px] w-full rounded-[18px] border border-white/8 object-cover"
+                    />
+                  ) : (
+                    <div className="flex h-[320px] items-center justify-center rounded-[18px] border border-dashed border-white/10 text-sm text-white/40">
+                      Nema screenshot previewa
+                    </div>
+                  )}
+                </div>
+                <div className="space-y-3">
+                  <MiniInfo label="URL" value={preview?.url || "—"} />
+                  <MiniInfo
+                    label="Naslov"
+                    value={preview?.title || "Playwright preview"}
+                  />
+                  <MiniInfo
+                    label="Status"
+                    value={preview?.isLive ? "Live" : "Offline"}
+                  />
+                  <div className="rounded-[24px] border border-white/10 bg-black/20 p-4">
+                    <div className="text-[10px] uppercase tracking-[0.12em] text-white/36">
+                      Sažetak
+                    </div>
+                    <div className="mt-2 whitespace-pre-wrap text-sm leading-6 text-white/78">
+                      {preview?.summary || "Još nema sažetka previewa."}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </Section>
 
-      {/* Bottom status bar */}
-      <div className="border-t border-white/10 bg-zinc-900 p-3 text-[10px] font-mono flex items-center justify-between text-white/40">
-        <div>Connected to: {devPanelPreview?.isLive ? "Live Agent" : "Local Studio"}</div>
-        <div className="flex items-center gap-4">
-          <div>Actions: {savedActions.length}</div>
-          <div>Steps: {recordedSteps.length}</div>
-          {isRecording && <div className="text-emerald-400 animate-pulse">â— REC</div>}
+            <Section
+              title="Koraci"
+              subtitle="Što je DEV stvarno napravio zadnje"
+            >
+              <div className="space-y-2">
+                {steps.length === 0 ? (
+                  <div className="rounded-[22px] border border-white/10 bg-white/[0.03] p-4 text-sm text-white/42">
+                    Još nema zabilježenih koraka.
+                  </div>
+                ) : (
+                  steps
+                    .slice(-8)
+                    .reverse()
+                    .map((step) => (
+                      <div
+                        key={step.id}
+                        className="rounded-[22px] border border-white/10 bg-white/[0.03] px-3 py-2.5 text-sm text-white/78"
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="truncate font-medium text-white/92">
+                              {step.label}
+                            </div>
+                            <div className="mt-0.5 truncate text-[11px] text-white/42">
+                              {step.detail || step.target || step.action}
+                            </div>
+                          </div>
+                          <Badge
+                            variant="outline"
+                            className={cn(
+                              "rounded-full text-[10px]",
+                              step.status === "done"
+                                ? "border-emerald-400/20 bg-emerald-400/10 text-emerald-100"
+                                : step.status === "error"
+                                  ? "border-rose-400/20 bg-rose-400/10 text-rose-100"
+                                  : step.status === "running"
+                                    ? "border-cyan-400/20 bg-cyan-400/10 text-cyan-100"
+                                    : "border-white/10 bg-white/[0.03] text-white/60",
+                            )}
+                          >
+                            {step.status}
+                          </Badge>
+                        </div>
+                      </div>
+                    ))
+                )}
+              </div>
+            </Section>
+
+            <Section
+              title="Build & deploy status"
+              subtitle="Zadnji build i deployment podaci"
+            >
+              <div className="grid gap-4 lg:grid-cols-2">
+                <div className="rounded-[24px] border border-cyan-400/10 bg-black/15 p-4">
+                  <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-white/92">
+                    <Rocket className="h-4 w-4 text-cyan-300" />
+                    Zadnji build
+                  </div>
+                  <div className="space-y-2 text-sm text-white/75">
+                    <div>
+                      <span className="text-white/42">Status:</span>{" "}
+                      {devOps?.build?.label || "—"}
+                    </div>
+                    <div>
+                      <span className="text-white/42">Target:</span>{" "}
+                      {devOps?.build?.target || "—"}
+                    </div>
+                    <div>
+                      <span className="text-white/42">Branch:</span>{" "}
+                      {devOps?.build?.branch || "—"}
+                    </div>
+                    <div>
+                      <span className="text-white/42">Time:</span>{" "}
+                      {formatTime(devOps?.build?.createdAt)}
+                    </div>
+                    {devOps?.build?.commitMessage ? (
+                      <div>
+                        <span className="text-white/42">Commit:</span>{" "}
+                        {devOps.build.commitMessage}
+                      </div>
+                    ) : null}
+                  </div>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {devOps?.build?.url ? (
+                      <a
+                        href={devOps.build.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 rounded-full border border-cyan-400/16 bg-cyan-400/10 px-3 py-1.5 text-xs text-cyan-100 hover:bg-cyan-400/18"
+                      >
+                        Open deployment <ExternalLink className="h-3 w-3" />
+                      </a>
+                    ) : null}
+                    {devOps?.build?.inspectorUrl ? (
+                      <a
+                        href={devOps.build.inspectorUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs text-white/75 hover:bg-white/[0.06]"
+                      >
+                        Inspector <ExternalLink className="h-3 w-3" />
+                      </a>
+                    ) : null}
+                  </div>
+                </div>
+
+                <div className="rounded-[24px] border border-emerald-400/10 bg-black/15 p-4">
+                  <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-white/92">
+                    <CheckCircle2 className="h-4 w-4 text-emerald-300" />
+                    Zadnji deploymenti
+                  </div>
+                  <div className="space-y-2">
+                    {(devOps?.deployments || []).length === 0 ? (
+                      <div className="text-sm text-white/42">
+                        Još nema deployment podataka.
+                      </div>
+                    ) : (
+                      devOps!.deployments!.slice(0, 6).map((deployment) => (
+                        <div
+                          key={deployment.id}
+                          className="rounded-[20px] border border-white/10 bg-white/[0.03] px-3 py-2.5 text-sm text-white/75"
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="min-w-0">
+                              <div className="truncate font-medium text-white/92">
+                                {deployment.branch ||
+                                  deployment.target ||
+                                  deployment.id}
+                              </div>
+                              <div className="truncate text-[11px] text-white/42">
+                                {deployment.commitMessage ||
+                                  deployment.url ||
+                                  "Deployment"}
+                              </div>
+                            </div>
+                            <Badge
+                              variant="outline"
+                              className={cn(
+                                "rounded-full border-white/10 bg-white/[0.03] text-white/75",
+                                statusTone(
+                                  deployment.status === "ready"
+                                    ? true
+                                    : deployment.status === "error"
+                                      ? false
+                                      : null,
+                                ),
+                              )}
+                            >
+                              {deployment.status}
+                            </Badge>
+                          </div>
+                          <div className="mt-1 text-[11px] text-white/42">
+                            {formatTime(deployment.createdAt)}
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </div>
+            </Section>
+
+            <Section
+              title="Logs"
+              subtitle="DEV logovi, build output i status događaji"
+            >
+              <ScrollArea className="h-[540px] pr-3">
+                <div className="space-y-3">
+                  {mergedLogs.length === 0 ? (
+                    <div className="rounded-[22px] border border-white/10 bg-white/[0.03] p-4 text-sm text-white/42">
+                      Još nema logova.
+                    </div>
+                  ) : (
+                    mergedLogs.map((log) => (
+                      <div
+                        key={log.id}
+                        className={cn(
+                          "rounded-[22px] border p-3.5",
+                          levelTone(log.level),
+                        )}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-2 text-sm font-medium">
+                              <TerminalSquare className="h-4 w-4" />
+                              <span>{log.title}</span>
+                              <Badge
+                                variant="outline"
+                                className="rounded-full border-current/20 bg-transparent text-[10px] text-current"
+                              >
+                                {log.source}
+                              </Badge>
+                            </div>
+                            {log.detail ? (
+                              <div className="mt-2 whitespace-pre-wrap text-[12px] leading-5 opacity-90">
+                                {log.detail}
+                              </div>
+                            ) : null}
+                            {log.at ? (
+                              <div className="mt-2 text-[11px] opacity-70">
+                                {formatTime(log.at)}
+                              </div>
+                            ) : null}
+                          </div>
+                          {log.href ? (
+                            <a
+                              href={log.href}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="shrink-0 text-current opacity-80 hover:opacity-100"
+                            >
+                              <ExternalLink className="h-4 w-4" />
+                            </a>
+                          ) : null}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </ScrollArea>
+            </Section>
+          </div>
         </div>
       </div>
     </div>
   );
-};
-
-// Small inline component for agent status (kept from your version)
-const AgentStatusBadge = () => {
-  const [agentOk, setAgentOk] = React.useState<boolean | null>(null);
-
-  React.useEffect(() => {
-    // Health check logic (same as in ChatDialog)
-    const check = async () => {
-      try {
-        const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/agent-health`);
-        setAgentOk(res.ok);
-      } catch {
-        setAgentOk(false);
-      }
-    };
-    check();
-  }, []);
-
-  return (
-    <div className={cn(
-      "px-3 py-0.5 rounded-full text-[10px] flex items-center gap-1.5 border",
-      agentOk === true 
-        ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30" 
-        : "bg-red-500/10 text-red-400 border-red-500/30"
-    )}>
-      <div className={cn("w-2 h-2 rounded-full", agentOk === true ? "bg-emerald-400 animate-pulse" : "bg-red-400")} />
-      Agent {agentOk === true ? "OK" : "Offline"}
-    </div>
-  );
-};
-
-export default DevPanel;
+}
