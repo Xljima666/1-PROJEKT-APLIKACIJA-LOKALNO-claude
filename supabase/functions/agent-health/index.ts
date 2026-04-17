@@ -156,7 +156,7 @@ serve(async (req) => {
         result.hint = "Provjeri AGENT_API_KEY u env varijablama Supabase edge funkcije";
         break;
       }
-
+ 
       result.ok = res.ok;
 
       if (res.ok) {
