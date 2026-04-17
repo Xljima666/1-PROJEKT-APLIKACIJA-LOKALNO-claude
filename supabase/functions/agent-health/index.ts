@@ -4,9 +4,9 @@ const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
-  
+
 const HEALTH_TIMEOUT_MS = 10000;
-const FALLBACK_KEYS = ["stellan-agent-2026-v2-x7k9m2p", "promijeni-me-na-siguran-kljuc-123"];
+const DEFAULT_FALLBACK_KEY = "stellan-agent-2026-v2-x7k9m2p";
 
 const sanitizeAgentServerUrl = (raw: string): string | null => {
   if (!raw) return null;
@@ -23,7 +23,7 @@ const sanitizeAgentServerUrl = (raw: string): string | null => {
     return null;
   }
 };
-  
+
 const maskApiKey = (key: string): string => {
   if (!key || key.length < 8) return "****";
   return key.slice(0, 4) + "..." + key.slice(-4);
@@ -45,7 +45,7 @@ const getAgentApiKeyCandidates = (raw: string | null): string[] => {
     if (headerMatch?.[1]) candidates.add(headerMatch[1]);
   }
   
-  for (const key of FALLBACK_KEYS) candidates.add(key);
+  candidates.add(DEFAULT_FALLBACK_KEY);
   return Array.from(candidates);
 };
 
@@ -97,12 +97,13 @@ serve(async (req) => {
   }
 
   const healthUrl = `${baseUrl}/health`.replace(/\/health\/health$/, "/health");
+  const apiKeyCandidates = getAgentApiKeyCandidates(rawAgentApiKey);
 
   const result = {
     ok: false,
     testedUrl: healthUrl,
     timestamp: new Date().toISOString(),
-    candidatesCount: 0,
+    candidatesCount: apiKeyCandidates.length,
     usedKeyMasked: "",
     durationMs: 0,
     status: 0,
@@ -112,41 +113,10 @@ serve(async (req) => {
   };
 
   try {
-    const publicAttempt = await fetchWithTimeout(
-      healthUrl,
-      {
-        method: "GET",
-        headers: {
-          "ngrok-skip-browser-warning": "true",
-          "User-Agent": "GeoTerraAgentHealth/3.0",
-          Accept: "application/json",
-        },
-      },
-      HEALTH_TIMEOUT_MS,
-    );
+    for (const [index, apiKey] of apiKeyCandidates.entries()) {
+      const masked = maskApiKey(apiKey);
+      console.log(`[AgentHealth] Pokušaj ${index + 1}/${apiKeyCandidates.length} | Key: ${masked} | URL: ${healthUrl}`);
 
-    result.durationMs = publicAttempt.duration;
-    result.status = publicAttempt.res.status;
-    const publicText = await publicAttempt.res.text();
-    try {
-      result.agentResponse = publicText ? JSON.parse(publicText) : null;
-    } catch {
-      result.agentResponse = publicText ? { raw: publicText.slice(0, 500) } : null;
-    }
-
-    if (publicAttempt.res.ok) {
-      result.ok = true;
-      result.hint = "Agent je online i odgovara ispravno";
-      return new Response(JSON.stringify(result), {
-        status: 200,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    const apiKeyCandidates = getAgentApiKeyCandidates(rawAgentApiKey);
-    result.candidatesCount = apiKeyCandidates.length;
-
-    for (const apiKey of apiKeyCandidates) {
       const { res, duration } = await fetchWithTimeout(
         healthUrl,
         {
@@ -154,8 +124,8 @@ serve(async (req) => {
           headers: {
             "X-API-Key": apiKey,
             "ngrok-skip-browser-warning": "true",
-            "User-Agent": "GeoTerraAgentHealth/3.0",
-            Accept: "application/json",
+            "User-Agent": "GeoTerraAgentHealth/2.0",
+            "Accept": "application/json",
           },
         },
         HEALTH_TIMEOUT_MS,
@@ -163,35 +133,60 @@ serve(async (req) => {
 
       result.durationMs = duration;
       result.status = res.status;
-      result.usedKeyMasked = maskApiKey(apiKey);
+      result.usedKeyMasked = masked;
+
       const text = await res.text();
+      let parsed: any = null;
+
       try {
-        result.agentResponse = text ? JSON.parse(text) : null;
-      } catch {
-        result.agentResponse = text ? { raw: text.slice(0, 500) } : null;
+        parsed = text ? JSON.parse(text) : null;
+      } catch (e) {
+        parsed = { raw: text.length > 500 ? text.slice(0, 500) + "..." : text };
       }
+
+      result.agentResponse = parsed;
+
+      console.log(`[AgentHealth] Odgovor: ${res.status} (trajalo ${duration}ms)`);
+
+      if (res.status === 401 || res.status === 403) {
+        if (index < apiKeyCandidates.length - 1) {
+          continue; // probaj sljedeći ključ
+        }
+        result.error = "Nevažeći API ključ (401/403)";
+        result.hint = "Provjeri AGENT_API_KEY u env varijablama Supabase edge funkcije";
+        break;
+      }
+
+      result.ok = res.ok;
 
       if (res.ok) {
-        result.ok = true;
         result.hint = "Agent je online i odgovara ispravno";
-        return new Response(JSON.stringify(result), {
-          status: 200,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
+      } else {
+        result.hint = parsed?.error || "Agent je vratio grešku";
       }
+
+      return new Response(JSON.stringify(result), {
+        status: res.ok ? 200 : res.status,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
-    result.error = "Agent health nije prošao ni bez ključa ni s fallback ključevima";
-    result.hint = "Provjeri ngrok tunel i AGENT_SERVER_URL";
+    // Ako smo ovdje, svi ključevi su pali
+    result.error = "Svi API ključevi odbijeni (401/403)";
+    result.hint = "Provjeri da li AGENT_API_KEY odgovara onome što agent očekuje na Cloudflare URL-u";
+
     return new Response(JSON.stringify(result), {
       status: 502,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
+
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     console.error("[AgentHealth] Critical error:", message);
+    
     result.error = `Agent nedostupan: ${message}`;
-    result.hint = "Provjeri da li ngrok tunel radi i da li je AGENT_SERVER_URL točan";
+    result.hint = "Provjeri da li Cloudflare Tunnel radi i da li je AGENT_SERVER_URL točan";
+
     return new Response(JSON.stringify(result), {
       status: 502,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
