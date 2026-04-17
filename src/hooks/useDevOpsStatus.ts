@@ -14,11 +14,6 @@ const SUPABASE_PUBLIC_KEY =
   import.meta.env.VITE_SUPABASE_ANON_KEY ||
   "";
 
-type RefreshOptions = {
-  silent?: boolean;
-  projectRootOverride?: string | null;
-};
-
 export function useDevOpsStatus({
   enabled = true,
   projectRoot,
@@ -41,17 +36,8 @@ export function useDevOpsStatus({
   }, []);
 
   const refresh = useCallback(
-    async (options: boolean | RefreshOptions = false) => {
-      const normalizedOptions =
-        typeof options === "boolean" ? { silent: options } : options;
-      const silent = normalizedOptions.silent === true;
-
+    async (silent = false) => {
       if (!enabled || inFlightRef.current) return null;
-
-      const effectiveProjectRoot =
-        typeof normalizedOptions.projectRootOverride === "string"
-          ? normalizedOptions.projectRootOverride.trim() || null
-          : projectRoot?.trim() || null;
 
       inFlightRef.current = true;
 
@@ -75,11 +61,11 @@ export function useDevOpsStatus({
             ...(session?.access_token
               ? { Authorization: `Bearer ${session.access_token}` }
               : {}),
-            ...(SUPABASE_PUBLIC_KEY ? { apikey: SUPABASE_PUBLIC_KEY } : {}),
+            apikey: SUPABASE_PUBLIC_KEY,
           },
           body: JSON.stringify({
             action: "status",
-            projectRoot: effectiveProjectRoot,
+            projectRoot: projectRoot?.trim() || null,
           }),
         });
 
@@ -116,12 +102,12 @@ export function useDevOpsStatus({
   useEffect(() => {
     if (!enabled) return;
 
-    void refresh({ silent: false });
+    void refresh(false);
 
     if (!pollMs || pollMs <= 0) return;
 
     const interval = window.setInterval(() => {
-      void refresh({ silent: true });
+      void refresh(true);
     }, pollMs);
 
     return () => {
