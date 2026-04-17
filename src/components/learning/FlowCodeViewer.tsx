@@ -6,7 +6,7 @@ interface FlowCodeViewerProps {
   code: string;
   isRecording: boolean;
 }
-
+ 
 export const FlowCodeViewer: React.FC<FlowCodeViewerProps> = ({ code, isRecording }) => {
   return (
     <div className="h-full flex flex-col">
