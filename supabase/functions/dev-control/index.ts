@@ -66,9 +66,7 @@ const mapVercelStatus = (value?: string | null) => {
 
 const parseGitStatus = (stdout?: string | null) => {
   const raw = String(stdout || "").trim();
-  const lines = raw.split(/
-?
-/).filter(Boolean);
+  const lines = raw.split(/\r?\n/).filter(Boolean);
   const header = lines[0] || "";
   const changedFiles = lines
     .slice(1)
@@ -213,7 +211,7 @@ serve(async (req) => {
       try {
         if (action === "git_status") {
           const result = await agentRequest(agentBaseUrl, agentApiKeys, "git_status", { repo_path: projectRoot });
-          return json({ success: true, action, message: "Git status dohvaÄen.", result, summary: result?.stdout || "" });
+          return json({ success: true, action, message: "Git status dohvaćen.", result, summary: result?.stdout || "" });
         }
         if (action === "git_commit") {
           const message = normalizeMessage(body?.message as string);
@@ -224,9 +222,7 @@ serve(async (req) => {
             action,
             message: `Commit spremljen: ${message}`,
             result,
-            summary: [result?.stdout, result?.stderr].filter(Boolean).join("
-
-"),
+            summary: [result?.stdout, result?.stderr].filter(Boolean).join("\n\n"),
           });
         }
         if (action === "git_push") {
@@ -235,11 +231,9 @@ serve(async (req) => {
           return json({
             success: true,
             action,
-            message: branch ? `Git push na ${branch} proÅ¡ao.` : "Git push proÅ¡ao.",
+            message: branch ? `Git push na ${branch} prošao.` : "Git push prošao.",
             result,
-            summary: [result?.stdout, result?.stderr].filter(Boolean).join("
-
-"),
+            summary: [result?.stdout, result?.stderr].filter(Boolean).join("\n\n"),
           });
         }
         if (action === "git_pull_rebase") {
@@ -248,11 +242,9 @@ serve(async (req) => {
           return json({
             success: true,
             action,
-            message: "Git pull --rebase proÅ¡ao.",
+            message: "Git pull --rebase prošao.",
             result,
-            summary: [result?.stdout, result?.stderr].filter(Boolean).join("
-
-"),
+            summary: [result?.stdout, result?.stderr].filter(Boolean).join("\n\n"),
           });
         }
         if (action === "build") {
@@ -260,11 +252,9 @@ serve(async (req) => {
           return json({
             success: true,
             action,
-            message: result?.success === false ? "Build nije proÅ¡ao." : "Build je proÅ¡ao.",
+            message: result?.success === false ? "Build nije prošao." : "Build je prošao.",
             result,
-            summary: [result?.stdout, result?.stderr].filter(Boolean).join("
-
-"),
+            summary: [result?.stdout, result?.stderr].filter(Boolean).join("\n\n"),
           }, result?.success === false ? 500 : 200);
         }
         if (action === "backup_project") {
@@ -274,9 +264,7 @@ serve(async (req) => {
             action,
             message: `Backup projekta je spremljen: ${result?.backup_name || result?.backup_path || "backup"}`,
             result,
-            summary: [result?.backup_path, result?.message].filter(Boolean).join("
-
-"),
+            summary: [result?.backup_path, result?.message].filter(Boolean).join("\n\n"),
           });
         }
         if (action === "deploy") {
@@ -288,13 +276,11 @@ serve(async (req) => {
           return json({
             success: true,
             action,
-            message: `Deploy flow zavrÅ¡en: ${message}`,
+            message: `Deploy flow završen: ${message}`,
             result: { backupResult, buildResult, commitResult, pushResult },
             summary: [backupResult?.backup_path, buildResult?.stdout, commitResult?.stdout, pushResult?.stdout]
               .filter(Boolean)
-              .join("
-
-"),
+              .join("\n\n"),
           });
         }
 
@@ -500,9 +486,7 @@ serve(async (req) => {
           log_name: "build",
           max_chars: 5000,
         });
-        const logDetail = [buildLogs?.stdout, buildLogs?.stderr].filter(Boolean).join("
-
-").trim();
+        const logDetail = [buildLogs?.stdout, buildLogs?.stderr].filter(Boolean).join("\n\n").trim();
         if (logDetail) {
           const failed = /error|failed|fail|vite build/i.test(logDetail);
           snapshot.build.status = failed ? "error" : snapshot.build.status;
