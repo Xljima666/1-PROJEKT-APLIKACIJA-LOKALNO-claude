@@ -40,7 +40,7 @@ export const LearningActions: React.FC<LearningActionsProps> = ({
         <Wand2 className="w-5 h-5" />
         2. Stellan — Popravi kod
       </Button>
-
+ 
       <Button
         onClick={onSaveFlow}
         className="w-full h-12 bg-zinc-700 hover:bg-zinc-600 flex items-center gap-3"
