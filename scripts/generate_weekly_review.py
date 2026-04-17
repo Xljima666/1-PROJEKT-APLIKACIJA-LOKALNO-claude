@@ -1,6 +1,6 @@
 # generate_weekly_review.py
 # v2.3 - Tjedni review + self improvement
-
+ 
 import datetime
 print("# 📅 Weekly Review — tjedan od " + datetime.date.today().strftime("%d.%m.%Y."))
 print("**Stellan v2.3**\n")
