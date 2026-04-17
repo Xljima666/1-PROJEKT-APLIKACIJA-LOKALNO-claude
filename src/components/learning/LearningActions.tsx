@@ -1,6 +1,6 @@
-import { Button } from "@/components/ui/button";
-import { Play, Bot, Save, TestTube, ArrowRightCircle, CircleDot } from "lucide-react";
-import { cn } from "@/lib/utils";
+import React from 'react';
+import { Button } from '@/components/ui/button';
+import { Record, Wand2, Save, PlayCircle, ArrowRight } from 'lucide-react';
 
 interface LearningActionsProps {
   isRecording: boolean;
@@ -11,63 +11,66 @@ interface LearningActionsProps {
   onConvertToFMECard: () => void;
 }
 
-export function LearningActions({
+export const LearningActions: React.FC<LearningActionsProps> = ({
   isRecording,
   onStartRecording,
   onImproveCode,
   onSaveFlow,
   onTestFlow,
-  onConvertToFMECard,
-}: LearningActionsProps) {
+  onConvertToFMECard
+}) => {
   return (
-    <div className="space-y-2">
-      <div className="uppercase text-xs text-zinc-500 mb-4 px-1">AKCIJE</div>
+    <div className="space-y-3">
+      <div className="text-xs uppercase tracking-widest text-zinc-500 mb-4">AKCIJE</div>
 
       <Button
         onClick={onStartRecording}
-        className={cn(
-          "w-full h-12 text-base font-medium",
-          isRecording 
-            ? "bg-red-600 hover:bg-red-700" 
-            : "bg-emerald-600 hover:bg-emerald-500"
-        )}
+        disabled={isRecording}
+        className="w-full h-14 text-base bg-red-600 hover:bg-red-700 flex items-center gap-3"
       >
-        <CircleDot className="w-5 h-5 mr-3" />
-        {isRecording ? "Zaustavi snimanje" : "1. Pamćenje (Snimi)"}
+        <Record className="w-5 h-5" />
+        {isRecording ? 'Snimanje u tijeku...' : '1. Pamćenje — Snimi'}
       </Button>
 
       <Button
         onClick={onImproveCode}
         variant="outline"
-        className="w-full h-11 border-emerald-900 hover:bg-emerald-950 text-emerald-400"
+        className="w-full h-14 text-base border-emerald-600 text-emerald-400 hover:bg-emerald-950 flex items-center gap-3"
       >
-        <Bot className="w-4 h-4 mr-2" />
+        <Wand2 className="w-5 h-5" />
         2. Stellan — Popravi kod
       </Button>
 
-      <Button onClick={onSaveFlow} className="w-full h-11" variant="secondary">
-        <Save className="w-4 h-4 mr-2" />
+      <Button
+        onClick={onSaveFlow}
+        className="w-full h-12 bg-zinc-700 hover:bg-zinc-600 flex items-center gap-3"
+      >
+        <Save className="w-4 h-4" />
         3. Spremi Flow
       </Button>
 
-      <Button onClick={onTestFlow} variant="secondary" className="w-full h-11">
-        <TestTube className="w-4 h-4 mr-2" />
+      <Button
+        onClick={onTestFlow}
+        variant="secondary"
+        className="w-full h-12 flex items-center gap-3"
+      >
+        <PlayCircle className="w-4 h-4" />
         4. Testiraj Flow
       </Button>
 
-      <Button 
+      <Button
         onClick={onConvertToFMECard}
-        className="w-full h-11 bg-violet-600 hover:bg-violet-500"
+        className="w-full h-12 bg-violet-600 hover:bg-violet-700 flex items-center gap-3"
       >
-        <ArrowRightCircle className="w-4 h-4 mr-2" />
+        <ArrowRight className="w-4 h-4" />
         5. Pretvori u FME Karticu
       </Button>
 
-      <div className="mt-8 text-[10px] text-zinc-500 px-2 leading-relaxed">
-        Flow se automatski popunjava dok snimaš u Chromiumu.<br/>
-        Nakon snimanja Stellan će ti predložiti poboljšanja.<br/>
-        Na kraju možeš flow pretvoriti u karticu za FME sučelje.
+      <div className="pt-6 text-[10px] text-zinc-500 leading-relaxed">
+        Redoslijed je namjerno ovakav.<br/>
+        Prvo snimi → Stellan popravi → Spremi → Testiraj → Pretvori u karticu.<br/><br/>
+        Sve se sprema u bazu i pojavljuje u lijevoj listi.
       </div>
     </div>
   );
-}
+};
