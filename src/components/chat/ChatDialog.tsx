@@ -2797,7 +2797,7 @@ const describeCurrentPreview = useCallback(
         "Pokreni start_agent.bat lokalno, zatim klikni Check agent.",
       );
       setInput(
-        "Pokreni start_agent.bat iz foldera: D:\1 PROJEKT APLIKACIJA LOKALNO\1 PROJEKT APLIKACIJA LOKALNO claude\3 AGENT",
+        "Pokreni start_agent.bat iz foldera: D:\\1 PROJEKT APLIKACIJA LOKALNO\\1 PROJEKT APLIKACIJA LOKALNO claude\\3 AGENT",
       );
       setTimeout(() => inputRef.current?.focus(), 100);
     } finally {
