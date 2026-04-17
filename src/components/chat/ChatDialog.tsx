@@ -58,23 +58,12 @@ interface Conversation {
 }
 
 // CodeBlock type imported from ChatMessage
-const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/chat`;
-
-const SUPABASE_EDGE_KEY =
+const SUPABASE_FUNCTIONS_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1`;
+const SUPABASE_PUBLIC_KEY =
   import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
   import.meta.env.VITE_SUPABASE_ANON_KEY ||
   "";
-
-const buildEdgeHeaders = (
-  accessToken?: string,
-  options?: { json?: boolean },
-) => {
-  const headers: Record<string, string> = {};
-  if (options?.json) headers["Content-Type"] = "application/json";
-  if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
-  if (SUPABASE_EDGE_KEY) headers.apikey = SUPABASE_EDGE_KEY;
-  return headers;
-};
+const CHAT_URL = `${SUPABASE_FUNCTIONS_URL}/chat`;
 
 const MODEL_LABELS: Record<"flash" | "pro" | "flash3" | "pro3", string> = {
   flash: "GPT-5.4-mini",
@@ -148,9 +137,12 @@ const AgentStatusBadge = () => {
         } = await supabase.auth.getSession();
         if (!session) return;
         const res = await fetch(
-          `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/agent-health`,
+          `${SUPABASE_FUNCTIONS_URL}/agent-health`,
           {
-            headers: buildEdgeHeaders(session.access_token),
+            headers: {
+              Authorization: `Bearer ${session.access_token}`,
+              ...(SUPABASE_PUBLIC_KEY ? { apikey: SUPABASE_PUBLIC_KEY } : {}),
+            },
           },
         );
         setAgentOk(res.ok);
@@ -307,6 +299,13 @@ const ChatDialog = ({
     enabled: open && devStudioMode && !isMobile,
     projectRoot: projectRootState,
   });
+
+  useEffect(() => {
+    if (typeof devOpsSnapshot?.agent?.online === "boolean") {
+      setAgentOnline(devOpsSnapshot.agent.online);
+    }
+  }, [devOpsSnapshot?.agent?.online]);
+
   const handleDevPanelAction = async (
     action: "open" | "click" | "type" | "screenshot" | "learn",
     payload?: { url?: string; target?: string; value?: string },
@@ -1372,10 +1371,16 @@ const ChatDialog = ({
       } = await supabase.auth.getSession();
 
       const res = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/dev-control`,
+        `${SUPABASE_FUNCTIONS_URL}/dev-control`,
         {
           method: "POST",
-          headers: buildEdgeHeaders(session?.access_token, { json: true }),
+          headers: {
+            "Content-Type": "application/json",
+            ...(session?.access_token
+              ? { Authorization: `Bearer ${session.access_token}` }
+              : {}),
+            ...(SUPABASE_PUBLIC_KEY ? { apikey: SUPABASE_PUBLIC_KEY } : {}),
+          },
           body: JSON.stringify({
             action,
             projectRoot: projectRoot || null,
@@ -1405,29 +1410,49 @@ const ChatDialog = ({
         setAgentOnline(false);
         return;
       }
-      const res = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/agent-health`,
-        {
-          headers: buildEdgeHeaders(session.access_token),
-        },
-      );
 
-      if (res.ok) {
-        setAgentOnline(true);
-        addLog("ok", "✓ agent online :8432");
-        return;
+      const headers: Record<string, string> = {
+        Authorization: `Bearer ${session.access_token}`,
+        ...(SUPABASE_PUBLIC_KEY ? { apikey: SUPABASE_PUBLIC_KEY } : {}),
+      };
+
+      const res = await fetch(`${SUPABASE_FUNCTIONS_URL}/agent-health`, {
+        headers,
+      });
+      const data = await res.json().catch(() => null);
+
+      let online = res.ok;
+      let detail =
+        (typeof data?.error === "string" ? data.error : "") ||
+        (typeof data?.hint === "string" ? data.hint : "");
+
+      if (!online) {
+        const snapshot = await callDevControl("status").catch(() => null);
+        if (snapshot?.agent) {
+          online = snapshot.agent.online === true;
+          detail =
+            snapshot.agent.error ||
+            (Array.isArray(snapshot.errors) ? snapshot.errors[0] : "") ||
+            detail;
+        }
       }
 
-      const statusSnapshot = await callDevControl("status").catch(() => null);
-      const fallbackOnline = statusSnapshot?.agent?.online === true;
-      setAgentOnline(fallbackOnline);
+      setAgentOnline(online);
+      window.setTimeout(() => {
+        void refreshDevOps();
+      }, 100);
+
       addLog(
-        fallbackOnline ? "ok" : "warn",
-        fallbackOnline ? "✓ agent online (fallback status)" : "✗ agent offline",
+        online ? "ok" : "warn",
+        online
+          ? "✓ agent online"
+          : `✗ agent offline${detail ? ` — ${detail}` : ""}`,
       );
-    } catch {
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Agent nije dostupan.";
       setAgentOnline(false);
-      addLog("warn", "✗ agent nedostupan");
+      addLog("warn", `✗ agent nedostupan${message ? ` — ${message}` : ""}`);
     }
   };
 
@@ -2768,18 +2793,28 @@ const describeCurrentPreview = useCallback(
     addLog("ok", `Project root: ${nextRoot}`);
     pushAssistantMessage(`✅ Projekt root spremljen:\n\n\`${nextRoot}\``);
     window.setTimeout(() => {
-      void refreshDevOps();
+      void refreshDevOps({ projectRootOverride: nextRoot });
     }, 100);
   };
 
   const handleStartAgent = async () => {
+    addLog("info", "Provjeravam agent i osvježavam DEV status...");
     await checkAgentHealth();
+    const snapshot = await callDevControl("status").catch(() => null);
+    const isOnline = snapshot?.agent?.online === true;
+
+    if (isOnline) {
+      addLog("ok", "✓ agent je već online");
+      pushAssistantMessage("✅ Agent je online i DEV status je osvježen.");
+      return;
+    }
+
     addLog(
       "warn",
-      "Start agent nema backend endpoint za pravo pokretanje procesa.",
+      "Start agent nema backend endpoint za pravo pokretanje lokalnog procesa.",
     );
     pushAssistantMessage(
-      "⚠️ Start agent još nema pravi backend endpoint za pokretanje procesa. Zato sam ostavio jasan status i uputu umjesto da gumb izgleda mrtvo.",
+      "⚠️ Start agent trenutno može samo provjeriti status. Za pravo pokretanje lokalnog procesa i dalje treba lokalni start script / bridge endpoint.",
     );
     setInput(
       "Pokreni agent server naredbom: cd 'D:\\1 PROJEKT APLIKACIJA LOKALNO\\1 PROJEKT APLIKACIJA LOKALNO claude\\docs\\agent-server' i pokreni start_agent.bat",
