@@ -25,15 +25,62 @@ const json = (body: unknown, status = 200) =>
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 
-const cleanUrl = (raw?: string | null) => {
+const DEFAULT_FALLBACK_KEY = "stellan-agent-2026-v2-x7k9m2p";
+
+const sanitizeAgentServerUrl = (raw?: string | null) => {
   if (!raw) return null;
+  const trimmed = raw.trim();
+  const match = trimmed.match(/https?:\/\/[^\s"]+/i);
+  if (!match?.[0]) return null;
+
   try {
-    const parsed = new URL(raw.trim());
-    return parsed.toString().replace(/\/$/, "");
+    const parsed = new URL(match[0]);
+    parsed.pathname = parsed.pathname.replace(/\/$/, "");
+    const cleanUrl = parsed.toString().replace(/\/$/, "");
+    return cleanUrl.endsWith("/health")
+      ? cleanUrl.replace("/health", "")
+      : cleanUrl;
   } catch {
     return null;
   }
 };
+
+const normalizeSecretValue = (raw?: string | null) =>
+  String(raw || "")
+    .trim()
+    .replace(/^['"`]+|['"`]+$/g, "");
+
+const getAgentApiKeyCandidates = (raw?: string | null) => {
+  const candidates = new Set<string>();
+  const trimmed = normalizeSecretValue(raw);
+
+  if (trimmed) {
+    if (trimmed.length > 8) candidates.add(trimmed);
+
+    const envMatch = trimmed.match(
+      /AGENT_API_KEY\s*=\s*["']?([^"'\s]+)["']?/i,
+    );
+    if (envMatch?.[1]) candidates.add(envMatch[1]);
+
+    const headerMatch = trimmed.match(
+      /X-API-Key\s*:\s*["']?([^"'\s]+)["']?/i,
+    );
+    if (headerMatch?.[1]) candidates.add(headerMatch[1]);
+  }
+
+  candidates.add(DEFAULT_FALLBACK_KEY);
+  return Array.from(candidates).filter(Boolean);
+};
+
+const buildAgentHeaders = (
+  apiKey: string,
+  extra: Record<string, string> = {},
+) => ({
+  ...extra,
+  "X-API-Key": apiKey,
+  "ngrok-skip-browser-warning": "true",
+  "User-Agent": "GeoTerra-Dev-Control/1.0",
+});
 
 const shortSha = (value?: string | null) => (value ? value.slice(0, 7) : "");
 
@@ -100,25 +147,99 @@ const fetchText = async (url: string, init?: RequestInit) => {
 
 const agentRequest = async (
   agentBaseUrl: string,
-  agentApiKey: string,
+  agentApiKeys: string[],
   endpoint: string,
   body: Record<string, unknown>,
 ) => {
-  const res = await fetch(`${agentBaseUrl}/${endpoint.replace(/^\/+/, "")}`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-API-Key": agentApiKey,
-      "ngrok-skip-browser-warning": "true",
-      "User-Agent": "GeoTerra-Dev-Control/1.0",
-    },
-    body: JSON.stringify(body),
-  });
-  const data = await res.json().catch(() => null);
-  if (!res.ok || data?.success === false) {
-    throw new Error(data?.error || data?.detail || `Agent HTTP ${res.status}`);
+  let lastError: Error | null = null;
+
+  for (const apiKey of agentApiKeys) {
+    const res = await fetch(`${agentBaseUrl}/${endpoint.replace(/^\/+/, "")}`, {
+      method: "POST",
+      headers: buildAgentHeaders(apiKey, {
+        "Content-Type": "application/json",
+      }),
+      body: JSON.stringify(body),
+    });
+
+    const data = await res.json().catch(() => null);
+    if (res.ok && data?.success !== false) {
+      return data;
+    }
+
+    const message =
+      data?.error || data?.detail || data?.message || `Agent HTTP ${res.status}`;
+
+    if (res.status === 401 || res.status === 403) {
+      lastError = new Error(message);
+      continue;
+    }
+
+    throw new Error(message);
   }
-  return data;
+
+  throw lastError || new Error("Agent je odbio API ključ.");
+};
+
+const fetchTextFromAgent = async (
+  agentBaseUrl: string,
+  agentApiKeys: string[],
+  endpoint: string,
+) => {
+  let lastError: Error | null = null;
+
+  for (const apiKey of agentApiKeys) {
+    const res = await fetch(`${agentBaseUrl}/${endpoint.replace(/^\/+/, "")}`, {
+      headers: buildAgentHeaders(apiKey),
+    });
+    const text = await res.text();
+
+    if (res.ok) return text;
+
+    if (res.status === 401 || res.status === 403) {
+      lastError = new Error(text || `Agent HTTP ${res.status}`);
+      continue;
+    }
+
+    throw new Error(text || `Agent HTTP ${res.status}`);
+  }
+
+  throw lastError || new Error("Agent je odbio API ključ.");
+};
+
+const fetchJsonFromAgent = async (
+  agentBaseUrl: string,
+  agentApiKeys: string[],
+  endpoint: string,
+  body: Record<string, unknown>,
+) => {
+  let lastError: Error | null = null;
+
+  for (const apiKey of agentApiKeys) {
+    const res = await fetch(`${agentBaseUrl}/${endpoint.replace(/^\/+/, "")}`, {
+      method: "POST",
+      headers: buildAgentHeaders(apiKey, {
+        "Content-Type": "application/json",
+      }),
+      body: JSON.stringify(body),
+    });
+
+    const data = await res.json().catch(() => null);
+
+    if (res.ok) return data;
+
+    const message =
+      data?.error || data?.detail || data?.message || `Agent HTTP ${res.status}`;
+
+    if (res.status === 401 || res.status === 403) {
+      lastError = new Error(message);
+      continue;
+    }
+
+    throw new Error(message);
+  }
+
+  throw lastError || new Error("Agent je odbio API ključ.");
 };
 
 const normalizeMessage = (value?: string | null) =>
@@ -137,8 +258,9 @@ serve(async (req) => {
       typeof body?.projectRoot === "string" ? body.projectRoot.trim() : "";
 
     const rawAgentUrl = Deno.env.get("AGENT_SERVER_URL");
-    const agentBaseUrl = cleanUrl(rawAgentUrl);
-    const agentApiKey = Deno.env.get("AGENT_API_KEY") || "";
+    const agentBaseUrl = sanitizeAgentServerUrl(rawAgentUrl);
+    const agentApiKeys = getAgentApiKeyCandidates(Deno.env.get("AGENT_API_KEY"));
+    const agentApiKey = agentApiKeys[0] || "";
 
     const githubToken = Deno.env.get("GITHUB_TOKEN") || "";
     const githubOwner =
@@ -166,7 +288,7 @@ serve(async (req) => {
         if (action === "git_status") {
           const result = await agentRequest(
             agentBaseUrl,
-            agentApiKey,
+            agentApiKeys,
             "git_status",
             { repo_path: projectRoot },
           );
@@ -187,7 +309,7 @@ serve(async (req) => {
             );
           const result = await agentRequest(
             agentBaseUrl,
-            agentApiKey,
+            agentApiKeys,
             "git_commit",
             { repo_path: projectRoot, message },
           );
@@ -205,7 +327,7 @@ serve(async (req) => {
           const branch = normalizeMessage(body?.branch as string) || undefined;
           const result = await agentRequest(
             agentBaseUrl,
-            agentApiKey,
+            agentApiKeys,
             "git_push",
             { repo_path: projectRoot, branch },
           );
@@ -225,7 +347,7 @@ serve(async (req) => {
           const branch = normalizeMessage(body?.branch as string) || undefined;
           const result = await agentRequest(
             agentBaseUrl,
-            agentApiKey,
+            agentApiKeys,
             "git_pull_rebase",
             { repo_path: projectRoot, branch },
           );
@@ -242,7 +364,7 @@ serve(async (req) => {
         if (action === "build") {
           const result = await agentRequest(
             agentBaseUrl,
-            agentApiKey,
+            agentApiKeys,
             "run_build",
             { cwd: projectRoot },
           );
@@ -272,19 +394,19 @@ serve(async (req) => {
             `deploy ${new Date().toISOString().slice(0, 16).replace("T", " ")}`;
           const buildResult = await agentRequest(
             agentBaseUrl,
-            agentApiKey,
+            agentApiKeys,
             "run_build",
             { cwd: projectRoot },
           );
           const commitResult = await agentRequest(
             agentBaseUrl,
-            agentApiKey,
+            agentApiKeys,
             "git_commit",
             { repo_path: projectRoot, message },
           );
           const pushResult = await agentRequest(
             agentBaseUrl,
-            agentApiKey,
+            agentApiKeys,
             "git_push",
             { repo_path: projectRoot },
           );
@@ -332,7 +454,7 @@ serve(async (req) => {
         error: null,
       },
       git: {
-        configured: !!(githubOwner && githubRepo),
+        configured: !!(projectRoot || (githubOwner && githubRepo)),
         source: "none" as "agent" | "github" | "none",
         repo: githubOwner && githubRepo ? `${githubOwner}/${githubRepo}` : null,
         repoUrl:
@@ -392,15 +514,15 @@ serve(async (req) => {
       });
     }
 
-    if (!snapshot.git.configured) {
-      missingConfig.push("GITHUB_OWNER", "GITHUB_REPO", "GITHUB_TOKEN");
+    if (!projectRoot && !(githubOwner && githubRepo && githubToken)) {
+      missingConfig.push("PROJECT_ROOT", "GITHUB_OWNER", "GITHUB_REPO", "GITHUB_TOKEN");
       logs.push({
         id: "system-github-missing",
         source: "system",
         level: "warning",
-        title: "GitHub status nije konfiguriran",
+        title: "Repo status nije konfiguriran",
         detail:
-          "Postavi GITHUB_OWNER, GITHUB_REPO i GITHUB_TOKEN za repo status.",
+          "Postavi Project root za lokalni git status ili GITHUB_OWNER, GITHUB_REPO i GITHUB_TOKEN za GitHub status.",
       });
     }
 
@@ -418,13 +540,11 @@ serve(async (req) => {
 
     if (snapshot.agent.configured && agentBaseUrl) {
       try {
-        const healthText = await fetchText(`${agentBaseUrl}/health`, {
-          headers: {
-            "X-API-Key": agentApiKey,
-            "ngrok-skip-browser-warning": "true",
-            "User-Agent": "GeoTerra-Dev-Control/1.0",
-          },
-        });
+        const healthText = await fetchTextFromAgent(
+          agentBaseUrl,
+          agentApiKeys,
+          "health",
+        );
         const healthData = JSON.parse(healthText);
 
         snapshot.agent.online = true;
@@ -513,18 +633,12 @@ serve(async (req) => {
 
     if (snapshot.agent.online && projectRoot) {
       try {
-        const agentHeaders = {
-          "Content-Type": "application/json",
-          "X-API-Key": agentApiKey,
-          "ngrok-skip-browser-warning": "true",
-          "User-Agent": "GeoTerra-Dev-Control/1.0",
-        };
-
-        const statusData = await fetchJson(`${agentBaseUrl}/git_status`, {
-          method: "POST",
-          headers: agentHeaders,
-          body: JSON.stringify({ repo_path: projectRoot }),
-        });
+        const statusData = await fetchJsonFromAgent(
+          agentBaseUrl,
+          agentApiKeys,
+          "git_status",
+          { repo_path: projectRoot },
+        );
 
         if (statusData?.success) {
           const parsed = parseGitStatus(statusData?.stdout || "");
@@ -545,15 +659,16 @@ serve(async (req) => {
           throw new Error(statusData?.error || "Git status nije uspio.");
         }
 
-        const buildLogs = await fetchJson(`${agentBaseUrl}/read_logs`, {
-          method: "POST",
-          headers: agentHeaders,
-          body: JSON.stringify({
+        const buildLogs = await fetchJsonFromAgent(
+          agentBaseUrl,
+          agentApiKeys,
+          "read_logs",
+          {
             cwd: projectRoot,
             log_name: "build",
             max_chars: 5000,
-          }),
-        }).catch(() => null);
+          },
+        ).catch(() => null);
 
         const logDetail = [buildLogs?.stdout, buildLogs?.stderr]
           .filter(Boolean)
@@ -571,11 +686,12 @@ serve(async (req) => {
           });
         }
 
-        const backupsData = await fetchJson(`${agentBaseUrl}/list_backups`, {
-          method: "POST",
-          headers: agentHeaders,
-          body: JSON.stringify({ repo_path: projectRoot, limit: 8 }),
-        }).catch(() => null);
+        const backupsData = await fetchJsonFromAgent(
+          agentBaseUrl,
+          agentApiKeys,
+          "list_backups",
+          { repo_path: projectRoot, limit: 8 },
+        ).catch(() => null);
 
         if (backupsData?.success && Array.isArray(backupsData.items)) {
           snapshot.backups = backupsData.items.map((item: any) => ({
