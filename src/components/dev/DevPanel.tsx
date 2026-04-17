@@ -25,7 +25,6 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import type { DevOpsLogEntry, DevOpsSnapshot } from "@/types/devops";
 
 export type DevActionType = "open" | "click" | "type" | "screenshot" | "learn";
@@ -96,6 +95,8 @@ type Props = {
   onBackToStellan?: () => void;
   onBack?: () => void;
 };
+
+const HIDE_SCROLL = "overflow-y-auto pr-1 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden";
 
 function statusTone(ok: boolean | null | undefined) {
   if (ok === true)
@@ -205,7 +206,7 @@ function StatCard({
   return (
     <div
       className={cn(
-        "rounded-[24px] border px-4 py-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]",
+        "rounded-[18px] border px-3 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.02)] min-h-[92px]",
         tone || "border-white/10 bg-white/[0.03] text-white/80",
       )}
     >
@@ -213,11 +214,11 @@ function StatCard({
         <Icon className="h-3.5 w-3.5" />
         {label}
       </div>
-      <div className="mt-2.5 text-[18px] font-semibold tracking-tight text-white/94">
+      <div className="mt-1.5 text-[14px] font-semibold tracking-tight text-white/94 leading-5">
         {value}
       </div>
       {hint ? (
-        <div className="mt-1.5 break-words text-[11px] leading-5 text-white/42">
+        <div className="mt-1 break-words text-[10px] leading-4 text-white/38">
           {hint}
         </div>
       ) : null}
@@ -480,7 +481,7 @@ export default function DevPanel({
             </div>
           </div>
 
-          <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <div className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
             <StatCard
               icon={Server}
               label="Agent"
@@ -522,7 +523,7 @@ export default function DevPanel({
         </div>
 
         <div className="relative z-10 grid min-h-0 flex-1 gap-4 overflow-hidden p-4 xl:grid-cols-[420px_minmax(0,1fr)]">
-          <div className="min-h-0 space-y-4 overflow-y-auto pr-1">
+          <div className={`min-h-0 space-y-4 ${HIDE_SCROLL}`}>
             <Section
               title="Project root"
               subtitle="Lokalni repo koji DEV koristi za build, backup i deploy"
@@ -636,21 +637,7 @@ export default function DevPanel({
               </div>
             </Section>
 
-            <Section title="Repo status" subtitle="Brzi pregled repozitorija i zadnjih promjena">
-              <div className="space-y-3 text-sm text-white/75">
-                <div className="grid gap-2">
-                  <MiniInfo label="Repo" value={devOps?.git?.repo || "—"} />
-                  <MiniInfo label="Branch" value={devOps?.git?.branch || "—"} />
-                  <MiniInfo label="State" value={devOps?.git?.dirty ? "Dirty" : "Clean"} />
-                  {devOps?.git?.latestCommit ? (
-                    <MiniInfo
-                      label="Latest commit"
-                      value={`${devOps.git.latestCommit.shortSha || devOps.git.latestCommit.sha || "—"} • ${devOps.git.latestCommit.message || "—"}`}
-                    />
-                  ) : null}
-                </div>
-              </div>
-            </Section>
+            
 
             <Section title="Backupi" subtitle="Zadnji snapshoti lokalnog projekta">
               {(devOps?.backups || []).length === 0 ? (
@@ -699,10 +686,10 @@ export default function DevPanel({
             ) : null}
           </div>
 
-          <div className="min-h-0 space-y-4 overflow-y-auto pr-1">
+          <div className={`min-h-0 space-y-4 ${HIDE_SCROLL}`}>
             <Section
               title="Radni panel"
-              subtitle="Aktivnost agenta, fileovi, logovi i zadnji output umjesto Playwright previewa"
+              subtitle="Čisti pregled zadnje akcije, logova i promjena bez duplih informacija"
               right={
                 <div className="flex flex-wrap gap-2">
                   <Badge variant="outline" className={cn("rounded-full text-[10px]", statusTone(resolvedAgentOnline))}>
@@ -716,27 +703,30 @@ export default function DevPanel({
                 </div>
               }
             >
-              <div className="grid gap-4 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
-                <div className="space-y-3">
-                  <MiniInfo label="Workspace" value={devOps?.agent?.workspace || projectRoot || "—"} />
+              <div className="grid gap-4 xl:grid-cols-[minmax(0,0.82fr)_minmax(0,1.18fr)]">
+                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
                   <MiniInfo label="Zadnja akcija" value={steps.length ? steps[steps.length - 1]?.label || "—" : lastLog?.title || "Nema aktivnosti"} />
-                  <MiniInfo label="Target / URL" value={preview?.url || devOps?.build?.url || "—"} />
-                  <MiniInfo label="Build state" value={devOps?.build?.label || buildValue} />
+                  <MiniInfo label="Status builda" value={devOps?.build?.label || buildValue} />
+                  <MiniInfo label="Promjene" value={latestChangedFiles.length ? `${latestChangedFiles.length} fileova spremno` : "Nema promjena"} />
+                  <MiniInfo label="Zadnji commit" value={devOps?.git?.latestCommit?.shortSha ? `${devOps.git.latestCommit.shortSha} • ${devOps.git.latestCommit.message || ""}` : "—"} />
                 </div>
 
-                <div className="rounded-[24px] border border-white/10 bg-black/20 p-4">
+                <div className="rounded-[22px] border border-white/10 bg-black/20 p-4">
                   <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-white/92">
                     <TerminalSquare className="h-4 w-4 text-cyan-300" />
                     Live output / logovi
                   </div>
-                  <ScrollArea className="max-h-[320px] pr-3">
-                    {mergedLogs.length === 0 ? (
+                  <div className={`max-h-[260px] ${HIDE_SCROLL}`}>
+                    {mergedLogs.filter((item, idx, arr) => arr.findIndex((x) => x.title === item.title && x.detail === item.detail) === idx && item.title !== "Agent online").length === 0 ? (
                       <div className="rounded-[18px] border border-dashed border-white/10 p-4 text-sm text-white/42">
-                        Još nema logova. Kad agent krene raditi build, git ili file izmjene, ovdje ćeš vidjeti što se događa.
+                        Još nema svježih logova. Kad krene build, backup, commit ili push, ovdje ćeš vidjeti zadnji output.
                       </div>
                     ) : (
                       <div className="space-y-2">
-                        {mergedLogs.map((item) => (
+                        {mergedLogs
+                          .filter((item, idx, arr) => arr.findIndex((x) => x.title === item.title && x.detail === item.detail) === idx && item.title !== "Agent online")
+                          .slice(0, 8)
+                          .map((item) => (
                           <div
                             key={item.id}
                             className={cn(
@@ -761,14 +751,14 @@ export default function DevPanel({
                         ))}
                       </div>
                     )}
-                  </ScrollArea>
+                  </div>
                 </div>
               </div>
             </Section>
 
-            <div className="grid min-h-0 gap-4 2xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+            <div className="grid min-h-0 gap-4 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
               <Section title="Koraci" subtitle="Što je DEV stvarno napravio zadnje">
-                <ScrollArea className="max-h-[260px] pr-3">
+                <div className={`max-h-[260px] ${HIDE_SCROLL}`}>
                   {steps.length === 0 ? (
                     <div className="rounded-[22px] border border-white/10 bg-white/[0.03] p-4 text-sm text-white/42">
                       Još nema zabilježenih koraka.
@@ -783,11 +773,11 @@ export default function DevPanel({
                         ))}
                     </div>
                   )}
-                </ScrollArea>
+                </div>
               </Section>
 
               <Section title="Promijenjeni fileovi" subtitle="Što će build/commit zapravo dirati">
-                <ScrollArea className="max-h-[260px] pr-3">
+                <div className={`max-h-[260px] ${HIDE_SCROLL}`}>
                   {latestChangedFiles.length === 0 ? (
                     <div className="rounded-[22px] border border-white/10 bg-white/[0.03] p-4 text-sm text-white/42">
                       Trenutno nema popisa promijenjenih fileova.
@@ -807,7 +797,7 @@ export default function DevPanel({
                       ))}
                     </div>
                   )}
-                </ScrollArea>
+                </div>
               </Section>
             </div>
 
@@ -866,7 +856,7 @@ export default function DevPanel({
                     <CheckCircle2 className="h-4 w-4 text-emerald-300" />
                     Zadnji deploymenti
                   </div>
-                  <ScrollArea className="max-h-[220px] pr-3">
+                  <div className={`max-h-[220px] ${HIDE_SCROLL}`}>
                     <div className="space-y-2">
                       {latestDeployments.length === 0 ? (
                         <div className="text-sm text-white/42">Još nema deployment podataka.</div>
@@ -913,7 +903,7 @@ export default function DevPanel({
                         ))
                       )}
                     </div>
-                  </ScrollArea>
+                  </div>
                 </div>
               </div>
             </Section>
