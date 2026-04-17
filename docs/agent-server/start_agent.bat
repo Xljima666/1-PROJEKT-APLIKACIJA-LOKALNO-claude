@@ -6,7 +6,7 @@ chcp 65001 >nul 2>&1
 REM =============================================
 REM  LOKALNE POSTAVKE
 REM =============================================
-set "AGENT_WORKSPACE=D:\1 PROJEKT APLIKACIJA LOKALNO\1 PROJEKT APLIKACIJA LOKALNO claude\1 PROJEKTI"
+set "AGENT_WORKSPACE=D:\1 PROJEKT APLIKACIJA LOKALNO\1 PROJEKT APLIKACIJA LOKALNO claude"
 set "AGENT_READ_ROOT=D:\1 PROJEKT APLIKACIJA LOKALNO\1 PROJEKT APLIKACIJA LOKALNO claude"
 set "AGENT_WRITE_ROOT=D:\1 PROJEKT APLIKACIJA LOKALNO\1 PROJEKT APLIKACIJA LOKALNO claude"
 set "AGENT_API_KEY=promijeni-me-na-siguran-kljuc-123"
@@ -18,6 +18,9 @@ set "SDGE_PASSWORD=GeoterrA2008"
 REM OSS
 set "OSS_USERNAME=darpet"
 set "OSS_PASSWORD=GeoterrA20089"
+
+REM GEMINI (za Stellan brain - embeddings, learning, reflection)
+set "GEMINI_API_KEY=AIzaSyCQpVFc0B9TucdNKkij5YsCtwst-zgFGyE"
 
 REM =============================================
 REM  PYTHON
@@ -33,7 +36,7 @@ if not exist "%PYTHON_PATH%" (
 REM =============================================
 REM  AGENT SERVER FOLDER
 REM =============================================
-set "AGENT_DIR=D:\1 PROJEKT APLIKACIJA LOKALNO\1 PROJEKT APLIKACIJA LOKALNO claude\docs\agent-server"
+set "AGENT_DIR=D:\1 PROJEKT APLIKACIJA LOKALNO\1 PROJEKT APLIKACIJA LOKALNO claude\3 AGENT"
 if not exist "%AGENT_DIR%\agent_server.py" (
     echo [GRESKA] agent_server.py nije pronadjen:
     echo %AGENT_DIR%\agent_server.py
