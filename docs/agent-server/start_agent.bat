@@ -1,14 +1,15 @@
 @echo off
 setlocal
-title GeoTerra Agent Server
+TITLE GeoTerra Agent Server
 chcp 65001 >nul 2>&1
 
 REM =============================================
 REM  LOKALNE POSTAVKE
 REM =============================================
-set "AGENT_WORKSPACE=D:\1 PROJEKT APLIKACIJA LOKALNO\1 PROJEKT APLIKACIJA LOKALNO claude"
-set "AGENT_READ_ROOT=D:\1 PROJEKT APLIKACIJA LOKALNO\1 PROJEKT APLIKACIJA LOKALNO claude"
-set "AGENT_WRITE_ROOT=D:\1 PROJEKT APLIKACIJA LOKALNO\1 PROJEKT APLIKACIJA LOKALNO claude"
+set "AGENT_WORKSPACE=D:\1 PROJEKT APLIKACIJA LOKALNO\1 PROJEKT APLIKACIJA LOKALNO claude\STELLAN-GIT"
+set "AGENT_READ_ROOT=D:\1 PROJEKT APLIKACIJA LOKALNO\1 PROJEKT APLIKACIJA LOKALNO claude\STELLAN-GIT"
+set "AGENT_WRITE_ROOT=D:\1 PROJEKT APLIKACIJA LOKALNO\1 PROJEKT APLIKACIJA LOKALNO claude\STELLAN-GIT"
+set "AGENT_SERVER_DIR=D:\1 PROJEKT APLIKACIJA LOKALNO\1 PROJEKT APLIKACIJA LOKALNO claude\STELLAN-GIT\docs\agent-server"
 set "AGENT_API_KEY=promijeni-me-na-siguran-kljuc-123"
 
 REM SDGE
@@ -36,43 +37,31 @@ if not exist "%PYTHON_PATH%" (
 REM =============================================
 REM  AGENT SERVER FOLDER
 REM =============================================
-set "AGENT_DIR=D:\1 PROJEKT APLIKACIJA LOKALNO\1 PROJEKT APLIKACIJA LOKALNO claude\3 AGENT"
-if not exist "%AGENT_DIR%\agent_server.py" (
+if not exist "%AGENT_SERVER_DIR%\agent_server.py" (
     echo [GRESKA] agent_server.py nije pronadjen:
-    echo %AGENT_DIR%\agent_server.py
+    echo %AGENT_SERVER_DIR%\agent_server.py
     pause
     exit /b 1
 )
 
 REM =============================================
-REM  NGROK
-REM =============================================
-where ngrok >nul 2>&1
-if %errorlevel%==0 (
-    echo Pokrecem ngrok...
-    start "GeoTerra ngrok" cmd /k "ngrok http 8432 --url=madlyn-bromidic-anna.ngrok-free.dev"
-    echo Cekam 4 sekunde da ngrok bude spreman...
-    timeout /t 4 /nobreak >nul
-) else (
-    echo [INFO] ngrok nije pronadjen u PATH-u. Server ce se svejedno pokrenuti lokalno.
-)
-
-REM =============================================
 REM  AGENT SERVER
 REM =============================================
-cd /d "%AGENT_DIR%"
+cd /d "%AGENT_SERVER_DIR%"
 
 echo.
 echo ========================================
 echo   GeoTerra Agent Server v1.2
-echo   Folder: %AGENT_DIR%
+echo   Workspace: %AGENT_WORKSPACE%
+echo   Server dir: %AGENT_SERVER_DIR%
 echo   Port: 8432
 echo ========================================
 echo.
+echo Cloudflare tunnel koristis odvojeno.
+echo Ovaj BAT vise NE pokrece ngrok.
+echo.
 
-REM Bitno: pokreci direktno file, ne uvicorn modul,
-REM da se uvijek digne tocno ovaj agent_server.py
-"%PYTHON_PATH%" "%AGENT_DIR%\agent_server.py"
+"%PYTHON_PATH%" "%AGENT_SERVER_DIR%\agent_server.py"
 
 if %errorlevel% neq 0 (
     echo.
