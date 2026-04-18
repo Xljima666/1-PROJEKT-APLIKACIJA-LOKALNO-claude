@@ -14,6 +14,7 @@ import {
   RefreshCw,
   Rocket,
   Server,
+  TerminalSquare,
   UploadCloud,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -89,7 +90,7 @@ type Props = {
 
 const HIDE_SCROLL = "overflow-y-auto pr-1 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden";
 const LIVE_APP_URL = "https://geoterrainfo.com/dashboard";
-const LOCAL_APP_URL = "http://localhost:5173/dashboard";
+const LOCAL_APP_URL = "http://localhost:8080";
 
 function statusTone(ok: boolean | null | undefined) {
   if (ok === true)
@@ -418,58 +419,30 @@ export default function DevPanel({
     onPortalAction?.(`git commit \"${safeMessage}\"`);
   };
 
+  const handleDeployWithMessage = () => {
+    const message = commitMessage.trim().replace(/"/g, "'");
+    if (message) {
+      onPortalAction?.(`deploy \"${message}\"`);
+      return;
+    }
+    onDeploy?.();
+  };
 
+  const lastLog = mergedLogs[0];
   const latestChangedFiles = devOps?.git?.changedFiles?.slice(0, 16) || [];
   const latestDeployments = (devOps?.deployments || []).slice(0, 6);
   const liveAppUrl = LIVE_APP_URL;
   const localCandidates = [
     preview?.url && /(localhost|127\.0\.0\.1)/i.test(preview.url) ? preview.url : null,
-    "http://localhost:5173/dashboard",
-    "http://127.0.0.1:5173/dashboard",
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-    "http://localhost:4173/dashboard",
-    "http://127.0.0.1:4173/dashboard",
-    "http://localhost:4173",
-    "http://127.0.0.1:4173",
-    "http://localhost:3000/dashboard",
-    "http://127.0.0.1:3000/dashboard",
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
+    LOCAL_APP_URL,
+    "http://127.0.0.1:8080",
     "http://localhost:8080/dashboard",
     "http://127.0.0.1:8080/dashboard",
-    "http://localhost:8080",
-    "http://127.0.0.1:8080",
-  ].filter((value, index, arr) => Boolean(value) && arr.indexOf(value) === index) as string[];
+  ].filter(Boolean) as string[];
 
   const handleOpenLocal = () => {
-    const popup = window.open("", "_blank", "noopener,noreferrer");
-    if (!popup) return;
-
-    const links = localCandidates
-      .map(
-        (url) =>
-          `<a href="${url}" target="_self" style="display:block;margin:0 0 12px;padding:12px 14px;border-radius:14px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.04);color:#fff;text-decoration:none;font-family:Inter,system-ui,sans-serif;">${url}</a>`,
-      )
-      .join("");
-
-    popup.document.write(`<!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <title>Stellan local preview</title>
-  </head>
-  <body style="margin:0;padding:24px;background:#06110f;color:#fff;font-family:Inter,system-ui,sans-serif;">
-    <div style="max-width:880px;margin:0 auto;">
-      <h1 style="margin:0 0 10px;font-size:24px;">Lokalna stranica</h1>
-      <p style="margin:0 0 18px;color:rgba(255,255,255,.72);line-height:1.6;">
-        Klikni lokalni URL koji trenutno radi. Prvi su Vite portovi 5173 i 4173, zatim 3000 i 8080.
-      </p>
-      ${links}
-    </div>
-  </body>
-</html>`);
-    popup.document.close();
+    const target = localCandidates[0] || LOCAL_APP_URL;
+    window.open(target, "_blank", "noopener,noreferrer");
   };
 
 
@@ -574,52 +547,33 @@ export default function DevPanel({
             <div className={`min-h-0 space-y-4 ${HIDE_SCROLL}`}>
               <Section title="Commit / backup / deploy" subtitle="Glavne akcije za lokalni repo">
                 <div className="space-y-3">
-                  <div className="grid gap-2 grid-cols-1">
-                    <Button
-                      variant="outline"
-                      className="h-auto min-h-[52px] w-full justify-start rounded-2xl border-cyan-400/12 bg-cyan-400/[0.03] px-4 py-3 text-left text-sm leading-tight whitespace-normal text-white hover:bg-cyan-400/[0.08]"
-                      onClick={handleOpenLocal}
-                    >
-                      <ExternalLink className="mr-2 h-4 w-4 shrink-0 text-cyan-300" />
-                      Lokalna stranica
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <Button variant="outline" className="h-12 justify-start rounded-2xl border-emerald-400/12 bg-emerald-400/[0.03] text-white hover:bg-emerald-400/[0.08]" onClick={() => onPortalAction?.("git status")}>
+                      <GitBranch className="mr-2 h-4 w-4 text-emerald-300" />Git status
                     </Button>
-                    <Button
-                      variant="outline"
-                      className="h-auto min-h-[52px] w-full justify-start rounded-2xl border-amber-400/12 bg-amber-400/[0.03] px-4 py-3 text-left text-sm leading-tight whitespace-normal text-white hover:bg-amber-400/[0.08]"
-                      onClick={() => onPortalAction?.("backup project")}
-                    >
-                      <FolderOpen className="mr-2 h-4 w-4 shrink-0 text-amber-300" />
-                      Backup projekta
+                    <Button variant="outline" className="h-12 justify-start rounded-2xl border-cyan-400/12 bg-cyan-400/[0.03] text-white hover:bg-cyan-400/[0.08]" onClick={() => onPortalAction?.("git pull rebase")}>
+                      <RefreshCw className="mr-2 h-4 w-4 text-cyan-300" />Pull / rebase
                     </Button>
-                    <Button
-                      variant="outline"
-                      className="h-auto min-h-[52px] w-full justify-start rounded-2xl border-white/10 bg-white/[0.04] px-4 py-3 text-left text-sm leading-tight whitespace-normal text-white hover:bg-white/[0.08]"
-                      onClick={() => onPortalAction?.("git push")}
-                    >
-                      <UploadCloud className="mr-2 h-4 w-4 shrink-0 text-white/80" />
-                      Deploy na GitHub
+                    <Button variant="outline" className="h-12 justify-start rounded-2xl border-amber-400/12 bg-amber-400/[0.03] text-white hover:bg-amber-400/[0.08]" onClick={() => onPortalAction?.("backup project")}>
+                      <FolderOpen className="mr-2 h-4 w-4 text-amber-300" />Backup projekta
+                    </Button>
+                    <Button variant="outline" className="h-12 justify-start rounded-2xl border-cyan-400/12 bg-cyan-400/[0.03] text-white hover:bg-cyan-400/[0.08]" onClick={() => onPortalAction?.("pokreni build")}>
+                      <FileCode2 className="mr-2 h-4 w-4 text-cyan-300" />Build
+                    </Button>
+                    <Button variant="outline" className="h-12 justify-start rounded-2xl border-white/10 bg-white/[0.04] text-white hover:bg-white/[0.08]" onClick={() => onPortalAction?.("git push")}>
+                      <UploadCloud className="mr-2 h-4 w-4 text-white/80" />Push na GitHub
+                    </Button>
+                    <Button className="h-12 justify-start rounded-2xl bg-emerald-400 text-slate-950 hover:bg-emerald-300" onClick={handleDeployWithMessage}>
+                      <Rocket className="mr-2 h-4 w-4" />Safe publish
                     </Button>
                   </div>
 
                   <div className="rounded-[22px] border border-emerald-400/10 bg-black/15 p-3.5">
                     <div className="mb-2 text-sm font-medium text-white/92">Commit poruka</div>
-                    <div className="mb-3 text-[11px] leading-5 text-white/42">
-                      Redoslijed rada: <strong>Backup projekta</strong> prije izmjena, zatim lokalna provjera, pa na kraju <strong>Commit</strong> i <strong>Deploy na GitHub</strong>.
-                    </div>
+                    <div className="mb-3 text-[11px] leading-5 text-white/42">Upiši poruku pa klikni <strong>Commit</strong>. Kod <strong>Safe publish</strong> prvo se radi backup, zatim build, commit i push.</div>
                     <div className="flex gap-2">
-                      <Input
-                        value={commitMessage}
-                        onChange={(e) => setCommitMessage(e.target.value)}
-                        placeholder="npr. feat: dev tab cleanup"
-                        className="h-11 rounded-2xl border-white/10 bg-white/[0.04] text-white placeholder:text-white/25"
-                      />
-                      <Button
-                        className="h-11 rounded-2xl bg-white px-4 text-slate-950 hover:bg-white/90"
-                        onClick={handleCommit}
-                        disabled={!commitMessage.trim()}
-                      >
-                        Commit
-                      </Button>
+                      <Input value={commitMessage} onChange={(e) => setCommitMessage(e.target.value)} placeholder="npr. feat: dev tab full cockpit" className="h-11 rounded-2xl border-white/10 bg-white/[0.04] text-white placeholder:text-white/25" />
+                      <Button className="h-11 rounded-2xl bg-white px-4 text-slate-950 hover:bg-white/90" onClick={handleCommit} disabled={!commitMessage.trim()}>Commit</Button>
                     </div>
                   </div>
                 </div>
