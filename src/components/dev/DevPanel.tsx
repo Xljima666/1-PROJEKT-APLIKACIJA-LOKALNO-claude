@@ -89,6 +89,8 @@ type Props = {
 };
 
 const HIDE_SCROLL = "overflow-y-auto pr-1 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden";
+const LIVE_APP_URL = "https://geoterrainfo.com/dashboard";
+const LOCAL_APP_URL = "http://localhost:8080/dashboard";
 
 function statusTone(ok: boolean | null | undefined) {
   if (ok === true)
@@ -356,6 +358,8 @@ export default function DevPanel({
   const lastLog = mergedLogs[0];
   const latestChangedFiles = devOps?.git?.changedFiles?.slice(0, 16) || [];
   const latestDeployments = (devOps?.deployments || []).slice(0, 6);
+  const liveAppUrl = LIVE_APP_URL;
+  const localAppUrl = LOCAL_APP_URL;
 
   return (
     <div
@@ -415,6 +419,23 @@ export default function DevPanel({
               >
                 <Bot className="mr-2 h-4 w-4" />
                 Check agent
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-10 rounded-2xl border-cyan-400/12 bg-cyan-400/[0.03] px-4 text-white hover:bg-cyan-400/[0.08]"
+                onClick={() => window.open(localAppUrl, "_blank", "noopener,noreferrer")}
+              >
+                <ExternalLink className="mr-2 h-4 w-4" />
+                Lokalna stranica
+              </Button>
+              <Button
+                size="sm"
+                className="h-10 rounded-2xl bg-cyan-400 px-4 text-slate-950 hover:bg-cyan-300"
+                onClick={() => window.open(liveAppUrl, "_blank", "noopener,noreferrer")}
+              >
+                <ExternalLink className="mr-2 h-4 w-4" />
+                Prava stranica
               </Button>
             </div>
           </div>
@@ -524,7 +545,7 @@ export default function DevPanel({
                     className="h-12 justify-start rounded-2xl border-cyan-400/12 bg-cyan-400/[0.03] text-white hover:bg-cyan-400/[0.08]"
                     onClick={() => onPortalAction?.("pokreni build")}
                   >
-                    <TerminalSquare className="mr-2 h-4 w-4 text-cyan-300" />
+                    <Play className="mr-2 h-4 w-4 text-cyan-300" />
                     Build
                   </Button>
                   <Button
@@ -620,98 +641,53 @@ export default function DevPanel({
           <div className={`min-h-0 space-y-4 ${HIDE_SCROLL}`}>
             <Section
               title="Radni panel"
-              subtitle="Pregled logova i promjena"
+              subtitle="Pregled koraka, promjena i build statusa"
             >
-              <div className="grid gap-4">
-                <div className="rounded-[22px] border border-white/10 bg-black/20 p-4">
-                  <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-white/92">
-                    <TerminalSquare className="h-4 w-4 text-cyan-300" />
-                    Live output / logovi
-                  </div>
+              <div className="grid min-h-0 gap-4 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+                <Section title="Koraci" subtitle="Što je DEV stvarno napravio zadnje">
                   <div className={`max-h-[260px] ${HIDE_SCROLL}`}>
-                    {mergedLogs.filter((item, idx, arr) => arr.findIndex((x) => x.title === item.title && x.detail === item.detail) === idx && item.title !== "Agent online").length === 0 ? (
-                      <div className="rounded-[18px] border border-dashed border-white/10 p-4 text-sm text-white/42">
-                        Još nema svježih logova. Kad krene build, backup, commit ili push, ovdje ćeš vidjeti zadnji output.
+                    {steps.length === 0 ? (
+                      <div className="rounded-[22px] border border-white/10 bg-white/[0.03] p-4 text-sm text-white/42">
+                        Još nema zabilježenih koraka.
                       </div>
                     ) : (
                       <div className="space-y-2">
-                        {mergedLogs
-                          .filter((item, idx, arr) => arr.findIndex((x) => x.title === item.title && x.detail === item.detail) === idx && item.title !== "Agent online")
-                          .slice(0, 8)
-                          .map((item) => (
+                        {steps
+                          .slice()
+                          .reverse()
+                          .map((step) => (
+                            <StepRow key={step.id} step={step} />
+                          ))}
+                      </div>
+                    )}
+                  </div>
+                </Section>
+
+                <Section title="Promijenjeni fileovi" subtitle="Što će build/commit zapravo dirati">
+                  <div className={`max-h-[260px] ${HIDE_SCROLL}`}>
+                    {latestChangedFiles.length === 0 ? (
+                      <div className="rounded-[22px] border border-white/10 bg-white/[0.03] p-4 text-sm text-white/42">
+                        Trenutno nema popisa promijenjenih fileova.
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {latestChangedFiles.map((file) => (
                           <div
-                            key={item.id}
-                            className={cn(
-                              "rounded-[18px] border px-3 py-2.5 text-sm",
-                              levelTone(item.level),
-                            )}
+                            key={file}
+                            className="rounded-[20px] border border-white/10 bg-white/[0.03] px-3 py-2.5 font-mono text-[12px] text-white/84"
                           >
-                            <div className="flex items-start justify-between gap-3">
-                              <div className="min-w-0">
-                                <div className="font-medium text-white/92">{item.title}</div>
-                                {item.detail ? (
-                                  <div className="mt-1 whitespace-pre-wrap text-[12px] leading-5 text-white/72">
-                                    {item.detail}
-                                  </div>
-                                ) : null}
-                              </div>
-                              <div className="shrink-0 text-[10px] uppercase tracking-[0.12em] text-white/42">
-                                {item.source || "system"}
-                              </div>
+                            <div className="flex items-start gap-2">
+                              <FileCode2 className="mt-0.5 h-4 w-4 shrink-0 text-cyan-300" />
+                              <span className="break-all">{file}</span>
                             </div>
                           </div>
                         ))}
                       </div>
                     )}
                   </div>
-                </div>
+                </Section>
               </div>
             </Section>
-
-            <div className="grid min-h-0 gap-4 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
-              <Section title="Koraci" subtitle="Što je DEV stvarno napravio zadnje">
-                <div className={`max-h-[260px] ${HIDE_SCROLL}`}>
-                  {steps.length === 0 ? (
-                    <div className="rounded-[22px] border border-white/10 bg-white/[0.03] p-4 text-sm text-white/42">
-                      Još nema zabilježenih koraka.
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      {steps
-                        .slice()
-                        .reverse()
-                        .map((step) => (
-                          <StepRow key={step.id} step={step} />
-                        ))}
-                    </div>
-                  )}
-                </div>
-              </Section>
-
-              <Section title="Promijenjeni fileovi" subtitle="Što će build/commit zapravo dirati">
-                <div className={`max-h-[260px] ${HIDE_SCROLL}`}>
-                  {latestChangedFiles.length === 0 ? (
-                    <div className="rounded-[22px] border border-white/10 bg-white/[0.03] p-4 text-sm text-white/42">
-                      Trenutno nema popisa promijenjenih fileova.
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      {latestChangedFiles.map((file) => (
-                        <div
-                          key={file}
-                          className="rounded-[20px] border border-white/10 bg-white/[0.03] px-3 py-2.5 font-mono text-[12px] text-white/84"
-                        >
-                          <div className="flex items-start gap-2">
-                            <FileCode2 className="mt-0.5 h-4 w-4 shrink-0 text-cyan-300" />
-                            <span className="break-all">{file}</span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </Section>
-            </div>
 
             <Section title="Build & deploy status" subtitle="Zadnji build i deployment podaci">
               <div className="grid gap-4 2xl:grid-cols-2">
@@ -817,6 +793,48 @@ export default function DevPanel({
                     </div>
                   </div>
                 </div>
+              </div>
+            </Section>
+
+            <Section
+              title="Live output / logovi"
+              subtitle="Zadnji output builda, backupa, commita i pusha"
+            >
+              <div className={`max-h-[320px] ${HIDE_SCROLL}`}>
+                {mergedLogs.filter((item, idx, arr) => arr.findIndex((x) => x.title === item.title && x.detail === item.detail) === idx && item.title !== "Agent online").length === 0 ? (
+                  <div className="rounded-[18px] border border-dashed border-white/10 p-4 text-sm text-white/42">
+                    Još nema svježih logova. Kad krene build, backup, commit ili push, ovdje ćeš vidjeti zadnji output.
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {mergedLogs
+                      .filter((item, idx, arr) => arr.findIndex((x) => x.title === item.title && x.detail === item.detail) === idx && item.title !== "Agent online")
+                      .slice(0, 12)
+                      .map((item) => (
+                        <div
+                          key={item.id}
+                          className={cn(
+                            "rounded-[18px] border px-3 py-2.5 text-sm",
+                            levelTone(item.level),
+                          )}
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="font-medium text-white/92">{item.title}</div>
+                              {item.detail ? (
+                                <div className="mt-1 whitespace-pre-wrap text-[12px] leading-5 text-white/72">
+                                  {item.detail}
+                                </div>
+                              ) : null}
+                            </div>
+                            <div className="shrink-0 text-[10px] uppercase tracking-[0.12em] text-white/42">
+                              {item.source || "system"}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                )}
               </div>
             </Section>
           </div>
