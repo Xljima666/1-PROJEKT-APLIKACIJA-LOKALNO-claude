@@ -160,6 +160,7 @@ const agentRequest = async (
   body: Record<string, unknown>,
 ) => {
   let lastError = "Agent nije dostupan.";
+
   for (const agentApiKey of apiKeys) {
     const res = await fetch(`${agentBaseUrl}/${endpoint.replace(/^\/+/, "")}`, {
       method: "POST",
@@ -171,13 +172,32 @@ const agentRequest = async (
       },
       body: JSON.stringify(body),
     });
+
     const data = await res.json().catch(() => null);
+
     if (res.ok && data?.success !== false) {
       return data;
     }
-    lastError = data?.error || data?.detail || `Agent HTTP ${res.status}`;
+
+    const stderr = typeof data?.stderr === "string" ? data.stderr.trim() : "";
+    const stdout = typeof data?.stdout === "string" ? data.stdout.trim() : "";
+    const nestedStderr =
+      typeof data?.result?.stderr === "string" ? data.result.stderr.trim() : "";
+    const nestedStdout =
+      typeof data?.result?.stdout === "string" ? data.result.stdout.trim() : "";
+
+    lastError =
+      data?.error ||
+      data?.detail ||
+      stderr ||
+      stdout ||
+      nestedStderr ||
+      nestedStdout ||
+      `Agent HTTP ${res.status}`;
+
     if (res.status !== 401 && res.status !== 403) break;
   }
+
   throw new Error(lastError);
 };
 
