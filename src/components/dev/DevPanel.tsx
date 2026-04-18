@@ -574,29 +574,29 @@ export default function DevPanel({
             <div className={`min-h-0 space-y-4 ${HIDE_SCROLL}`}>
               <Section title="Commit / backup / deploy" subtitle="Glavne akcije za lokalni repo">
                 <div className="space-y-3">
-                  <div className="grid gap-2 sm:grid-cols-3">
+                  <div className="grid gap-2 grid-cols-1">
                     <Button
                       variant="outline"
-                      className="h-12 justify-start rounded-2xl border-cyan-400/12 bg-cyan-400/[0.03] text-white hover:bg-cyan-400/[0.08]"
+                      className="h-auto min-h-[52px] w-full justify-start rounded-2xl border-cyan-400/12 bg-cyan-400/[0.03] px-4 py-3 text-left text-sm leading-tight whitespace-normal text-white hover:bg-cyan-400/[0.08]"
                       onClick={handleOpenLocal}
                     >
-                      <ExternalLink className="mr-2 h-4 w-4 text-cyan-300" />
+                      <ExternalLink className="mr-2 h-4 w-4 shrink-0 text-cyan-300" />
                       Lokalna stranica
                     </Button>
                     <Button
                       variant="outline"
-                      className="h-12 justify-start rounded-2xl border-amber-400/12 bg-amber-400/[0.03] text-white hover:bg-amber-400/[0.08]"
+                      className="h-auto min-h-[52px] w-full justify-start rounded-2xl border-amber-400/12 bg-amber-400/[0.03] px-4 py-3 text-left text-sm leading-tight whitespace-normal text-white hover:bg-amber-400/[0.08]"
                       onClick={() => onPortalAction?.("backup project")}
                     >
-                      <FolderOpen className="mr-2 h-4 w-4 text-amber-300" />
+                      <FolderOpen className="mr-2 h-4 w-4 shrink-0 text-amber-300" />
                       Backup projekta
                     </Button>
                     <Button
                       variant="outline"
-                      className="h-12 justify-start rounded-2xl border-white/10 bg-white/[0.04] text-white hover:bg-white/[0.08]"
+                      className="h-auto min-h-[52px] w-full justify-start rounded-2xl border-white/10 bg-white/[0.04] px-4 py-3 text-left text-sm leading-tight whitespace-normal text-white hover:bg-white/[0.08]"
                       onClick={() => onPortalAction?.("git push")}
                     >
-                      <UploadCloud className="mr-2 h-4 w-4 text-white/80" />
+                      <UploadCloud className="mr-2 h-4 w-4 shrink-0 text-white/80" />
                       Deploy na GitHub
                     </Button>
                   </div>
