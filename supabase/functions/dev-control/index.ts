@@ -153,6 +153,37 @@ const readAgentHealth = async (agentBaseUrl: string, apiKeys: string[]) => {
   }
 };
 
+const extractAgentMessage = (data: any, status?: number) => {
+  const candidates = [
+    data?.error,
+    data?.detail,
+    data?.stderr,
+    data?.stdout,
+    data?.result?.stderr,
+    data?.result?.stdout,
+  ];
+
+  for (const candidate of candidates) {
+    const value = String(candidate || "").trim();
+    if (value) return value;
+  }
+
+  return `Agent HTTP ${status || 500}`;
+};
+
+const looksLikeNoOp = (value?: string | null) => {
+  const text = String(value || "").toLowerCase();
+  return (
+    text.includes("nothing to commit") ||
+    text.includes("working tree clean") ||
+    text.includes("everything up-to-date") ||
+    text.includes("everything up to date") ||
+    text.includes("branch is up to date") ||
+    text.includes("already up to date") ||
+    text.includes("already up-to-date")
+  );
+};
+
 const agentRequest = async (
   agentBaseUrl: string,
   apiKeys: string[],
@@ -160,7 +191,6 @@ const agentRequest = async (
   body: Record<string, unknown>,
 ) => {
   let lastError = "Agent nije dostupan.";
-
   for (const agentApiKey of apiKeys) {
     const res = await fetch(`${agentBaseUrl}/${endpoint.replace(/^\/+/, "")}`, {
       method: "POST",
@@ -172,32 +202,26 @@ const agentRequest = async (
       },
       body: JSON.stringify(body),
     });
-
     const data = await res.json().catch(() => null);
-
     if (res.ok && data?.success !== false) {
       return data;
     }
 
-    const stderr = typeof data?.stderr === "string" ? data.stderr.trim() : "";
-    const stdout = typeof data?.stdout === "string" ? data.stdout.trim() : "";
-    const nestedStderr =
-      typeof data?.result?.stderr === "string" ? data.result.stderr.trim() : "";
-    const nestedStdout =
-      typeof data?.result?.stdout === "string" ? data.result.stdout.trim() : "";
+    const extracted = extractAgentMessage(data, res.status);
 
-    lastError =
-      data?.error ||
-      data?.detail ||
-      stderr ||
-      stdout ||
-      nestedStderr ||
-      nestedStdout ||
-      `Agent HTTP ${res.status}`;
+    if (res.ok && looksLikeNoOp(extracted)) {
+      return {
+        ...(data || {}),
+        success: true,
+        noop: true,
+        message: extracted,
+        stdout: data?.stdout || extracted,
+      };
+    }
 
+    lastError = extracted;
     if (res.status !== 401 && res.status !== 403) break;
   }
-
   throw new Error(lastError);
 };
 
@@ -237,34 +261,51 @@ serve(async (req) => {
           const message = normalizeMessage(body?.message as string);
           if (!message) return json({ success: false, error: "Commit poruka je obavezna." }, 400);
           const result = await agentRequest(agentBaseUrl, agentApiKeys, "git_commit", { repo_path: projectRoot, message });
+          const detail = [result?.stdout, result?.stderr, result?.message].filter(Boolean).join("
+
+");
+          const noop = Boolean(result?.noop) || looksLikeNoOp(detail);
           return json({
             success: true,
             action,
-            message: `Commit spremljen: ${message}`,
+            message: noop ? "Nema novih promjena za commit." : `Commit spremljen: ${message}`,
             result,
-            summary: [result?.stdout, result?.stderr].filter(Boolean).join("\n\n"),
+            summary: detail,
+            noop,
           });
         }
         if (action === "git_push") {
           const branch = normalizeMessage(body?.branch as string) || undefined;
           const result = await agentRequest(agentBaseUrl, agentApiKeys, "git_push", { repo_path: projectRoot, branch });
+          const detail = [result?.stdout, result?.stderr, result?.message].filter(Boolean).join("
+
+");
+          const noop = Boolean(result?.noop) || looksLikeNoOp(detail);
           return json({
             success: true,
             action,
-            message: branch ? `Git push na ${branch} prošao.` : "Git push prošao.",
+            message: noop
+              ? (branch ? `Git push na ${branch}: nema novih promjena.` : "Git push: nema novih promjena.")
+              : (branch ? `Git push na ${branch} prošao.` : "Git push prošao."),
             result,
-            summary: [result?.stdout, result?.stderr].filter(Boolean).join("\n\n"),
+            summary: detail,
+            noop,
           });
         }
         if (action === "git_pull_rebase") {
           const branch = normalizeMessage(body?.branch as string) || undefined;
           const result = await agentRequest(agentBaseUrl, agentApiKeys, "git_pull_rebase", { repo_path: projectRoot, branch });
+          const detail = [result?.stdout, result?.stderr, result?.message].filter(Boolean).join("
+
+");
+          const noop = Boolean(result?.noop) || looksLikeNoOp(detail);
           return json({
             success: true,
             action,
-            message: "Git pull --rebase prošao.",
+            message: noop ? "Git pull --rebase: nema novih promjena." : "Git pull --rebase prošao.",
             result,
-            summary: [result?.stdout, result?.stderr].filter(Boolean).join("\n\n"),
+            summary: detail,
+            noop,
           });
         }
         if (action === "build") {
@@ -274,7 +315,9 @@ serve(async (req) => {
             action,
             message: result?.success === false ? "Build nije prošao." : "Build je prošao.",
             result,
-            summary: [result?.stdout, result?.stderr].filter(Boolean).join("\n\n"),
+            summary: [result?.stdout, result?.stderr].filter(Boolean).join("
+
+"),
           }, result?.success === false ? 500 : 200);
         }
         if (action === "backup_project") {
@@ -284,26 +327,47 @@ serve(async (req) => {
             action,
             message: `Backup projekta je spremljen: ${result?.backup_name || result?.backup_path || "backup"}`,
             result,
-            summary: [result?.backup_path, result?.message].filter(Boolean).join("\n\n"),
+            summary: [result?.backup_path, result?.message].filter(Boolean).join("
+
+"),
           });
         }
         if (action === "deploy") {
           const message = normalizeMessage(body?.message as string) || `deploy ${new Date().toISOString().slice(0, 16).replace("T", " ")}`;
-          const backupResult = await agentRequest(agentBaseUrl, agentApiKeys, "backup_project", { repo_path: projectRoot });
           const buildResult = await agentRequest(agentBaseUrl, agentApiKeys, "run_build", { cwd: projectRoot });
+          const backupResult = await agentRequest(agentBaseUrl, agentApiKeys, "backup_project", { repo_path: projectRoot });
           const commitResult = await agentRequest(agentBaseUrl, agentApiKeys, "git_commit", { repo_path: projectRoot, message });
           const pushResult = await agentRequest(agentBaseUrl, agentApiKeys, "git_push", { repo_path: projectRoot });
+
+          const commitDetail = [commitResult?.stdout, commitResult?.stderr, commitResult?.message].filter(Boolean).join("
+
+");
+          const pushDetail = [pushResult?.stdout, pushResult?.stderr, pushResult?.message].filter(Boolean).join("
+
+");
+          const noop =
+            (Boolean(commitResult?.noop) || looksLikeNoOp(commitDetail)) &&
+            (Boolean(pushResult?.noop) || looksLikeNoOp(pushDetail));
+
           return json({
             success: true,
             action,
-            message: `Deploy flow završen: ${message}`,
-            result: { backupResult, buildResult, commitResult, pushResult },
-            summary: [backupResult?.backup_path, buildResult?.stdout, commitResult?.stdout, pushResult?.stdout]
+            message: noop ? "Safe publish: nema novih promjena za commit/push." : `Deploy flow završen: ${message}`,
+            result: { buildResult, backupResult, commitResult, pushResult },
+            summary: [
+              buildResult?.stdout,
+              buildResult?.stderr,
+              backupResult?.backup_path,
+              commitDetail,
+              pushDetail,
+            ]
               .filter(Boolean)
-              .join("\n\n"),
+              .join("
+
+"),
+            noop,
           });
         }
-
         return json({ success: false, error: `Nepoznata DEV akcija: ${action}` }, 400);
       } catch (error) {
         const message = error instanceof Error ? error.message : "DEV akcija nije uspjela.";
