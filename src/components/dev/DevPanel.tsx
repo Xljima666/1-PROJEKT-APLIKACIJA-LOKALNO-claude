@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
   AlertCircle,
@@ -90,7 +90,7 @@ type Props = {
 
 const HIDE_SCROLL = "overflow-y-auto pr-1 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden";
 const LIVE_APP_URL = "https://geoterrainfo.com/dashboard";
-const LOCAL_APP_URL = "http://localhost:8080/dashboard";
+const LOCAL_APP_URL = "http://127.0.0.1:8080/dashboard";
 
 function statusTone(ok: boolean | null | undefined) {
   if (ok === true)
@@ -284,6 +284,7 @@ export default function DevPanel({
 }: Props) {
   const [commitMessage, setCommitMessage] = useState("");
   const [projectRootInput, setProjectRootInput] = useState(projectRoot || "");
+  const logScrollRef = useRef<HTMLDivElement | null>(null);
   const backHandler = onBackToStellan || onBack;
 
   useEffect(() => {
@@ -305,6 +306,20 @@ export default function DevPanel({
 
     return [...(devOps?.logs || []), ...localLogs].slice(0, 60);
   }, [consoleLogs, devOps?.logs]);
+
+  const uniqueLogs = useMemo(() => {
+    return mergedLogs
+      .filter((item, idx, arr) => arr.findIndex((x) => x.title === item.title && x.detail === item.detail) === idx && item.title !== "Agent online")
+      .slice(-14);
+  }, [mergedLogs]);
+
+  useEffect(() => {
+    const el = logScrollRef.current;
+    if (!el) return;
+    window.requestAnimationFrame(() => {
+      el.scrollTop = el.scrollHeight;
+    });
+  }, [uniqueLogs.length]);
 
   const derivedErrors = useMemo(() => {
     return [...(devOps?.errors || [])].filter(Boolean).slice(0, 12);
@@ -359,7 +374,15 @@ export default function DevPanel({
   const latestChangedFiles = devOps?.git?.changedFiles?.slice(0, 16) || [];
   const latestDeployments = (devOps?.deployments || []).slice(0, 6);
   const liveAppUrl = LIVE_APP_URL;
-  const localAppUrl = LOCAL_APP_URL;
+  const localAppUrl =
+    preview?.url && /(localhost|127\.0\.0\.1)/i.test(preview.url)
+      ? preview.url
+      : LOCAL_APP_URL;
+
+  const handleOpenLocal = () => {
+    window.open(localAppUrl || LOCAL_APP_URL, "_blank", "noopener,noreferrer");
+  };
+
 
   return (
     <div
@@ -420,423 +443,198 @@ export default function DevPanel({
                 <Bot className="mr-2 h-4 w-4" />
                 Check agent
               </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-10 rounded-2xl border-cyan-400/12 bg-cyan-400/[0.03] px-4 text-white hover:bg-cyan-400/[0.08]"
-                onClick={() => window.open(localAppUrl, "_blank", "noopener,noreferrer")}
-              >
-                <ExternalLink className="mr-2 h-4 w-4" />
-                Lokalna stranica
-              </Button>
-              <Button
-                size="sm"
-                className="h-10 rounded-2xl bg-cyan-400 px-4 text-slate-950 hover:bg-cyan-300"
-                onClick={() => window.open(liveAppUrl, "_blank", "noopener,noreferrer")}
-              >
-                <ExternalLink className="mr-2 h-4 w-4" />
-                Prava stranica
-              </Button>
             </div>
           </div>
 
           <div className="mt-2 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
-            <StatCard
-              icon={Server}
-              label="Agent"
-              value={devOps?.agent?.online ? "Online" : devOps?.agent?.configured ? "Offline" : "Not configured"}
-              tone={statusTone(devOps?.agent?.online)}
-              hint={devOps?.agent?.workspace || undefined}
-            />
-            <StatCard
-              icon={GitBranch}
-              label="Git"
-              value={gitValue}
-              tone={statusTone(devOps ? !devOps.git.dirty : null)}
-              hint={
-                devOps?.git?.latestCommit?.shortSha
-                  ? `${devOps.git.latestCommit.shortSha} • ${devOps.git.latestCommit.message}`
-                  : undefined
-              }
-            />
-            <StatCard
-              icon={Rocket}
-              label="Build / Deploy"
-              value={buildValue}
-              tone={statusTone(
-                devOps?.build?.status === "ready"
-                  ? true
-                  : devOps?.build?.status === "error"
-                    ? false
-                    : null,
-              )}
-              hint={devOps?.build?.branch || undefined}
-            />
-            <StatCard
-              icon={FolderOpen}
-              label="Project root"
-              value={projectRoot || "Not set"}
-              hint={projectRoot ? "Lokalni root za git/build/deploy akcije" : "Upiši lokalni root projekta ispod i spremi ga."}
-            />
+            <StatCard icon={FolderOpen} label="Project root" value={projectRoot || "Not set"} hint={projectRoot ? "Lokalni root za git/build/deploy akcije" : "Upiši lokalni root projekta ispod i spremi ga."} />
+            <StatCard icon={Server} label="Agent" value={devOps?.agent?.online ? "Online" : devOps?.agent?.configured ? "Offline" : "Not configured"} tone={statusTone(devOps?.agent?.online)} hint={devOps?.agent?.workspace || undefined} />
+            <StatCard icon={GitBranch} label="Git" value={gitValue} tone={statusTone(devOps ? !devOps.git.dirty : null)} hint={devOps?.git?.latestCommit?.shortSha ? `${devOps.git.latestCommit.shortSha} • ${devOps.git.latestCommit.message}` : undefined} />
+            <StatCard icon={Rocket} label="Build / Deploy" value={buildValue} tone={statusTone(devOps?.build?.status === "ready" ? true : devOps?.build?.status === "error" ? false : null)} hint={devOps?.build?.branch || undefined} />
           </div>
         </div>
 
-        <div className="relative z-10 grid min-h-0 flex-1 gap-4 overflow-hidden p-4 xl:grid-cols-[400px_minmax(0,1fr)]">
-          <div className={`min-h-0 space-y-4 ${HIDE_SCROLL}`}>
-            <Section
-              title="Project root"
-              subtitle="Lokalni repo koji DEV koristi za build, backup i deploy"
-              right={projectRoot ? <CopyChip value={projectRoot} /> : undefined}
-            >
-              <div className="space-y-3">
-                <div className="flex gap-2">
-                  <Input
-                    value={projectRootInput}
-                    onChange={(e) => setProjectRootInput(e.target.value)}
-                    placeholder="D:/1 PROJEKT APLIKACIJA LOKALNO/..."
-                    className="h-11 rounded-2xl border-white/10 bg-white/[0.04] text-white placeholder:text-white/25"
-                  />
-                  <Button
-                    className="h-11 rounded-2xl bg-white px-4 text-slate-950 hover:bg-white/90"
-                    onClick={() => onSaveProjectRoot?.(projectRootInput.trim())}
-                    disabled={!projectRootInput.trim()}
-                  >
-                    Spremi root
-                  </Button>
-                </div>
-                <div className="rounded-[20px] border border-white/10 bg-white/[0.03] px-3 py-2.5 text-[12px] leading-5 text-white/58">
-                  Ovdje upiši lokalni folder repozitorija. Sve DEV akcije — backup, build, commit, push i deploy — vrte se nad tim folderom.
-                </div>
+        <div className="relative z-10 flex min-h-0 flex-1 flex-col gap-4 overflow-hidden p-4">
+          <Section title="Project root" subtitle="Lokalni root projekta i direktni linkovi" right={projectRoot ? <CopyChip value={projectRoot} /> : undefined}>
+            <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_auto_auto]">
+              <Input value={projectRootInput} onChange={(e) => setProjectRootInput(e.target.value)} placeholder="D:/1 PROJEKT APLIKACIJA LOKALNO/..." className="h-11 rounded-2xl border-white/10 bg-white/[0.04] text-white placeholder:text-white/25" />
+              <Button className="h-11 rounded-2xl bg-white px-4 text-slate-950 hover:bg-white/90" onClick={() => onSaveProjectRoot?.(projectRootInput.trim())} disabled={!projectRootInput.trim()}>
+                Spremi root
+              </Button>
+              <div className="flex gap-2">
+                <Button variant="outline" className="h-11 rounded-2xl border-cyan-400/12 bg-cyan-400/[0.03] px-4 text-white hover:bg-cyan-400/[0.08]" onClick={handleOpenLocal}>
+                  <ExternalLink className="mr-2 h-4 w-4" />
+                  Lokalna stranica
+                </Button>
+                <Button className="h-11 rounded-2xl bg-cyan-400 px-4 text-slate-950 hover:bg-cyan-300" onClick={() => window.open(liveAppUrl, "_blank", "noopener,noreferrer")}>
+                  <ExternalLink className="mr-2 h-4 w-4" />
+                  Prava stranica
+                </Button>
               </div>
-            </Section>
+            </div>
+            <div className="mt-3 rounded-[20px] border border-white/10 bg-white/[0.03] px-3 py-2.5 text-[12px] leading-5 text-white/58">
+              Ovdje upiši lokalni folder repozitorija. Sve DEV akcije — backup, build, commit, push i deploy — vrte se nad tim folderom.
+            </div>
+          </Section>
 
-            <Section
-              title="Commit / backup / deploy"
-              subtitle="Glavne akcije za lokalni repo"
-            >
-              <div className="space-y-3">
-                <div className="grid gap-2 sm:grid-cols-2">
-                  <Button
-                    variant="outline"
-                    className="h-12 justify-start rounded-2xl border-emerald-400/12 bg-emerald-400/[0.03] text-white hover:bg-emerald-400/[0.08]"
-                    onClick={() => onPortalAction?.("git status")}
-                  >
-                    <GitBranch className="mr-2 h-4 w-4 text-emerald-300" />
-                    Git status
-                  </Button>
-                  <Button
-                    variant="outline"
-                    className="h-12 justify-start rounded-2xl border-cyan-400/12 bg-cyan-400/[0.03] text-white hover:bg-cyan-400/[0.08]"
-                    onClick={() => onPortalAction?.("git pull rebase")}
-                  >
-                    <RefreshCw className="mr-2 h-4 w-4 text-cyan-300" />
-                    Pull / rebase
-                  </Button>
-                  <Button
-                    variant="outline"
-                    className="h-12 justify-start rounded-2xl border-amber-400/12 bg-amber-400/[0.03] text-white hover:bg-amber-400/[0.08]"
-                    onClick={() => onPortalAction?.("backup project")}
-                  >
-                    <FolderOpen className="mr-2 h-4 w-4 text-amber-300" />
-                    Backup projekta
-                  </Button>
-                  <Button
-                    variant="outline"
-                    className="h-12 justify-start rounded-2xl border-cyan-400/12 bg-cyan-400/[0.03] text-white hover:bg-cyan-400/[0.08]"
-                    onClick={() => onPortalAction?.("pokreni build")}
-                  >
-                    <FileCode2 className="mr-2 h-4 w-4 text-cyan-300" />
-                    Build
-                  </Button>
-                  <Button
-                    variant="outline"
-                    className="h-12 justify-start rounded-2xl border-white/10 bg-white/[0.04] text-white hover:bg-white/[0.08]"
-                    onClick={() => onPortalAction?.("git push")}
-                  >
-                    <UploadCloud className="mr-2 h-4 w-4 text-white/80" />
-                    Push na GitHub
-                  </Button>
-                  <Button
-                    className="h-12 justify-start rounded-2xl bg-emerald-400 text-slate-950 hover:bg-emerald-300"
-                    onClick={handleDeployWithMessage}
-                  >
-                    <Rocket className="mr-2 h-4 w-4" />
-                    Safe publish
-                  </Button>
-                </div>
-
-                <div className="rounded-[22px] border border-emerald-400/10 bg-black/15 p-3.5">
-                  <div className="mb-2 text-sm font-medium text-white/92">Commit poruka</div>
-                  <div className="mb-3 text-[11px] leading-5 text-white/42">
-                    Upiši poruku pa klikni <strong>Commit</strong>. Kod <strong>Safe publish</strong> prvo se radi backup, zatim build, commit i push.
-                  </div>
-                  <div className="flex gap-2">
-                    <Input
-                      value={commitMessage}
-                      onChange={(e) => setCommitMessage(e.target.value)}
-                      placeholder="npr. feat: dev tab full cockpit"
-                      className="h-11 rounded-2xl border-white/10 bg-white/[0.04] text-white placeholder:text-white/25"
-                    />
-                    <Button
-                      className="h-11 rounded-2xl bg-white px-4 text-slate-950 hover:bg-white/90"
-                      onClick={handleCommit}
-                      disabled={!commitMessage.trim()}
-                    >
-                      Commit
+          <div className="grid min-h-0 flex-1 gap-4 overflow-hidden xl:grid-cols-[400px_minmax(0,1fr)]">
+            <div className={`min-h-0 space-y-4 ${HIDE_SCROLL}`}>
+              <Section title="Commit / backup / deploy" subtitle="Glavne akcije za lokalni repo">
+                <div className="space-y-3">
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <Button variant="outline" className="h-12 justify-start rounded-2xl border-emerald-400/12 bg-emerald-400/[0.03] text-white hover:bg-emerald-400/[0.08]" onClick={() => onPortalAction?.("git status")}>
+                      <GitBranch className="mr-2 h-4 w-4 text-emerald-300" />Git status
+                    </Button>
+                    <Button variant="outline" className="h-12 justify-start rounded-2xl border-cyan-400/12 bg-cyan-400/[0.03] text-white hover:bg-cyan-400/[0.08]" onClick={() => onPortalAction?.("git pull rebase")}>
+                      <RefreshCw className="mr-2 h-4 w-4 text-cyan-300" />Pull / rebase
+                    </Button>
+                    <Button variant="outline" className="h-12 justify-start rounded-2xl border-amber-400/12 bg-amber-400/[0.03] text-white hover:bg-amber-400/[0.08]" onClick={() => onPortalAction?.("backup project")}>
+                      <FolderOpen className="mr-2 h-4 w-4 text-amber-300" />Backup projekta
+                    </Button>
+                    <Button variant="outline" className="h-12 justify-start rounded-2xl border-cyan-400/12 bg-cyan-400/[0.03] text-white hover:bg-cyan-400/[0.08]" onClick={() => onPortalAction?.("pokreni build")}>
+                      <FileCode2 className="mr-2 h-4 w-4 text-cyan-300" />Build
+                    </Button>
+                    <Button variant="outline" className="h-12 justify-start rounded-2xl border-white/10 bg-white/[0.04] text-white hover:bg-white/[0.08]" onClick={() => onPortalAction?.("git push")}>
+                      <UploadCloud className="mr-2 h-4 w-4 text-white/80" />Push na GitHub
+                    </Button>
+                    <Button className="h-12 justify-start rounded-2xl bg-emerald-400 text-slate-950 hover:bg-emerald-300" onClick={handleDeployWithMessage}>
+                      <Rocket className="mr-2 h-4 w-4" />Safe publish
                     </Button>
                   </div>
-                </div>
-              </div>
-            </Section>
 
-            
-
-            <Section title="Backupi" subtitle="Zadnji snapshoti lokalnog projekta">
-              {(devOps?.backups || []).length === 0 ? (
-                <div className="rounded-[22px] border border-white/10 bg-white/[0.03] p-4 text-sm text-white/42">
-                  Još nema backupova. Klikni <strong>Backup projekta</strong> prije većih izmjena ili deploya.
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {devOps!.backups!.slice(0, 6).map((backup) => (
-                    <div
-                      key={backup.path || backup.name}
-                      className="rounded-[20px] border border-white/10 bg-white/[0.03] px-3 py-2.5 text-sm text-white/75"
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="min-w-0">
-                          <div className="truncate font-medium text-white/92">{backup.name}</div>
-                          <div className="truncate text-[11px] text-white/42">{backup.path || "_agent_backups"}</div>
-                        </div>
-                        <Badge variant="outline" className="rounded-full border-amber-400/18 bg-amber-400/10 text-[10px] text-amber-100">
-                          {formatBytes(backup.size)}
-                        </Badge>
-                      </div>
-                      <div className="mt-1 text-[11px] text-white/42">{formatTime(backup.modifiedAt)}</div>
+                  <div className="rounded-[22px] border border-emerald-400/10 bg-black/15 p-3.5">
+                    <div className="mb-2 text-sm font-medium text-white/92">Commit poruka</div>
+                    <div className="mb-3 text-[11px] leading-5 text-white/42">Upiši poruku pa klikni <strong>Commit</strong>. Kod <strong>Safe publish</strong> prvo se radi backup, zatim build, commit i push.</div>
+                    <div className="flex gap-2">
+                      <Input value={commitMessage} onChange={(e) => setCommitMessage(e.target.value)} placeholder="npr. feat: dev tab full cockpit" className="h-11 rounded-2xl border-white/10 bg-white/[0.04] text-white placeholder:text-white/25" />
+                      <Button className="h-11 rounded-2xl bg-white px-4 text-slate-950 hover:bg-white/90" onClick={handleCommit} disabled={!commitMessage.trim()}>Commit</Button>
                     </div>
-                  ))}
-                </div>
-              )}
-            </Section>
-
-            {derivedErrors.length > 0 ? (
-              <Section title="Greške" subtitle="Aktivni problemi iz DEV statusa">
-                <div className="space-y-2">
-                  {derivedErrors.map((item, index) => (
-                    <div
-                      key={`${item}-${index}`}
-                      className="rounded-[22px] border border-rose-400/18 bg-rose-400/10 p-3 text-sm text-rose-100"
-                    >
-                      <div className="flex items-start gap-2">
-                        <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-                        <div className="whitespace-pre-wrap leading-6">{item}</div>
-                      </div>
-                    </div>
-                  ))}
+                  </div>
                 </div>
               </Section>
-            ) : null}
-          </div>
 
-          <div className={`min-h-0 space-y-4 ${HIDE_SCROLL}`}>
-            <Section
-              title="Radni panel"
-              subtitle="Pregled koraka, promjena i build statusa"
-            >
-              <div className="grid min-h-0 gap-4 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
-                <Section title="Koraci" subtitle="Što je DEV stvarno napravio zadnje">
-                  <div className={`max-h-[260px] ${HIDE_SCROLL}`}>
-                    {steps.length === 0 ? (
-                      <div className="rounded-[22px] border border-white/10 bg-white/[0.03] p-4 text-sm text-white/42">
-                        Još nema zabilježenih koraka.
+              <Section title="Backupi" subtitle="Zadnji snapshoti lokalnog projekta">
+                {(devOps?.backups || []).length === 0 ? (
+                  <div className="rounded-[22px] border border-white/10 bg-white/[0.03] p-4 text-sm text-white/42">Još nema backupova. Klikni <strong>Backup projekta</strong> prije većih izmjena ili deploya.</div>
+                ) : (
+                  <div className="space-y-2">
+                    {devOps!.backups!.slice(0, 6).map((backup) => (
+                      <div key={backup.path || backup.name} className="rounded-[20px] border border-white/10 bg-white/[0.03] px-3 py-2.5 text-sm text-white/75">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="min-w-0">
+                            <div className="truncate font-medium text-white/92">{backup.name}</div>
+                            <div className="truncate text-[11px] text-white/42">{backup.path || "_agent_backups"}</div>
+                          </div>
+                          <Badge variant="outline" className="rounded-full border-amber-400/18 bg-amber-400/10 text-[10px] text-amber-100">{formatBytes(backup.size)}</Badge>
+                        </div>
+                        <div className="mt-1 text-[11px] text-white/42">{formatTime(backup.modifiedAt)}</div>
                       </div>
-                    ) : (
-                      <div className="space-y-2">
-                        {steps
-                          .slice()
-                          .reverse()
-                          .map((step) => (
-                            <StepRow key={step.id} step={step} />
-                          ))}
+                    ))}
+                  </div>
+                )}
+              </Section>
+
+              {derivedErrors.length > 0 ? (
+                <Section title="Greške" subtitle="Aktivni problemi iz DEV statusa">
+                  <div className="space-y-2">
+                    {derivedErrors.map((item, index) => (
+                      <div key={`${item}-${index}`} className="rounded-[22px] border border-rose-400/18 bg-rose-400/10 p-3 text-sm text-rose-100">
+                        <div className="flex items-start gap-2">
+                          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                          <div className="whitespace-pre-wrap leading-6">{item}</div>
+                        </div>
                       </div>
-                    )}
+                    ))}
                   </div>
                 </Section>
+              ) : null}
+            </div>
 
-                <Section title="Promijenjeni fileovi" subtitle="Što će build/commit zapravo dirati">
-                  <div className={`max-h-[260px] ${HIDE_SCROLL}`}>
-                    {latestChangedFiles.length === 0 ? (
-                      <div className="rounded-[22px] border border-white/10 bg-white/[0.03] p-4 text-sm text-white/42">
-                        Trenutno nema popisa promijenjenih fileova.
-                      </div>
-                    ) : (
+            <div className={`min-h-0 space-y-4 ${HIDE_SCROLL}`}>
+              <Section title="Live output / logovi" subtitle="Zadnji output builda, backupa, commita i pusha">
+                <div ref={logScrollRef} className={`max-h-[320px] ${HIDE_SCROLL}`}>
+                  {uniqueLogs.length === 0 ? (
+                    <div className="rounded-[18px] border border-dashed border-white/10 p-4 text-sm text-white/42">Još nema svježih logova. Kad krene build, backup, commit ili push, ovdje ćeš vidjeti zadnji output.</div>
+                  ) : (
+                    <div className="space-y-2">
+                      {uniqueLogs.map((item) => (
+                        <div key={item.id} className={cn("rounded-[18px] border px-3 py-2.5 text-sm", levelTone(item.level))}>
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="font-medium text-white/92">{item.title}</div>
+                              {item.detail ? <div className="mt-1 whitespace-pre-wrap text-[12px] leading-5 text-white/72">{item.detail}</div> : null}
+                            </div>
+                            <div className="shrink-0 text-[10px] uppercase tracking-[0.12em] text-white/42">{item.source || "system"}</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </Section>
+
+              <Section title="Build & deploy status" subtitle="Zadnji build i deployment podaci">
+                <div className="grid gap-4 2xl:grid-cols-2">
+                  <div className="rounded-[24px] border border-cyan-400/10 bg-black/15 p-4">
+                    <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-white/92"><Rocket className="h-4 w-4 text-cyan-300" />Zadnji build</div>
+                    <div className="space-y-2 text-sm text-white/75">
+                      <div><span className="text-white/42">Status:</span> {devOps?.build?.label || "—"}</div>
+                      <div><span className="text-white/42">Target:</span> {devOps?.build?.target || "—"}</div>
+                      <div><span className="text-white/42">Branch:</span> {devOps?.build?.branch || "—"}</div>
+                      <div><span className="text-white/42">Time:</span> {formatTime(devOps?.build?.createdAt)}</div>
+                      {devOps?.build?.commitMessage ? <div><span className="text-white/42">Commit:</span> {devOps.build.commitMessage}</div> : null}
+                    </div>
+                  </div>
+                  <div className="rounded-[24px] border border-emerald-400/10 bg-black/15 p-4">
+                    <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-white/92"><CheckCircle2 className="h-4 w-4 text-emerald-300" />Zadnji deploymenti</div>
+                    <div className={`max-h-[220px] ${HIDE_SCROLL}`}>
                       <div className="space-y-2">
-                        {latestChangedFiles.map((file) => (
-                          <div
-                            key={file}
-                            className="rounded-[20px] border border-white/10 bg-white/[0.03] px-3 py-2.5 font-mono text-[12px] text-white/84"
-                          >
-                            <div className="flex items-start gap-2">
-                              <FileCode2 className="mt-0.5 h-4 w-4 shrink-0 text-cyan-300" />
-                              <span className="break-all">{file}</span>
+                        {latestDeployments.length === 0 ? <div className="text-sm text-white/42">Još nema deployment podataka.</div> : latestDeployments.map((deployment) => (
+                          <div key={deployment.id} className="rounded-[20px] border border-white/10 bg-white/[0.03] px-3 py-2.5 text-sm text-white/75">
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="min-w-0">
+                                <div className="truncate font-medium text-white/92">{deployment.branch || deployment.target || deployment.id}</div>
+                                <div className="truncate text-[11px] text-white/42">{deployment.commitMessage || deployment.url || "Deployment"}</div>
+                              </div>
+                              <Badge variant="outline" className={cn("rounded-full border-white/10 bg-white/[0.03] text-white/75", statusTone(deployment.status === "ready" ? true : deployment.status === "error" ? false : null))}>{deployment.status || "queued"}</Badge>
                             </div>
                           </div>
                         ))}
                       </div>
-                    )}
-                  </div>
-                </Section>
-              </div>
-            </Section>
-
-            <Section title="Build & deploy status" subtitle="Zadnji build i deployment podaci">
-              <div className="grid gap-4 2xl:grid-cols-2">
-                <div className="rounded-[24px] border border-cyan-400/10 bg-black/15 p-4">
-                  <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-white/92">
-                    <Rocket className="h-4 w-4 text-cyan-300" />
-                    Zadnji build
-                  </div>
-                  <div className="space-y-2 text-sm text-white/75">
-                    <div>
-                      <span className="text-white/42">Status:</span> {devOps?.build?.label || "—"}
                     </div>
-                    <div>
-                      <span className="text-white/42">Target:</span> {devOps?.build?.target || "—"}
-                    </div>
-                    <div>
-                      <span className="text-white/42">Branch:</span> {devOps?.build?.branch || "—"}
-                    </div>
-                    <div>
-                      <span className="text-white/42">Time:</span> {formatTime(devOps?.build?.createdAt)}
-                    </div>
-                    {devOps?.build?.commitMessage ? (
-                      <div>
-                        <span className="text-white/42">Commit:</span> {devOps.build.commitMessage}
-                      </div>
-                    ) : null}
-                  </div>
-                  <div className="mt-4 flex flex-wrap gap-2">
-                    {devOps?.build?.url ? (
-                      <a
-                        href={devOps.build.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex items-center gap-1 rounded-full border border-cyan-400/16 bg-cyan-400/10 px-3 py-1.5 text-xs text-cyan-100 hover:bg-cyan-400/18"
-                      >
-                        Open deployment <ExternalLink className="h-3 w-3" />
-                      </a>
-                    ) : null}
-                    {devOps?.build?.inspectorUrl ? (
-                      <a
-                        href={devOps.build.inspectorUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs text-white/75 hover:bg-white/[0.06]"
-                      >
-                        Inspector <ExternalLink className="h-3 w-3" />
-                      </a>
-                    ) : null}
                   </div>
                 </div>
+              </Section>
 
-                <div className="rounded-[24px] border border-emerald-400/10 bg-black/15 p-4">
-                  <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-white/92">
-                    <CheckCircle2 className="h-4 w-4 text-emerald-300" />
-                    Zadnji deploymenti
-                  </div>
-                  <div className={`max-h-[220px] ${HIDE_SCROLL}`}>
-                    <div className="space-y-2">
-                      {latestDeployments.length === 0 ? (
-                        <div className="text-sm text-white/42">Još nema deployment podataka.</div>
+              <Section title="Radni panel" subtitle="Pregled koraka i promijenjenih fileova">
+                <div className="grid min-h-0 gap-4 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+                  <Section title="Koraci" subtitle="Što je DEV stvarno napravio zadnje">
+                    <div className={`max-h-[260px] ${HIDE_SCROLL}`}>
+                      {steps.length === 0 ? (
+                        <div className="rounded-[22px] border border-white/10 bg-white/[0.03] p-4 text-sm text-white/42">Još nema zabilježenih koraka.</div>
                       ) : (
-                        latestDeployments.map((deployment) => (
-                          <div
-                            key={deployment.id}
-                            className="rounded-[20px] border border-white/10 bg-white/[0.03] px-3 py-2.5 text-sm text-white/75"
-                          >
-                            <div className="flex items-center justify-between gap-2">
-                              <div className="min-w-0">
-                                <div className="truncate font-medium text-white/92">
-                                  {deployment.branch || deployment.target || deployment.id}
-                                </div>
-                                <div className="truncate text-[11px] text-white/42">
-                                  {deployment.commitMessage || deployment.url || "Deployment"}
-                                </div>
-                              </div>
-                              <Badge
-                                variant="outline"
-                                className={cn(
-                                  "rounded-full border-white/10 bg-white/[0.03] text-white/75",
-                                  statusTone(
-                                    deployment.status === "ready"
-                                      ? true
-                                      : deployment.status === "error"
-                                        ? false
-                                        : null,
-                                  ),
-                                )}
-                              >
-                                {deployment.status || "queued"}
-                              </Badge>
-                            </div>
-                            <div className="mt-1 flex items-center justify-between gap-2 text-[11px] text-white/42">
-                              <span>{formatTime(deployment.createdAt)}</span>
-                              {deployment.url ? (
-                                <a href={deployment.url} target="_blank" rel="noreferrer" className="text-cyan-200 hover:text-cyan-100">
-                                  Otvori
-                                </a>
-                              ) : null}
-                            </div>
-                          </div>
-                        ))
+                        <div className="space-y-2">{steps.slice().reverse().map((step) => <StepRow key={step.id} step={step} />)}</div>
                       )}
                     </div>
-                  </div>
-                </div>
-              </div>
-            </Section>
-
-            <Section
-              title="Live output / logovi"
-              subtitle="Zadnji output builda, backupa, commita i pusha"
-            >
-              <div className={`max-h-[320px] ${HIDE_SCROLL}`}>
-                {mergedLogs.filter((item, idx, arr) => arr.findIndex((x) => x.title === item.title && x.detail === item.detail) === idx && item.title !== "Agent online").length === 0 ? (
-                  <div className="rounded-[18px] border border-dashed border-white/10 p-4 text-sm text-white/42">
-                    Još nema svježih logova. Kad krene build, backup, commit ili push, ovdje ćeš vidjeti zadnji output.
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    {mergedLogs
-                      .filter((item, idx, arr) => arr.findIndex((x) => x.title === item.title && x.detail === item.detail) === idx && item.title !== "Agent online")
-                      .slice(0, 12)
-                      .map((item) => (
-                        <div
-                          key={item.id}
-                          className={cn(
-                            "rounded-[18px] border px-3 py-2.5 text-sm",
-                            levelTone(item.level),
-                          )}
-                        >
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="min-w-0">
-                              <div className="font-medium text-white/92">{item.title}</div>
-                              {item.detail ? (
-                                <div className="mt-1 whitespace-pre-wrap text-[12px] leading-5 text-white/72">
-                                  {item.detail}
-                                </div>
-                              ) : null}
+                  </Section>
+                  <Section title="Promijenjeni fileovi" subtitle="Što će build/commit zapravo dirati">
+                    <div className={`max-h-[260px] ${HIDE_SCROLL}`}>
+                      {latestChangedFiles.length === 0 ? (
+                        <div className="rounded-[22px] border border-white/10 bg-white/[0.03] p-4 text-sm text-white/42">Trenutno nema popisa promijenjenih fileova.</div>
+                      ) : (
+                        <div className="space-y-2">
+                          {latestChangedFiles.map((file) => (
+                            <div key={file} className="rounded-[20px] border border-white/10 bg-white/[0.03] px-3 py-2.5 font-mono text-[12px] text-white/84">
+                              <div className="flex items-start gap-2"><FileCode2 className="mt-0.5 h-4 w-4 shrink-0 text-cyan-300" /><span className="break-all">{file}</span></div>
                             </div>
-                            <div className="shrink-0 text-[10px] uppercase tracking-[0.12em] text-white/42">
-                              {item.source || "system"}
-                            </div>
-                          </div>
+                          ))}
                         </div>
-                      ))}
-                  </div>
-                )}
-              </div>
-            </Section>
+                      )}
+                    </div>
+                  </Section>
+                </div>
+              </Section>
+            </div>
           </div>
         </div>
       </div>
