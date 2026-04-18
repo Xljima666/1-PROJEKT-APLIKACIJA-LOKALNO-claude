@@ -545,7 +545,7 @@ export default function DevPanel({
                     className="h-12 justify-start rounded-2xl border-cyan-400/12 bg-cyan-400/[0.03] text-white hover:bg-cyan-400/[0.08]"
                     onClick={() => onPortalAction?.("pokreni build")}
                   >
-                    <Play className="mr-2 h-4 w-4 text-cyan-300" />
+                    <FileCode2 className="mr-2 h-4 w-4 text-cyan-300" />
                     Build
                   </Button>
                   <Button
