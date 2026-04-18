@@ -44,7 +44,7 @@ import { motion } from "framer-motion";
 import { useAuth } from "@/hooks/useAuth";
 import ProviderSelector, { PROVIDERS, type Provider } from "./ProviderSelector";
 import { useDevOpsStatus } from "@/hooks/useDevOpsStatus";
-  
+ 
 interface Message {
   role: "user" | "assistant";
   content: string;
@@ -2557,9 +2557,13 @@ const describeCurrentPreview = useCallback(
             `### Deploy\n\n${summaryText(data, "Deploy flow je završen.")}`,
           );
         } else if (/^(backup project|backup projekta)$/i.test(lower)) {
-          addLog("warn", "Backup gumb još nema backend akciju");
+          addLog("info", "→ Backup projekta");
+          const data = await callDevControl("backup_project");
+          addLog("ok", "✓ Backup projekta je spremljen");
           pushAssistantMessage(
-            "⚠️ Backup projekta još nije spojen na backend endpoint, pa sam ga ostavio kao jasan warning umjesto mrtvog gumba.",
+            `### Backup projekta
+
+${summaryText(data, "Backup projekta je spremljen.")}`,
           );
         } else {
           const handled = await executeProjectCommand(raw);
