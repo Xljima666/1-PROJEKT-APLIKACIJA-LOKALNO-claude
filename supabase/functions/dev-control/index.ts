@@ -18,7 +18,7 @@ type DevOpsLogEntry = {
   at?: string;
   href?: string;
 };
-  
+ 
 const FALLBACK_AGENT_KEYS = [
   "stellan-agent-2026-v2-x7k9m2p",
   "promijeni-me-na-siguran-kljuc-123",
@@ -261,9 +261,7 @@ serve(async (req) => {
           const message = normalizeMessage(body?.message as string);
           if (!message) return json({ success: false, error: "Commit poruka je obavezna." }, 400);
           const result = await agentRequest(agentBaseUrl, agentApiKeys, "git_commit", { repo_path: projectRoot, message });
-          const detail = [result?.stdout, result?.stderr, result?.message].filter(Boolean).join("
-
-");
+          const detail = [result?.stdout, result?.stderr, result?.message].filter(Boolean).join("\n\n");
           const noop = Boolean(result?.noop) || looksLikeNoOp(detail);
           return json({
             success: true,
@@ -277,9 +275,7 @@ serve(async (req) => {
         if (action === "git_push") {
           const branch = normalizeMessage(body?.branch as string) || undefined;
           const result = await agentRequest(agentBaseUrl, agentApiKeys, "git_push", { repo_path: projectRoot, branch });
-          const detail = [result?.stdout, result?.stderr, result?.message].filter(Boolean).join("
-
-");
+          const detail = [result?.stdout, result?.stderr, result?.message].filter(Boolean).join("\n\n");
           const noop = Boolean(result?.noop) || looksLikeNoOp(detail);
           return json({
             success: true,
@@ -295,9 +291,7 @@ serve(async (req) => {
         if (action === "git_pull_rebase") {
           const branch = normalizeMessage(body?.branch as string) || undefined;
           const result = await agentRequest(agentBaseUrl, agentApiKeys, "git_pull_rebase", { repo_path: projectRoot, branch });
-          const detail = [result?.stdout, result?.stderr, result?.message].filter(Boolean).join("
-
-");
+          const detail = [result?.stdout, result?.stderr, result?.message].filter(Boolean).join("\n\n");
           const noop = Boolean(result?.noop) || looksLikeNoOp(detail);
           return json({
             success: true,
@@ -315,9 +309,7 @@ serve(async (req) => {
             action,
             message: result?.success === false ? "Build nije prošao." : "Build je prošao.",
             result,
-            summary: [result?.stdout, result?.stderr].filter(Boolean).join("
-
-"),
+            summary: [result?.stdout, result?.stderr].filter(Boolean).join("\n\n"),
           }, result?.success === false ? 500 : 200);
         }
         if (action === "backup_project") {
@@ -327,9 +319,7 @@ serve(async (req) => {
             action,
             message: `Backup projekta je spremljen: ${result?.backup_name || result?.backup_path || "backup"}`,
             result,
-            summary: [result?.backup_path, result?.message].filter(Boolean).join("
-
-"),
+            summary: [result?.backup_path, result?.message].filter(Boolean).join("\n\n"),
           });
         }
         if (action === "deploy") {
@@ -339,12 +329,8 @@ serve(async (req) => {
           const commitResult = await agentRequest(agentBaseUrl, agentApiKeys, "git_commit", { repo_path: projectRoot, message });
           const pushResult = await agentRequest(agentBaseUrl, agentApiKeys, "git_push", { repo_path: projectRoot });
 
-          const commitDetail = [commitResult?.stdout, commitResult?.stderr, commitResult?.message].filter(Boolean).join("
-
-");
-          const pushDetail = [pushResult?.stdout, pushResult?.stderr, pushResult?.message].filter(Boolean).join("
-
-");
+          const commitDetail = [commitResult?.stdout, commitResult?.stderr, commitResult?.message].filter(Boolean).join("\n\n");
+          const pushDetail = [pushResult?.stdout, pushResult?.stderr, pushResult?.message].filter(Boolean).join("\n\n");
           const noop =
             (Boolean(commitResult?.noop) || looksLikeNoOp(commitDetail)) &&
             (Boolean(pushResult?.noop) || looksLikeNoOp(pushDetail));
@@ -362,9 +348,7 @@ serve(async (req) => {
               pushDetail,
             ]
               .filter(Boolean)
-              .join("
-
-"),
+              .join("\n\n"),
             noop,
           });
         }
