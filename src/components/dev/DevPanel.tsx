@@ -90,7 +90,7 @@ type Props = {
 
 const HIDE_SCROLL = "overflow-y-auto pr-1 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden";
 const LIVE_APP_URL = "https://geoterrainfo.com/dashboard";
-const LOCAL_APP_URL = "http://127.0.0.1:8080/dashboard";
+const LOCAL_APP_URL = "http://localhost:8080/dashboard";
 
 function statusTone(ok: boolean | null | undefined) {
   if (ok === true)
@@ -228,6 +228,64 @@ function MiniInfo({ label, value }: { label: string; value: string }) {
       </div>
       <div className="mt-1 break-words text-sm text-white/84">
         {value || "—"}
+      </div>
+    </div>
+  );
+}
+
+function ProjectRootCard({
+  value,
+  inputValue,
+  onChange,
+  onSave,
+  onOpenLocal,
+  onOpenLive,
+}: {
+  value: string;
+  inputValue: string;
+  onChange: (value: string) => void;
+  onSave: () => void;
+  onOpenLocal: () => void;
+  onOpenLive: () => void;
+}) {
+  return (
+    <div className="rounded-[20px] border border-emerald-400/10 bg-[linear-gradient(180deg,rgba(8,18,16,0.9),rgba(8,14,18,0.86))] px-4 py-3 shadow-[0_18px_48px_rgba(0,0,0,0.28)] backdrop-blur-xl">
+      <div className="flex items-center gap-2 text-[9px] font-medium uppercase tracking-[0.12em] text-white/40">
+        <FolderOpen className="h-3.5 w-3.5" />
+        Project root
+      </div>
+      <div className="mt-1.5 break-words text-[12px] font-semibold leading-5 text-white/92">
+        {value || "Not set"}
+      </div>
+      <div className="mt-2 grid gap-2 xl:grid-cols-[minmax(0,1fr)_auto_auto_auto]">
+        <Input
+          value={inputValue}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder="D:/1 PROJEKT APLIKACIJA LOKALNO/..."
+          className="h-10 rounded-2xl border-white/10 bg-white/[0.04] text-white placeholder:text-white/25"
+        />
+        <Button
+          className="h-10 rounded-2xl bg-white px-4 text-slate-950 hover:bg-white/90"
+          onClick={onSave}
+          disabled={!inputValue.trim()}
+        >
+          Spremi root
+        </Button>
+        <Button
+          variant="outline"
+          className="h-10 rounded-2xl border-cyan-400/12 bg-cyan-400/[0.03] px-4 text-white hover:bg-cyan-400/[0.08]"
+          onClick={onOpenLocal}
+        >
+          <ExternalLink className="mr-2 h-4 w-4" />
+          Lokalna stranica
+        </Button>
+        <Button
+          className="h-10 rounded-2xl bg-cyan-400 px-4 text-slate-950 hover:bg-cyan-300"
+          onClick={onOpenLive}
+        >
+          <ExternalLink className="mr-2 h-4 w-4" />
+          Prava stranica
+        </Button>
       </div>
     </div>
   );
@@ -374,13 +432,17 @@ export default function DevPanel({
   const latestChangedFiles = devOps?.git?.changedFiles?.slice(0, 16) || [];
   const latestDeployments = (devOps?.deployments || []).slice(0, 6);
   const liveAppUrl = LIVE_APP_URL;
-  const localAppUrl =
-    preview?.url && /(localhost|127\.0\.0\.1)/i.test(preview.url)
-      ? preview.url
-      : LOCAL_APP_URL;
+  const localCandidates = [
+    preview?.url && /(localhost|127\.0\.0\.1)/i.test(preview.url) ? preview.url : null,
+    LOCAL_APP_URL,
+    "http://127.0.0.1:8080/dashboard",
+    "http://localhost:8080",
+    "http://127.0.0.1:8080",
+  ].filter(Boolean) as string[];
 
   const handleOpenLocal = () => {
-    window.open(localAppUrl || LOCAL_APP_URL, "_blank", "noopener,noreferrer");
+    const target = localCandidates[0] || LOCAL_APP_URL;
+    window.open(target, "_blank", "noopener,noreferrer");
   };
 
 
@@ -446,38 +508,42 @@ export default function DevPanel({
             </div>
           </div>
 
-          <div className="mt-2 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
-            <StatCard icon={FolderOpen} label="Project root" value={projectRoot || "Not set"} hint={projectRoot ? "Lokalni root za git/build/deploy akcije" : "Upiši lokalni root projekta ispod i spremi ga."} />
-            <StatCard icon={Server} label="Agent" value={devOps?.agent?.online ? "Online" : devOps?.agent?.configured ? "Offline" : "Not configured"} tone={statusTone(devOps?.agent?.online)} hint={devOps?.agent?.workspace || undefined} />
-            <StatCard icon={GitBranch} label="Git" value={gitValue} tone={statusTone(devOps ? !devOps.git.dirty : null)} hint={devOps?.git?.latestCommit?.shortSha ? `${devOps.git.latestCommit.shortSha} • ${devOps.git.latestCommit.message}` : undefined} />
-            <StatCard icon={Rocket} label="Build / Deploy" value={buildValue} tone={statusTone(devOps?.build?.status === "ready" ? true : devOps?.build?.status === "error" ? false : null)} hint={devOps?.build?.branch || undefined} />
+          <div className="mt-2 grid gap-2 xl:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)]">
+            <ProjectRootCard
+              value={projectRoot || ""}
+              inputValue={projectRootInput}
+              onChange={setProjectRootInput}
+              onSave={() => onSaveProjectRoot?.(projectRootInput.trim())}
+              onOpenLocal={handleOpenLocal}
+              onOpenLive={() => window.open(liveAppUrl, "_blank", "noopener,noreferrer")}
+            />
+            <StatCard
+              icon={Server}
+              label="Agent"
+              value={devOps?.agent?.online ? "Online" : devOps?.agent?.configured ? "Offline" : "Not configured"}
+              tone={statusTone(devOps?.agent?.online)}
+              hint={devOps?.agent?.workspace || undefined}
+            />
+            <StatCard
+              icon={GitBranch}
+              label="Git"
+              value={gitValue}
+              tone={statusTone(devOps ? !devOps.git.dirty : null)}
+              hint={devOps?.git?.latestCommit?.shortSha ? `${devOps.git.latestCommit.shortSha} • ${devOps.git.latestCommit.message}` : undefined}
+            />
+            <StatCard
+              icon={Rocket}
+              label="Build / Deploy"
+              value={buildValue}
+              tone={statusTone(devOps?.build?.status === "ready" ? true : devOps?.build?.status === "error" ? false : null)}
+              hint={devOps?.build?.branch || undefined}
+            />
           </div>
         </div>
 
         <div className="relative z-10 flex min-h-0 flex-1 flex-col gap-4 overflow-hidden p-4">
-          <Section title="Project root" subtitle="Lokalni root projekta i direktni linkovi" right={projectRoot ? <CopyChip value={projectRoot} /> : undefined}>
-            <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_auto_auto]">
-              <Input value={projectRootInput} onChange={(e) => setProjectRootInput(e.target.value)} placeholder="D:/1 PROJEKT APLIKACIJA LOKALNO/..." className="h-11 rounded-2xl border-white/10 bg-white/[0.04] text-white placeholder:text-white/25" />
-              <Button className="h-11 rounded-2xl bg-white px-4 text-slate-950 hover:bg-white/90" onClick={() => onSaveProjectRoot?.(projectRootInput.trim())} disabled={!projectRootInput.trim()}>
-                Spremi root
-              </Button>
-              <div className="flex gap-2">
-                <Button variant="outline" className="h-11 rounded-2xl border-cyan-400/12 bg-cyan-400/[0.03] px-4 text-white hover:bg-cyan-400/[0.08]" onClick={handleOpenLocal}>
-                  <ExternalLink className="mr-2 h-4 w-4" />
-                  Lokalna stranica
-                </Button>
-                <Button className="h-11 rounded-2xl bg-cyan-400 px-4 text-slate-950 hover:bg-cyan-300" onClick={() => window.open(liveAppUrl, "_blank", "noopener,noreferrer")}>
-                  <ExternalLink className="mr-2 h-4 w-4" />
-                  Prava stranica
-                </Button>
-              </div>
-            </div>
-            <div className="mt-3 rounded-[20px] border border-white/10 bg-white/[0.03] px-3 py-2.5 text-[12px] leading-5 text-white/58">
-              Ovdje upiši lokalni folder repozitorija. Sve DEV akcije — backup, build, commit, push i deploy — vrte se nad tim folderom.
-            </div>
-          </Section>
-
           <div className="grid min-h-0 flex-1 gap-4 overflow-hidden xl:grid-cols-[400px_minmax(0,1fr)]">
+
             <div className={`min-h-0 space-y-4 ${HIDE_SCROLL}`}>
               <Section title="Commit / backup / deploy" subtitle="Glavne akcije za lokalni repo">
                 <div className="space-y-3">
