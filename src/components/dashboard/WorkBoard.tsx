@@ -276,9 +276,12 @@ const WorkBoard = ({ isOverlay, onMinimize }: WorkBoardProps) => {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) return;
-      const projectId = import.meta.env.VITE_SUPABASE_PROJECT_ID;
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      if (!supabaseUrl) {
+        throw new Error("Supabase URL nije postavljen.");
+      }
       const res = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/gmail-auth?action=auth-url`,
+        `${supabaseUrl}/functions/v1/gmail-auth?action=auth-url`,
         {
           method: "POST",
           headers: {
@@ -286,6 +289,9 @@ const WorkBoard = ({ isOverlay, onMinimize }: WorkBoardProps) => {
             apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
             "Content-Type": "application/json",
           },
+          body: JSON.stringify({
+            appOrigin: window.location.origin,
+          }),
         }
       );
       const data = await res.json();
