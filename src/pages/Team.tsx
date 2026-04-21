@@ -92,7 +92,7 @@ const getInitials = (name: string | null, email: string | null): string => {
 };
 
 const Team = () => {
-  const { user } = useAuth();
+  const { user, isAdmin: authIsAdmin } = useAuth();
   const { toast } = useToast();
 
   const [loading, setLoading] = useState(true);
@@ -136,7 +136,7 @@ const Team = () => {
         .eq("role", "admin")
         .limit(1);
 
-      const isAdmin = (myAdminRoles?.length ?? 0) > 0;
+      const isAdmin = authIsAdmin || (myAdminRoles?.length ?? 0) > 0;
       setCurrentUserIsAdmin(isAdmin);
 
       // 2) Odredi organization_id (admin_user_id) za filtriranje članova
@@ -288,7 +288,7 @@ const Team = () => {
     } finally {
       setLoading(false);
     }
-  }, [user, toast, currentUserIsAdmin]);
+  }, [user, authIsAdmin, toast, currentUserIsAdmin]);
 
   useEffect(() => {
     fetchAll();

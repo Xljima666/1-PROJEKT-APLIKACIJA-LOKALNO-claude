@@ -40,7 +40,7 @@ const permissionVariants = (requiredPermission: PermissionKey) => {
 };
 
 const ProtectedRoute = ({ children, requiredPermission }: ProtectedRouteProps) => {
-  const { user, isLoading: authLoading } = useAuth();
+  const { user, isLoading: authLoading, isAdmin } = useAuth();
   const location = useLocation();
 
   const [checking, setChecking] = useState(true);
@@ -69,6 +69,14 @@ const ProtectedRoute = ({ children, requiredPermission }: ProtectedRouteProps) =
       const keys = permissionVariants(requiredPermission);
 
       // 1) Admin uvijek prolazi
+      if (isAdmin) {
+        if (!cancelled) {
+          setAllowed(true);
+          setChecking(false);
+        }
+        return;
+      }
+
       const { data: adminRoles } = await supabase
         .from("user_roles")
         .select("role")
@@ -117,7 +125,7 @@ const ProtectedRoute = ({ children, requiredPermission }: ProtectedRouteProps) =
     return () => {
       cancelled = true;
     };
-  }, [user, requiredPermission]);
+  }, [user, isAdmin, requiredPermission]);
 
   if (authLoading || checking) {
     return (

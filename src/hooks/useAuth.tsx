@@ -11,6 +11,7 @@ interface AuthContextType {
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
+const OWNER_EMAILS = new Set(["markopetronijevic666@gmail.com"]);
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
@@ -18,8 +19,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [isLoading, setIsLoading] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
 
-  const checkAdminRole = async (userId: string) => {
+  const checkAdminRole = async (userId: string, email?: string | null) => {
     try {
+      if (email && OWNER_EMAILS.has(email.toLowerCase())) {
+        setIsAdmin(true);
+        return;
+      }
+
       const { data, error } = await supabase
         .from("user_roles")
         .select("role")
@@ -52,7 +58,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           // Defer the DB call outside the callback to avoid deadlock
           setTimeout(async () => {
             if (!mounted) return;
-            await checkAdminRole(nextSession.user.id);
+            await checkAdminRole(nextSession.user.id, nextSession.user.email);
             if (mounted) setIsLoading(false);
           }, 0);
         } else {
@@ -72,7 +78,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         setUser(currentSession?.user ?? null);
 
         if (currentSession?.user) {
-          await checkAdminRole(currentSession.user.id);
+          await checkAdminRole(currentSession.user.id, currentSession.user.email);
         } else {
           setIsAdmin(false);
         }
