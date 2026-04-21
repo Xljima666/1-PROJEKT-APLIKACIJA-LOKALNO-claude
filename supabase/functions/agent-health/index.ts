@@ -6,7 +6,6 @@ const corsHeaders = {
 };
 
 const HEALTH_TIMEOUT_MS = 10000;
-const DEFAULT_FALLBACK_KEY = "stellan-agent-2026-v2-x7k9m2p";
 
 const sanitizeAgentServerUrl = (raw: string): string | null => {
   if (!raw) return null;
@@ -45,7 +44,6 @@ const getAgentApiKeyCandidates = (raw: string | null): string[] => {
     if (headerMatch?.[1]) candidates.add(headerMatch[1]);
   }
   
-  candidates.add(DEFAULT_FALLBACK_KEY);
   return Array.from(candidates);
 };
 

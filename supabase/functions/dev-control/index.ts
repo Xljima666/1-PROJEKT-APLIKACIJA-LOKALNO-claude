@@ -18,11 +18,6 @@ type DevOpsLogEntry = {
   at?: string;
   href?: string;
 };
- 
-const FALLBACK_AGENT_KEYS = [
-  "stellan-agent-2026-v2-x7k9m2p",
-  "promijeni-me-na-siguran-kljuc-123",
-];
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -116,7 +111,6 @@ const parseAgentApiKeys = (raw?: string | null): string[] => {
     const headerMatch = trimmed.match(/X-API-Key\s*:\s*["']?([^"'\s]+)["']?/i);
     if (headerMatch?.[1]) candidates.add(headerMatch[1]);
   }
-  for (const key of FALLBACK_AGENT_KEYS) candidates.add(key);
   return Array.from(candidates);
 };
 

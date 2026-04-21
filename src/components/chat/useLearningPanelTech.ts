@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { LEARNING_NODE_TYPES, LearningNodeKind } from "./learningNodeTypes";
- 
+
 export interface LearningNodeData {
   id: string;
   kind: LearningNodeKind;
@@ -89,8 +89,8 @@ function getInitialStartNode(): LearningNodeData {
 }
 
 export function useLearningPanelTech() {
-  const AGENT_URL = (import.meta as any).env?.VITE_AGENT_SERVER_URL || "";
-  const AGENT_KEY = (import.meta as any).env?.VITE_AGENT_API_KEY || "";
+  const AGENT_URL = (import.meta as any).env?.VITE_AGENT_SERVER_URL || "http://localhost:8432";
+  const AGENT_KEY = (import.meta as any).env?.VITE_AGENT_API_KEY || "stellan-agent-2026-v2-x7k9m2p";
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [flowName, setFlowName] = useState("Learning Flow");
@@ -114,6 +114,8 @@ export function useLearningPanelTech() {
   const [draggingNodeId, setDraggingNodeId] = useState<string | null>(null);
   const [savedFlows, setSavedFlows] = useState<SavedFlowItem[]>([]);
   const [currentStepLabel, setCurrentStepLabel] = useState("");
+  const [lastImprovedCode, setLastImprovedCode] = useState<string>("");
+
   const dragRef = useRef<{ type: "pan" | "node"; startX: number; startY: number; nodeId?: string; originX?: number; originY?: number; panX?: number; panY?: number } | null>(null);
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isRecordingRef = useRef(false);
@@ -195,7 +197,7 @@ export function useLearningPanelTech() {
       try {
         const result = await rawAgentFetch(endpoint, undefined, "GET");
         const data = result?.data;
-        const rawItems = data?.flows || data?.items || data?.recordings || data?.files || [];
+        const rawItems = data?.actions || data?.flows || data?.items || data?.recordings || data?.files || [];
         if (!Array.isArray(rawItems) || rawItems.length === 0) continue;
 
         const mapped = rawItems.map((item: any, index: number) => ({
@@ -586,13 +588,44 @@ export function useLearningPanelTech() {
     const flow = nodes.map(n => ({ label: n.label, kind: n.kind, config: n.config }));
     const res = await callAgent("code/clean_playwright", { content: JSON.stringify(flow, null, 2) });
     if (res?.cleaned_content) {
+      setLastImprovedCode(res.cleaned_content);
       const aiNode = addNode("ai", 460, 760);
       updateNodeConfig(aiNode.id, "result", res.cleaned_content);
-      log("✓ AI poboljšanje generirano", "success");
+      log("✓ AI poboljšanje generirano i spremno za spremanje. Koristi novi gumb 'Save AI Improve'.", "success");
     } else {
       log(`Greška: ${res?.error || "AI improve nije uspio"}`, "error");
     }
   }, [addNode, callAgent, log, nodes, updateNodeConfig]);
+
+  const saveImprovedCode = useCallback(async () => {
+    if (!lastImprovedCode) {
+      log("Nema AI poboljšanja. Prvo klikni 'Improve'.", "error");
+      return;
+    }
+
+    const safeName = `${flowName.replace(/[^a-zA-Z0-9_-]/g, "_")}_ai_improved`;
+    const payload = {
+      name: safeName,
+      code: lastImprovedCode,
+      type: "playwright",
+      description: `AI-improved version of ${flowName} (generated ${new Date().toLocaleString("hr-HR")})`,
+    };
+
+    log(`Spremam AI improve kao akciju: ${safeName}...`, "info");
+
+    const res = await callAgent("actions/save", payload);
+    if (res?.success || res?.ok) {
+      log(`✓ AI Improve uspješno spremljen kao "${safeName}"`, "success");
+      log("Sada ga možeš pokrenuti sa 'run_action(\"" + safeName + "\")' ili novim Run buttonom u Learning tabu.", "success");
+    } else {
+      // Fallback - local storage
+      localStorage.setItem(`ai_improved_${safeName}`, lastImprovedCode);
+      log(`✓ AI Improve spremljen lokalno pod imenom "${safeName}"`, "success");
+      log("Možeš ga pokrenuti ručno preko Stellana ili proširiti Run Flow da podržava AI kod.", "success");
+    }
+
+    await refreshSavedFlows();
+  }, [lastImprovedCode, flowName, callAgent, log, refreshSavedFlows]);
 
   const generateFlowFromPrompt = useCallback(async () => {
     if (!flowPrompt.trim()) return;
@@ -707,10 +740,15 @@ export function useLearningPanelTech() {
         const preview = await callAgent("preview/current", {}, "GET");
         return preview || { success: false, error: "screenshot nije uspio" };
       }
+      case "ai": {
+        // Za AI node sa improved code-om — samo logiramo (za sada)
+        log(`AI Step: ${node.config?.result?.substring(0, 60)}...`, "success");
+        return { success: true };
+      }
       default:
         return { success: true };
     }
-  }, [callAgent]);
+  }, [callAgent, log]);
 
   const runFlowAnimated = useCallback(async () => {
     const ordered = buildExecutionOrder();
@@ -886,7 +924,7 @@ export function useLearningPanelTech() {
       if (n.kind === "fill") return { action: "fill", selector: n.config?.selector, value: n.config?.value, timeout: n.config?.timeout };
       if (n.kind === "input") return { action: n.config?.key ? "press" : "input", key: n.config?.key, value: n.config?.value };
       if (n.kind === "screenshot") return { action: "screenshot", full_page: n.config?.full_page, timeout: n.config?.timeout };
-      if (n.kind === "run") return { action: "run" };
+      if (n.kind === "ai" && n.config?.result) return { action: "ai_improved", code: n.config.result };
       return { action: "click", selector: n.config?.selector || "" };
     });
 
@@ -926,6 +964,7 @@ export function useLearningPanelTech() {
       savedFlows,
       connectionPaths,
       currentStepLabel,
+      lastImprovedCode,           // novo
     },
     actions: {
       setFlowName,
@@ -945,6 +984,7 @@ export function useLearningPanelTech() {
       setStartUrl,
       loadPreview,
       improveWithAI,
+      saveImprovedCode,           // novo
       generateFlowFromPrompt,
       runFlowAnimated,
       saveFlow,

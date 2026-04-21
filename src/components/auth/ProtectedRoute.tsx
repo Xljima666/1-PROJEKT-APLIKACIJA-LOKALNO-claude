@@ -1,88 +1,96 @@
 import { ReactNode, useEffect, useState } from "react";
 import { Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
-import { useImpersonation } from "@/hooks/useImpersonation";
 import { supabase } from "@/integrations/supabase/client";
 import { Loader2 } from "lucide-react";
 
+type PermissionKey =
+  | "poslovi"
+  | "geodezija"
+  | "firma"
+  | "tim"
+  | "postavke"
+  | "kontakt_upiti"
+  | "kontakt-upiti" // legacy
+  | "privatne_biljeske"
+  | "sve_privatne_biljeske"
+  | "stellan_only";
+
 interface ProtectedRouteProps {
   children: ReactNode;
-  requireAdmin?: boolean;
-  requiredPermission?: string;
+  requiredPermission?: PermissionKey;
 }
 
-const ProtectedRoute = ({ children, requireAdmin = false, requiredPermission }: ProtectedRouteProps) => {
-  const { user, isLoading, isAdmin } = useAuth();
-  const { isImpersonating, impersonatedUser } = useImpersonation();
+// Normaliziraj ključ (App.tsx koristi "kontakt-upiti", baza "kontakt_upiti")
+const normalizeKey = (k?: string) => (k ? k.replace(/-/g, "_") : undefined);
+
+const ProtectedRoute = ({ children, requiredPermission }: ProtectedRouteProps) => {
+  const { user, isLoading: authLoading } = useAuth();
   const location = useLocation();
-  const [permChecked, setPermChecked] = useState(false);
-  const [hasPermission, setHasPermission] = useState(false);
-  const [isStellanOnly, setIsStellanOnly] = useState(false);
+
+  const [checking, setChecking] = useState(true);
+  const [allowed, setAllowed] = useState(false);
 
   useEffect(() => {
-    if (isLoading) return;
-
-    // Admin always has full access
-    if (isAdmin && !isImpersonating) {
-      setHasPermission(true);
-      setIsStellanOnly(false);
-      setPermChecked(true);
-      return;
-    }
-
-    const targetUserId = isImpersonating && impersonatedUser && isAdmin
-      ? impersonatedUser.id
-      : user?.id;
-
-    if (!targetUserId) {
-      setPermChecked(true);
-      return;
-    }
+    let cancelled = false;
 
     const check = async () => {
-      // Check "samo-stellan" flag
-      const { data: stellanOnly } = await supabase
-        .from("user_tab_permissions")
-        .select("id")
-        .eq("user_id", targetUserId)
-        .eq("tab_key", "samo-stellan")
-        .maybeSingle();
-
-      if (stellanOnly) {
-        setIsStellanOnly(true);
-        setHasPermission(false);
-        setPermChecked(true);
+      if (!user) {
+        setChecking(false);
+        setAllowed(false);
         return;
       }
 
-      setIsStellanOnly(false);
-
+      // Bez traženog dopuštenja — svaki ulogiran user prolazi
       if (!requiredPermission) {
-        setHasPermission(true);
-        setPermChecked(true);
+        if (!cancelled) {
+          setAllowed(true);
+          setChecking(false);
+        }
         return;
       }
 
-      // Check specific permission
-      const { data } = await supabase
-        .from("user_tab_permissions")
-        .select("id")
-        .eq("user_id", targetUserId)
-        .eq("tab_key", requiredPermission)
-        .maybeSingle();
-      setHasPermission(!!data);
-      setPermChecked(true);
-    };
-    check();
-  }, [user, isAdmin, isLoading, requiredPermission, isImpersonating, impersonatedUser]);
+      const key = normalizeKey(requiredPermission)!;
 
-  if (isLoading || !permChecked) {
+      // 1) Admin uvijek prolazi
+      const { data: roleRow } = await supabase
+        .from("user_roles")
+        .select("role")
+        .eq("user_id", user.id)
+        .maybeSingle();
+
+      if (roleRow?.role === "admin") {
+        if (!cancelled) {
+          setAllowed(true);
+          setChecking(false);
+        }
+        return;
+      }
+
+      // 2) Za običnog korisnika — provjeri tab_permissions
+      const { data: permRow } = await supabase
+        .from("tab_permissions")
+        .select("enabled")
+        .eq("user_id", user.id)
+        .eq("tab_key", key)
+        .maybeSingle();
+
+      if (!cancelled) {
+        setAllowed(!!permRow?.enabled);
+        setChecking(false);
+      }
+    };
+
+    check();
+    return () => {
+      cancelled = true;
+    };
+  }, [user, requiredPermission]);
+
+  if (authLoading || checking) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-muted/30">
-        <div className="text-center">
-          <Loader2 className="w-8 h-8 animate-spin text-primary mx-auto mb-2" />
-          <p className="text-muted-foreground">Učitavanje...</p>
-        </div>
+      <div className="flex h-screen items-center justify-center">
+        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
       </div>
     );
   }
@@ -91,17 +99,9 @@ const ProtectedRoute = ({ children, requireAdmin = false, requiredPermission }: 
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
-  if (requireAdmin && !isAdmin) {
-    return <Navigate to="/stellan" replace />;
-  }
-
-  // If user is "samo-stellan" and not on /stellan, redirect there
-  if (isStellanOnly && location.pathname !== "/stellan") {
-    return <Navigate to="/stellan" replace />;
-  }
-
-  if (requiredPermission && !hasPermission) {
-    return <Navigate to="/dashboard" replace />;
+  if (requiredPermission && !allowed) {
+    // Preusmjeri na dashboard s porukom umjesto 404
+    return <Navigate to="/dashboard?denied=1" replace />;
   }
 
   return <>{children}</>;

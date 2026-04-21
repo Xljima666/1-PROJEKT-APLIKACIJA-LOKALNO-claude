@@ -1,6 +1,6 @@
 import React from 'react';
 import { Button } from '@/components/ui/button';
-import { Record, Wand2, Save, PlayCircle, ArrowRight } from 'lucide-react';
+import { CircleDot, Wand2, Save, PlayCircle, ArrowRight } from 'lucide-react';
 
 interface LearningActionsProps {
   isRecording: boolean;
@@ -28,7 +28,7 @@ export const LearningActions: React.FC<LearningActionsProps> = ({
         disabled={isRecording}
         className="w-full h-14 text-base bg-red-600 hover:bg-red-700 flex items-center gap-3"
       >
-        <Record className="w-5 h-5" />
+        <CircleDot className="w-5 h-5" />
         {isRecording ? 'Snimanje u tijeku...' : '1. Pamćenje — Snimi'}
       </Button>
 

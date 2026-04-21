@@ -43,17 +43,16 @@ WRITE_ROOT_DIR = os.environ.get(
     "AGENT_WRITE_ROOT",
     READ_ROOT_DIR
 )
-BACKUP_DIR_NAME = "_agent_backups"
-LOG_DIR_NAME = "_agent_logs"
+AGENT_SUBDIR = "2 AGENT"
+BACKUP_DIR_NAME = f"{AGENT_SUBDIR}/_agent_backups"
+LOG_DIR_NAME = f"{AGENT_SUBDIR}/_agent_logs"
 MAX_SEARCH_RESULTS = 500
-API_KEY = os.environ.get("AGENT_API_KEY", "promijeni-me-na-siguran-kljuc-123")
+API_KEY = os.environ.get("AGENT_API_KEY", "")
 VALID_API_KEYS = {
     key.strip()
     for key in [
         API_KEY,
         os.environ.get("AGENT_API_KEY", ""),
-        "promijeni-me-na-siguran-kljuc-123",
-        "stellan-agent-2026-v2-x7k9m2p",
     ]
     if key and key.strip()
 }
@@ -505,7 +504,7 @@ def create_project_backup(repo_path: Path) -> dict[str, Any]:
     backup_dir = get_project_backup_dir(repo_path)
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     archive_path = backup_dir / f"project_backup_{timestamp}.zip"
-    exclude_parts = {'.git', 'node_modules', 'dist', 'build', BACKUP_DIR_NAME, LOG_DIR_NAME, '__pycache__'}
+    exclude_parts = {'.git', 'node_modules', 'dist', 'build', '_agent_backups', '_agent_logs', '_flow_meta', '_flow_versions', '__pycache__'}
 
     import zipfile
     with zipfile.ZipFile(archive_path, "w", zipfile.ZIP_DEFLATED) as zf:
@@ -1106,21 +1105,44 @@ async def get_playwright_page():
     needs_restart = _page is None or _browser is None
     if not needs_restart:
         try:
-            # Quick check — if browser is closed, this will throw
+            # Provjeri browser process
             if not _browser.is_connected():
                 needs_restart = True
+            # Provjeri je li page/tab zatvoren (korisnik zatvorio X)
+            elif _page.is_closed():
+                needs_restart = True
+            else:
+                # Brzi ping da vidimo radi li page
+                await _page.evaluate("1")
         except Exception:
             needs_restart = True
 
     if needs_restart:
-        # Clean up old references
-        await close_playwright()
+        # Pokušaj samo otvoriti novi tab u postojećem browseru
+        new_page_only = False
+        if _browser is not None:
+            try:
+                if _browser.is_connected():
+                    _page = await _browser.new_page(no_viewport=True)
+                    new_page_only = True
+                    print("[Playwright] Otvoren novi tab u postojećem browseru")
+            except Exception:
+                new_page_only = False
+
+        if not new_page_only:
+            # Tek onda otvori novi browser
+            await close_playwright()
+            try:
+                from playwright.async_api import async_playwright
+                _playwright = await async_playwright().start()
+                _browser = await _playwright.chromium.launch(headless=False, args=["--start-maximized"])
+                _page = await _browser.new_page(no_viewport=True)
+                print("[Playwright] Novi browser otvoren")
+            except ImportError:
+                raise HTTPException(status_code=500, detail="Playwright nije instaliran.")
+
+        # Inject listener na page (uvijek — novi tab ili novi browser)
         try:
-            from playwright.async_api import async_playwright
-            _playwright = await async_playwright().start()
-            _browser = await _playwright.chromium.launch(headless=False, args=["--start-maximized"])
-            _page = await _browser.new_page(no_viewport=True)
-            # Inject click/input recording listeners (like desktop app)
             await _page.add_init_script(r"""
             (() => {
               if (window.__stellanInstalled) return;
@@ -1204,11 +1226,8 @@ async def get_playwright_page():
             """)
             # Attach network capture listeners
             await _attach_network_listeners(_page)
-        except ImportError:
-            raise HTTPException(
-                status_code=500,
-                detail="Playwright nije instaliran. Pokreni: pip install playwright && playwright install chromium",
-            )
+        except Exception as _inject_err:
+            print(f"[Playwright] Listener inject warning: {_inject_err}")
     return _page
 
 async def close_playwright():
@@ -2160,27 +2179,109 @@ _recording = False
 _recorded_steps: list = []
 _recorded_action_name: str = ""
 
+_STELLAN_JS = r"""(() => {
+              if (window.__stellanInstalled) return;
+              window.__stellanInstalled = true;
+              window.__stellan_events = [];
+
+              function selectorFor(el) {
+                if (!el) return "";
+                if (el.id) return "#" + el.id;
+                if (el.name) return '[name="' + el.name + '"]';
+                const aria = el.getAttribute && el.getAttribute('aria-label');
+                if (aria) return '[aria-label="' + aria + '"]';
+                if (el.placeholder) return '[placeholder="' + el.placeholder + '"]';
+                const role = el.getAttribute && el.getAttribute('role');
+                if (role) {
+                  const txt = (el.textContent || "").trim();
+                  if (txt && txt.length <= 30) return role + ':has-text("' + txt + '")';
+                }
+                const tag = (el.tagName || "").toLowerCase();
+                if (['a','button','label','span','h1','h2','h3','h4','td','th','li'].includes(tag)) {
+                  const txt = (el.innerText || el.textContent || "").trim();
+                  if (txt && txt.length > 0 && txt.length <= 40) return 'text=' + txt;
+                }
+                if (tag === 'input') {
+                  const type = el.type || 'text';
+                  const parent = el.closest('label, .v-slot, .v-formlayout-row, .form-group');
+                  if (parent) {
+                    const label = parent.textContent.trim().slice(0, 30);
+                    if (label) return 'input[type="' + type + '"]:near(:text("' + label + '"))';
+                  }
+                  return 'input[type="' + type + '"]';
+                }
+                if (el.className && typeof el.className === 'string') {
+                  const cls = el.className.split(' ').filter(c => c && c.length > 2 && !c.startsWith('v-')).slice(0,2).join('.');
+                  if (cls) return tag + '.' + cls;
+                }
+                return tag || "";
+              }
+
+              document.addEventListener('click', function(e) {
+                const el = e.target;
+                const sel = selectorFor(el);
+                if (sel) {
+                  window.__stellan_events.push({
+                    action: "click", selector: sel,
+                    tag: (el.tagName||"").toLowerCase(),
+                    text: (el.innerText||"").trim().slice(0,50),
+                    x: e.clientX, y: e.clientY,
+                    url: location.href, ts: Date.now()
+                  });
+                }
+              }, true);
+
+              document.addEventListener('change', function(e) {
+                const el = e.target;
+                if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT') {
+                  const sel = selectorFor(el);
+                  if (sel) {
+                    window.__stellan_events.push({
+                      action: "fill", selector: sel,
+                      value: el.value || "",
+                      url: location.href, ts: Date.now()
+                    });
+                  }
+                }
+              }, true);
+            })();"""
+
 @app.post("/record/start")
 async def record_start(req: dict = {}, _: str = Depends(verify_api_key)):
     global _recording, _recorded_steps, _recorded_action_name
     _recording = True
     _recorded_steps = []
     _recorded_action_name = req.get("name", "nova_akcija") if req else "nova_akcija"
-    # Clear browser event buffer
+    start_url = req.get("url", "") if req else ""
     try:
         page = await get_playwright_page()
-        await page.evaluate("window.__stellan_events = []")
-    except Exception:
+        # Reset events i re-inject listener na TRENUTNOJ stranici (ne samo pri navigaciji)
+        await page.evaluate("window.__stellanInstalled = false; window.__stellan_events = [];")
+        await page.evaluate(_STELLAN_JS)
+        if start_url and start_url.startswith("http"):
+            await page.goto(start_url, wait_until="domcontentloaded", timeout=30000)
+            _recorded_steps.append({"action": "navigate", "url": start_url, "ts": __import__("time").time() * 1000})
+    except Exception as e:
         pass
-    return {"success": True, "message": f"Snimanje pokrenuto: {_recorded_action_name}"}
+    return {"success": True, "message": f"Snimanje pokrenuto: {_recorded_action_name}", "url": start_url}
 
 @app.post("/record/stop")
 async def record_stop(_: str = Depends(verify_api_key)):
     global _recording
     _recording = False
-    # Collect remaining browser events
     await _collect_browser_events()
-    return {"success": True, "steps": len(_recorded_steps), "message": "Snimanje zaustavljeno"}
+    # Pretvori u Flowscribe format (array, ne broj)
+    steps_list = []
+    for i, step in enumerate(_recorded_steps):
+        steps_list.append({
+            "id": step.get("id", str(i)),
+            "type": step.get("action", step.get("type", "click")),
+            "target": step.get("selector", step.get("target", "")),
+            "value": step.get("value", ""),
+            "url": step.get("url", ""),
+            "timestamp": step.get("ts", step.get("timestamp", 0)),
+        })
+    return {"success": True, "steps": steps_list, "count": len(steps_list), "message": f"Zaustavljeno — {len(steps_list)} koraka"}
 
 @app.get("/record/poll")
 async def record_poll(_: str = Depends(verify_api_key)):
@@ -2268,51 +2369,111 @@ async def record_save(req: dict = {}, _: str = Depends(verify_api_key)):
     name = (req.get("name") if req else None) or _recorded_action_name or "akcija"
     name = name.replace(" ", "_").lower()
 
-    # Generate Python script from recorded steps
-    lines = [
-        "import asyncio",
-        "from playwright.async_api import async_playwright",
-        "",
-        f"async def run_{name}():",
-        "    async with async_playwright() as p:",
-        "        browser = await p.chromium.launch(headless=False)",
-        "        page = await browser.new_page()",
-        "",
-    ]
-    for step in _recorded_steps:
-        action = step.get("action")
-        if action == "navigate":
-            lines.append(f"        await page.goto('{step.get('url', '')}', wait_until='domcontentloaded')")
-        elif action == "click":
-            lines.append(f"        await page.click('{step.get('selector', '')}')")
-        elif action == "fill":
-            lines.append(f"        await page.fill('{step.get('selector', '')}', '{step.get('value', '')}')")
-        elif action == "screenshot":
-            lines.append(f"        await page.screenshot(path='screenshot_{name}.png', full_page=True)")
-        elif action == "wait":
-            lines.append(f"        await page.wait_for_selector('{step.get('selector', '')}')")
-    lines += [
-        "",
-        "        await browser.close()",
-        "",
-        f"asyncio.run(run_{name}())",
-    ]
+    # Izvor koraka: req.steps (frontend) ima prioritet, fallback na _recorded_steps (snimanje)
+    req_steps = req.get("steps") if req else None
+    source_steps = req_steps if (isinstance(req_steps, list) and req_steps) else _recorded_steps
 
-    script = "\n".join(lines)
+    # Normaliziraj korake za metadata
+    steps_for_meta = []
+    for i, step in enumerate(source_steps):
+        steps_for_meta.append({
+            "id": step.get("id") or str(i),
+            "type": step.get("type") or step.get("action") or "click",
+            "target": step.get("target") or step.get("selector") or "",
+            "value": step.get("value", ""),
+            "url": step.get("url", ""),
+            "timestamp": step.get("timestamp") or step.get("ts") or 0,
+        })
+
+    # Ako frontend šalje eksplicitni kod (ručno uređen), koristi ga; inače generiraj iz koraka
+    req_code = req.get("code") if req else None
+    if isinstance(req_code, str) and req_code.strip():
+        script = req_code
+    else:
+        # Generiraj .py iz koraka — koristi isti format kao frontend liveCode
+        def _q(s):
+            """Pametni navodni: ako s ima ", koristi '...' ; inače "..." ."""
+            s = str(s or "")
+            if '"' in s and "'" not in s:
+                return f"'{s}'"
+            return '"' + s.replace('\\', '\\\\').replace('"', '\\"') + '"'
+
+        code_lines = [
+            "import asyncio",
+            "from playwright.async_api import async_playwright",
+            "",
+            f"async def run_{name}():",
+            "    async with async_playwright() as p:",
+            "        browser = await p.chromium.launch(headless=False)",
+            "        page = await browser.new_page()",
+            "",
+        ]
+        for step in steps_for_meta:
+            stype = step["type"]
+            target = step["target"]
+            value = step["value"]
+            url = step["url"]
+            if stype == "navigate" and url:
+                code_lines.append(f'        await page.goto({_q(url)}, wait_until="domcontentloaded")')
+            elif stype == "click" and target:
+                code_lines.append(f'        await page.click({_q(target)})')
+            elif stype in ("fill", "type") and target:
+                code_lines.append(f'        await page.fill({_q(target)}, {_q(value)})')
+            elif stype == "submit" and target:
+                code_lines.append(f'        await page.press({_q(target)}, "Enter")')
+            elif stype == "wait":
+                ms = 1000
+                try: ms = int(value or step.get("ms") or 1000)
+                except: pass
+                code_lines.append(f'        await page.wait_for_timeout({ms})')
+            elif stype == "screenshot":
+                code_lines.append(f'        await page.screenshot(path="screenshot_{name}.png", full_page=True)')
+            elif target:
+                code_lines.append(f'        # {stype}: {target}')
+        code_lines += ["", "        await browser.close()", "", f"asyncio.run(run_{name}())"]
+        script = "\n".join(code_lines)
+
+    # Zapiši .py
     save_path = os.path.join(WORKSPACE_DIR, f"{name}.py")
     with open(save_path, "w", encoding="utf-8") as f:
         f.write(script)
 
-    _recorded_steps = []
+    # Zapiši metadata
+    req_status = req.get("status", "raw") if req else "raw"
+    req_start_url = req.get("url", "") if req else ""
+    display_name = req.get("display_name", req.get("name", name)) if req else name
+    req_temporary = bool(req.get("temporary", False)) if req else False
     metadata = read_flow_metadata(name)
-    create_flow_version(name, script, metadata, source="record_save")
+    param_keys = list({
+        p for s in steps_for_meta
+        if isinstance(s.get("value"), str)
+        for p in __import__("re").findall(r"\{(\w+)\}", s["value"])
+    })
+    if req_status == "polished":
+        metadata["polished_code"] = script
+    else:
+        metadata["raw_code"] = script
+    metadata.update({
+        "name": display_name,
+        "display_name": display_name,
+        "steps": steps_for_meta,
+        "status": req_status,
+        "start_url": req_start_url,
+        "params": param_keys,
+        "active_variant": "polished" if req_status == "polished" else "raw",
+        "is_temporary": req_temporary,
+    })
+    write_flow_metadata(name, metadata)
+    _recorded_steps = []
+    if not req_temporary:
+        create_flow_version(name, script, metadata, source="record_save")
     return {
         "success": True,
         "name": name,
         "path": save_path,
-        "steps": len(lines),
-        "script": script,
-        "message": f"Akcija '{name}' spremljena kao {name}.py"
+        "steps": steps_for_meta,
+        "status": req_status,
+        "message": f"Flow '{name}' spremljen ({len(steps_for_meta)} koraka)"
     }
 
 @app.get("/record/list")
@@ -2321,35 +2482,160 @@ async def record_list(_: str = Depends(verify_api_key)):
     scripts = []
     for f in os.listdir(WORKSPACE_DIR):
         if f.endswith(".py") and f != "agent_server.py":
+            name = f[:-3]
+            meta = read_flow_metadata(name)
+            if meta.get("is_temporary") or is_temporary_flow_name(name):
+                continue
             path = os.path.join(WORKSPACE_DIR, f)
             size = os.path.getsize(path)
-            meta = read_flow_metadata(f[:-3])
-            scripts.append({"name": f[:-3], "file": f, "size": size, "portal": meta.get("portal", "Ostalo"), "tags": meta.get("tags", []), "params": meta.get("params", []), "description": meta.get("description", ""), "version_count": len(list_flow_versions(f[:-3]))})
+            scripts.append({"name": name, "file": f, "size": size, "portal": meta.get("portal", "Ostalo"), "tags": meta.get("tags", []), "params": flow_param_keys(meta), "description": meta.get("description", ""), "version_count": len(list_flow_versions(name))})
     return {"success": True, "actions": scripts}
 
 @app.post("/record/run")
 async def record_run(req: dict, _: str = Depends(verify_api_key)):
-    """Run a saved action script by name"""
+    """
+    Pokreni flow u TRENUTNOM Chromium browseru.
+    Koristi robustan string parser koji ispravno čita mixed quotes selektore.
+    """
     name = req.get("name", "").replace(" ", "_").lower()
+    params = req.get("params", {}) or {}
+    stop_on_error = req.get("stop_on_error", False)
+
     if not name:
         return {"success": False, "error": "Ime akcije je obavezno"}
+
     path = os.path.join(WORKSPACE_DIR, f"{name}.py")
     if not os.path.exists(path):
-        return {"success": False, "error": f"Akcija '{name}' nije pronađena"}
-    try:
-        import subprocess
-        result = subprocess.run(
-            [PYTHON_CMD, path],
-            capture_output=True, text=True, timeout=60, cwd=WORKSPACE_DIR
-        )
-        return {
-            "success": result.returncode == 0,
-            "stdout": result.stdout[:2000],
-            "stderr": result.stderr[:500],
-            "message": f"Akcija '{name}' izvršena"
-        }
-    except Exception as e:
-        return {"success": False, "error": str(e)}
+        return {"success": False, "error": f"Fajl '{name}.py' nije pronađen"}
+
+    with open(path, "r", encoding="utf-8") as f:
+        code = f.read()
+
+    # Zamijeni {param} s pravim vrijednostima
+    for k, v in params.items():
+        code = code.replace(f"{{{k}}}", str(v))
+
+    # ── Robustan string parser ──────────────────────────────────────────
+    def extract_args(line: str) -> list:
+        """Parsira string argumente iz Python poziva, ispravno rukuje mixed quotes."""
+        idx = line.find("(")
+        if idx == -1: return []
+        i, args = idx + 1, []
+        while i < len(line) and len(args) < 3:
+            while i < len(line) and line[i] in " \t,": i += 1
+            if i >= len(line) or line[i] not in "\"'": break
+            q = line[i]; i += 1; chars = []
+            while i < len(line):
+                if line[i] == "\\" and i + 1 < len(line):
+                    chars.append({"n":"\n","t":"\t","r":"\r"}.get(line[i+1], line[i+1])); i += 2; continue
+                if line[i] == q: args.append("".join(chars)); i += 1; break
+                chars.append(line[i]); i += 1
+            else: break
+        return args
+
+    steps_to_run = []
+    for line_num, raw_line in enumerate(code.splitlines(), start=1):
+        line = raw_line.strip()
+        if not line or line.startswith("#"): continue
+
+        if "page.goto(" in line:
+            a = extract_args(line)
+            if a: steps_to_run.append({"type": "navigate", "url": a[0], "_line": line_num}); continue
+
+        if "page.fill(" in line or "page.type(" in line:
+            a = extract_args(line)
+            if len(a) >= 2: steps_to_run.append({"type": "fill", "target": a[0], "value": a[1], "_line": line_num}); continue
+
+        if "page.click(" in line:
+            a = extract_args(line)
+            if a: steps_to_run.append({"type": "click", "target": a[0], "_line": line_num}); continue
+
+        if "page.press(" in line:
+            a = extract_args(line)
+            if len(a) >= 2: steps_to_run.append({"type": "press", "target": a[0], "key": a[1], "_line": line_num}); continue
+
+        if "page.wait_for_timeout(" in line:
+            m = re.search(r'wait_for_timeout\(\s*(\d+)', line)
+            if m: steps_to_run.append({"type": "wait", "ms": int(m.group(1)), "_line": line_num}); continue
+
+        if "page.wait_for_selector(" in line:
+            a = extract_args(line)
+            if a: steps_to_run.append({"type": "wait_for_selector", "target": a[0], "_line": line_num}); continue
+
+        if "page.hover(" in line:
+            a = extract_args(line)
+            if a: steps_to_run.append({"type": "hover", "target": a[0], "_line": line_num}); continue
+
+        if "page.screenshot(" in line:
+            steps_to_run.append({"type": "screenshot", "_line": line_num}); continue
+
+    if not steps_to_run:
+        return {"success": False, "error": "Nije moguće parsirati korake. Provjeri da .py ima await page.goto/click/fill linije."}
+
+    # ── Izvrši ─────────────────────────────────────────────────────────
+    page = await get_playwright_page()
+    results = []
+    failed = []
+
+    for i, step in enumerate(steps_to_run):
+        stype = step["type"]
+        line_no = step.get("_line", 0)
+        try:
+            if stype == "navigate":
+                try: await page.goto(step["url"], wait_until="load", timeout=45000)
+                except Exception: await page.goto(step["url"], wait_until="domcontentloaded", timeout=30000)
+                await page.wait_for_timeout(1500)
+                results.append(f"✓ L{line_no} goto {step['url']}")
+
+            elif stype == "fill":
+                try: await page.wait_for_selector(step["target"], state="visible", timeout=10000)
+                except Exception: pass
+                await page.fill(step["target"], step["value"], timeout=15000)
+                results.append(f"✓ L{line_no} fill {step['target']}")
+
+            elif stype == "click":
+                try: await page.wait_for_selector(step["target"], state="visible", timeout=10000)
+                except Exception: pass
+                await page.click(step["target"], timeout=15000)
+                await page.wait_for_timeout(500)
+                results.append(f"✓ L{line_no} click {step['target']}")
+
+            elif stype == "press":
+                await page.press(step["target"], step["key"], timeout=10000)
+                await page.wait_for_timeout(1000)
+                results.append(f"✓ L{line_no} press {step['key']}")
+
+            elif stype == "wait":
+                await page.wait_for_timeout(step["ms"])
+                results.append(f"✓ L{line_no} wait {step['ms']}ms")
+
+            elif stype == "wait_for_selector":
+                await page.wait_for_selector(step["target"], timeout=15000)
+                results.append(f"✓ L{line_no} wait_for_selector {step['target']}")
+
+            elif stype == "hover":
+                await page.hover(step["target"], timeout=15000)
+                results.append(f"✓ L{line_no} hover {step['target']}")
+
+            elif stype == "screenshot":
+                ss = os.path.join(WORKSPACE_DIR, f"test_{name}_{i}.png")
+                await page.screenshot(path=ss)
+                results.append(f"✓ L{line_no} screenshot → {ss}")
+
+        except Exception as e:
+            err = str(e).split('\n')[0][:150]
+            results.append(f"✗ L{line_no} ({stype}): {err}")
+            failed.append({"line": line_no, "type": stype, "target": step.get("target",""), "error": err})
+            if stop_on_error: break
+
+    return {
+        "success": True,
+        "steps_run": len(steps_to_run),
+        "results": results,
+        "failed": failed,
+        "output": "\n".join(results),
+        "url": page.url,
+    }
 
 
 
@@ -2367,11 +2653,13 @@ def _normalize_playwright_content(content: str) -> tuple[str, list[str]]:
     notes: list[str] = []
     text = content.replace("\r\n", "\n").strip()
 
-    if "OSS_USERNAME" not in text and 'fill("darpet")' in text:
-        text = text.replace('fill("darpet")', 'fill(OSS_USERNAME)')
+    oss_username = os.environ.get("OSS_USERNAME", "")
+    oss_password = os.environ.get("OSS_PASSWORD", "")
+    if "OSS_USERNAME" not in text and oss_username and f'fill("{oss_username}")' in text:
+        text = text.replace(f'fill("{oss_username}")', 'fill(OSS_USERNAME)')
         notes.append("Username prebačen na OSS_USERNAME.")
-    if "OSS_PASSWORD" not in text and 'fill("GeoterrA20089")' in text:
-        text = text.replace('fill("GeoterrA20089")', 'fill(OSS_PASSWORD)')
+    if "OSS_PASSWORD" not in text and oss_password and f'fill("{oss_password}")' in text:
+        text = text.replace(f'fill("{oss_password}")', 'fill(OSS_PASSWORD)')
         notes.append("Lozinka prebačena na OSS_PASSWORD.")
 
     if "OSS_USERNAME = os.environ.get" not in text and "from playwright.async_api" in text:
@@ -2474,10 +2762,11 @@ def _normalize_playwright_content(content: str) -> tuple[str, list[str]]:
 
     # ── SDGE credential detection ──
     if "SDGE_USERNAME" not in text and "sdge" in text.lower():
-        for cred_pair in [("geo97825632376", "SDGE_USERNAME"), ("GeoterrA2008", "SDGE_PASSWORD")]:
-            if f'fill("{cred_pair[0]}")' in text:
-                text = text.replace(f'fill("{cred_pair[0]}")', f'fill({cred_pair[1]})')
-                notes.append(f"Hardkodirani kredencijal prebačen na {cred_pair[1]}.")
+        for env_name in ["SDGE_USERNAME", "SDGE_PASSWORD"]:
+            env_value = os.environ.get(env_name, "")
+            if env_value and f'fill("{env_value}")' in text:
+                text = text.replace(f'fill("{env_value}")', f'fill({env_name})')
+                notes.append(f"Hardkodirani kredencijal prebačen na {env_name}.")
         if "SDGE_USERNAME = os.environ.get" not in text and "SDGE_USERNAME" in text:
             pw_line = "from playwright.async_api import"
             idx = text.find(pw_line)
@@ -2704,8 +2993,8 @@ async def record_merge_into_code(req: MergeRecordingRequest, _: str = Depends(ve
 
 # ============ PACKAGE 1: FLOW METADATA / INPUTS / VERSIONS ============
 
-FLOW_META_DIR = Path(WORKSPACE_DIR) / "_flow_meta"
-FLOW_VERSIONS_DIR = Path(WORKSPACE_DIR) / "_flow_versions"
+FLOW_META_DIR = Path(WORKSPACE_DIR) / "2 AGENT" / "_flow_meta"
+FLOW_VERSIONS_DIR = Path(WORKSPACE_DIR) / "2 AGENT" / "_flow_versions"
 
 def ensure_flow_dirs():
     ensure_workspace()
@@ -2714,6 +3003,10 @@ def ensure_flow_dirs():
 
 def normalize_flow_name(name: str) -> str:
     return (name or "").strip().replace(" ", "_").lower()
+
+def is_temporary_flow_name(name: str) -> bool:
+    n = normalize_flow_name(name)
+    return n.startswith("temp_") or "_test_" in n or n.endswith("_test")
 
 def flow_script_path(name: str) -> Path:
     return Path(WORKSPACE_DIR) / f"{normalize_flow_name(name)}.py"
@@ -2727,12 +3020,18 @@ def flow_versions_path(name: str) -> Path:
 def default_flow_metadata(name: str) -> dict:
     n = normalize_flow_name(name)
     return {
+        "id": n,
         "name": n,
+        "display_name": n,
         "description": "",
         "portal": "Ostalo",
         "tags": [],
         "params": [],
         "example_inputs": {},
+        "raw_code": "",
+        "polished_code": "",
+        "active_variant": "raw",
+        "is_temporary": False,
         "updated_at": datetime.now().isoformat(),
     }
 
@@ -2750,11 +3049,27 @@ def write_flow_metadata(name: str, metadata: dict) -> dict:
     ensure_flow_dirs()
     current = default_flow_metadata(name)
     current.update(metadata or {})
-    current["name"] = normalize_flow_name(current.get("name") or name)
+    current["id"] = normalize_flow_name(name)
+    display_name = str(current.get("display_name") or current.get("name") or name).strip()
+    current["display_name"] = display_name or normalize_flow_name(name)
+    current["name"] = current["display_name"]
     current["updated_at"] = datetime.now().isoformat()
 
     params = []
     for p in current.get("params", []):
+        if isinstance(p, str):
+            key = p.strip()
+            if not key:
+                continue
+            params.append({
+                "key": key,
+                "label": key,
+                "type": "text",
+                "required": False,
+                "env_key": key.upper(),
+                "default": "",
+            })
+            continue
         if not isinstance(p, dict):
             continue
         key = str(p.get("key", "")).strip()
@@ -2769,6 +3084,9 @@ def write_flow_metadata(name: str, metadata: dict) -> dict:
             "default": str(p.get("default") or "").strip(),
         })
     current["params"] = params
+    if current.get("active_variant") not in {"raw", "polished"}:
+        current["active_variant"] = "raw"
+    current["is_temporary"] = bool(current.get("is_temporary", False))
 
     if not isinstance(current.get("tags"), list):
         if isinstance(current.get("tags"), str):
@@ -2781,6 +3099,19 @@ def write_flow_metadata(name: str, metadata: dict) -> dict:
     path = flow_meta_path(name)
     path.write_text(json.dumps(current, ensure_ascii=False, indent=2), encoding="utf-8")
     return current
+
+def flow_param_keys(metadata: dict) -> list[str]:
+    keys: list[str] = []
+    for param in metadata.get("params", []) or []:
+        if isinstance(param, str):
+            key = param.strip()
+        elif isinstance(param, dict):
+            key = str(param.get("key", "")).strip()
+        else:
+            key = ""
+        if key and key not in keys:
+            keys.append(key)
+    return keys
 
 def maybe_parametrize_content(content: str, metadata: dict) -> tuple[str, list[str]]:
     text = content or ""
@@ -3049,6 +3380,277 @@ async def flow_run_with_inputs(req: RunFlowWithInputsRequest, _: str = Depends(v
         except Exception:
             pass
 
+# ============ BROWSER KONTROLA (Učenje tab) ============
+
+@app.post("/browser/open")
+async def browser_open(req: dict = {}, _: str = Depends(verify_api_key)):
+    url = (req.get("url") if req else None) or "about:blank"
+    try:
+        page = await get_playwright_page()
+        if url and url.startswith("http"):
+            await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+        return {"success": True, "url": page.url}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+@app.post("/browser/navigate")
+async def browser_navigate_ep(req: dict = {}, _: str = Depends(verify_api_key)):
+    url = (req.get("url") if req else None) or ""
+    if not url:
+        return {"success": False, "error": "URL obavezan"}
+    try:
+        page = await get_playwright_page()
+        await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+        return {"success": True, "url": page.url}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+@app.post("/browser/back")
+async def browser_back_ep(_: str = Depends(verify_api_key)):
+    try:
+        page = await get_playwright_page()
+        await page.go_back(wait_until="domcontentloaded", timeout=10000)
+        return {"success": True, "url": page.url}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+@app.post("/browser/forward")
+async def browser_forward_ep(_: str = Depends(verify_api_key)):
+    try:
+        page = await get_playwright_page()
+        await page.go_forward(wait_until="domcontentloaded", timeout=10000)
+        return {"success": True, "url": page.url}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+@app.post("/browser/reload")
+async def browser_reload_ep(_: str = Depends(verify_api_key)):
+    try:
+        page = await get_playwright_page()
+        await page.reload(wait_until="domcontentloaded", timeout=10000)
+        return {"success": True, "url": page.url}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+@app.get("/browser/status")
+async def browser_status_ep(_: str = Depends(verify_api_key)):
+    global _browser, _page
+    try:
+        if _browser and _browser.is_connected() and _page:
+            return {"online": True, "url": _page.url}
+        return {"online": False, "url": ""}
+    except Exception:
+        return {"online": False, "url": ""}
+
+@app.post("/browser/close")
+async def browser_close_ep(_: str = Depends(verify_api_key)):
+    await close_playwright()
+    return {"success": True}
+
+@app.post("/browser/reset")
+async def browser_reset_ep(req: dict = {}, _: str = Depends(verify_api_key)):
+    """Resetiraj browser state i ponovo otvori. Koristi kad korisnik zatvori Chromium."""
+    global _playwright, _browser, _page
+    # Forsiraj reset
+    _playwright = None
+    _browser = None
+    _page = None
+    url = (req.get("url") if req else None) or "about:blank"
+    try:
+        page = await get_playwright_page()
+        if url and url.startswith("http"):
+            await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+        return {"success": True, "url": page.url, "message": "Browser resetiran i otvoren"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+# ============ FLOWS ENDPOINTI (StellanLearningPanel) ============
+
+@app.post("/flows/polish")
+async def flows_polish(req: dict = {}, _: str = Depends(verify_api_key)):
+    import json as _json
+    name = (req.get("name") if req else None) or "flow"
+    steps = (req.get("steps") if req else None) or []
+    if not steps:
+        return {"success": False, "error": "Nema koraka"}
+    gemini_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_AI_API_KEY", "")
+    grok_key = os.environ.get("GROK_API_KEY") or os.environ.get("XAI_API_KEY", "")
+    steps_json = _json.dumps(steps, ensure_ascii=False, indent=2)
+    prompt = f"""Optimiziraj ove snimljene web automatizacijske korake. Vrati SAMO JSON bez objasnjenja:
+{{"steps": [{{"id":"0","type":"navigate|click|type|submit|wait","target":"selektor","value":"vrijednost ili {{param}}","url":"https://...","timestamp":0}}], "params": ["lista"], "notes": "komentar"}}
+
+Koraci:
+{steps_json}"""
+    polished_steps = steps
+    params: list = []
+    notes = ""
+    try:
+        if gemini_key:
+            import urllib.request
+            api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={gemini_key}"
+            payload = _json.dumps({"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"temperature": 0.1, "maxOutputTokens": 2000}}).encode()
+            req_obj = urllib.request.Request(api_url, data=payload, headers={"Content-Type": "application/json"}, method="POST")
+            with urllib.request.urlopen(req_obj, timeout=30) as resp:
+                data = _json.loads(resp.read())
+            text = data["candidates"][0]["content"]["parts"][0]["text"].strip()
+            if "```" in text:
+                parts = text.split("```")
+                text = parts[1] if len(parts) > 1 else text
+                if text.startswith("json"): text = text[4:]
+            parsed = _json.loads(text.strip())
+            polished_steps = parsed.get("steps", steps)
+            params = parsed.get("params", [])
+            notes = parsed.get("notes", "")
+        elif grok_key:
+            import urllib.request
+            payload = _json.dumps({"model": "grok-3-fast", "messages": [{"role": "user", "content": prompt}], "temperature": 0.1}).encode()
+            req_obj = urllib.request.Request("https://api.x.ai/v1/chat/completions", data=payload,
+                headers={"Content-Type": "application/json", "Authorization": f"Bearer {grok_key}"}, method="POST")
+            with urllib.request.urlopen(req_obj, timeout=30) as resp:
+                data = _json.loads(resp.read())
+            text = data["choices"][0]["message"]["content"].strip()
+            if "```" in text:
+                parts = text.split("```")
+                text = parts[1] if len(parts) > 1 else text
+                if text.startswith("json"): text = text[4:]
+            parsed = _json.loads(text.strip())
+            polished_steps = parsed.get("steps", steps)
+            params = parsed.get("params", [])
+            notes = parsed.get("notes", "")
+        else:
+            notes = "Nema AI API kljuca (GEMINI_API_KEY ili GROK_API_KEY)."
+    except Exception as e:
+        notes = f"AI greska: {str(e)[:200]}"
+    return {"success": True, "steps": polished_steps, "params": params, "notes": notes,
+            "original_count": len(steps), "polished_count": len(polished_steps)}
+
+@app.post("/flows/run_step")
+async def flows_run_step(req: dict = {}, _: str = Depends(verify_api_key)):
+    flow_id = req.get("flow_id", "")
+    step_index = req.get("step_index", 0)
+    params = req.get("params", {})
+    name = flow_id.replace(" ", "_").lower()
+    meta = read_flow_metadata(name)
+    steps = meta.get("steps", [])
+    if not steps or step_index >= len(steps):
+        path = os.path.join(WORKSPACE_DIR, f"{name}.py")
+        if os.path.exists(path):
+            try:
+                result = subprocess.run([PYTHON_CMD, path], capture_output=True, text=True, timeout=60,
+                    cwd=WORKSPACE_DIR, env={**os.environ, **{k.upper(): v for k, v in params.items()}})
+                return {"success": result.returncode == 0, "output": result.stdout[-500:], "error": result.stderr[-200:]}
+            except Exception as e:
+                return {"success": False, "error": str(e)}
+        return {"success": False, "error": f"Flow nije pronadjen: {name}"}
+    step = steps[step_index]
+    def resolve(val):
+        if not val: return val
+        for k, v in params.items(): val = val.replace(f"{{{k}}}", str(v))
+        return val
+    # step_override — frontend može poslati korak direktno (za test)
+    step_override = req.get("step_override") if req else None
+    if step_override and isinstance(step_override, dict):
+        step = step_override
+
+    try:
+        # Ne otvara novi browser — koristi postojeći
+        page = await get_playwright_page()
+        stype = step.get("type", step.get("action", ""))
+        target = resolve(step.get("target", step.get("selector", "")))
+        value = resolve(step.get("value", ""))
+        url = resolve(step.get("url", ""))
+
+        if stype == "navigate" and url:
+            # Pokušaj s load, ako failuje prihvati domcontentloaded
+            try:
+                await page.goto(url, wait_until="load", timeout=45000)
+            except Exception:
+                try:
+                    await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+                except Exception:
+                    pass  # Stranica možda radi iako je timeout
+            # Kratko čekanje da se Angular/React renderira
+            await page.wait_for_timeout(1500)
+
+        elif stype == "click" and target:
+            # Čekaj da element bude vidljiv prije klika
+            try:
+                await page.wait_for_selector(target, state="visible", timeout=10000)
+            except Exception:
+                pass
+            await page.click(target, timeout=15000)
+            await page.wait_for_timeout(500)  # Kratko čekanje nakon klika
+
+        elif stype in ("type", "fill") and target:
+            try:
+                await page.wait_for_selector(target, state="visible", timeout=10000)
+            except Exception:
+                pass
+            await page.fill(target, value, timeout=15000)
+
+        elif stype == "submit" and target:
+            await page.press(target, "Enter", timeout=10000)
+            await page.wait_for_timeout(1000)
+
+        elif stype == "wait":
+            ms = int(step.get("waitMs", step.get("value", 1000)) or 1000)
+            await page.wait_for_timeout(ms)
+
+        elif stype == "screenshot":
+            ss_path = os.path.join(WORKSPACE_DIR, f"step_{step_index}.png")
+            await page.screenshot(path=ss_path)
+
+        return {"success": True, "action": f"{stype} -> {target or url}", "url": page.url}
+    except Exception as e:
+        return {"success": False, "error": str(e)[:300], "step": step}
+
+@app.delete("/flows/delete/{flow_id}")
+@app.post("/flows/delete/{flow_id}")
+async def flows_delete(flow_id: str, _: str = Depends(verify_api_key)):
+    name = flow_id.replace(" ", "_").lower()
+    deleted = []
+    for p in [Path(WORKSPACE_DIR) / f"{name}.py", FLOW_META_DIR / f"{name}.json"]:
+        if p.exists():
+            try: p.unlink(); deleted.append(str(p))
+            except: pass
+    ver = FLOW_VERSIONS_DIR / name
+    if ver.exists():
+        try: __import__("shutil").rmtree(ver); deleted.append(str(ver))
+        except: pass
+    return {"success": bool(deleted), "deleted": deleted,
+            "message": f"Flow '{name}' obrisan" if deleted else "Nije pronadjen"}
+
+@app.get("/flows/list")
+async def flows_list_ep(_: str = Depends(verify_api_key)):
+    flows = []
+    try:
+        for f in Path(WORKSPACE_DIR).glob("*.py"):
+            if f.name in ("agent_server.py", "stellan_helpers.py"): continue
+            name = f.stem
+            meta = read_flow_metadata(name)
+            if meta.get("is_temporary") or is_temporary_flow_name(name):
+                continue
+            stat = f.stat()
+            steps = meta.get("steps", [])
+            flows.append({
+                "id": name, "name": meta.get("display_name") or meta.get("name", name),
+                "description": meta.get("description", ""),
+                "startUrl": meta.get("start_url", ""),
+                "steps": steps if isinstance(steps, list) else [],
+                "params": flow_param_keys(meta),
+                "status": meta.get("status", "raw"),
+                "rawCode": meta.get("raw_code", ""),
+                "polishedCode": meta.get("polished_code", ""),
+                "activeVariant": meta.get("active_variant", "raw"),
+                "createdAt": int(stat.st_ctime * 1000),
+                "updatedAt": int(stat.st_mtime * 1000),
+                "lastRun": meta.get("last_run")
+            })
+    except Exception as e:
+        return {"success": False, "error": str(e), "flows": []}
+    return {"success": True, "flows": flows, "actions": flows}
+
+
 # ============ POKRETANJE ============
 
 if __name__ == "__main__":
@@ -3060,7 +3662,7 @@ if __name__ == "__main__":
 ╠════════════════════════════════════════════════════════╣
 ║  Workspace:  {WORKSPACE_DIR:<42}║
 ║  Python:     {PYTHON_CMD:<42}║
-║  API Key:    {'***' + API_KEY[-4:]:<42}║
+║  API Key:    {(('***' + API_KEY[-4:]) if API_KEY else 'nije postavljen'):<42}║
 ║  Port:       {'8432':<42}║
 ╠════════════════════════════════════════════════════════╣
 ║  Za pristup s interneta koristi Cloudflare Tunnel.     ║

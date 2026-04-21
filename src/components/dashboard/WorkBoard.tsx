@@ -132,35 +132,72 @@ const WorkBoard = ({ isOverlay, onMinimize }: WorkBoardProps) => {
 
   const checkPrivatePermission = async () => {
     if (!user) return;
+    const mapNewPrivatePermission = (key: string) => {
+      if (key === "privatne_biljeske") return "privatne-biljeske";
+      if (key === "sve_privatne_biljeske") return "privatne-biljeske-sve";
+      return key;
+    };
+
     if (isAdmin) {
       setCanViewPrivate(true);
       setCanViewAllPrivate(true);
       // Admin sees all users with the permission
-      const { data: perms } = await supabase
+      const [{ data: oldPerms }, { data: newPerms }] = await Promise.all([
+        supabase
         .from("user_tab_permissions")
         .select("user_id")
-        .eq("tab_key", "privatne-biljeske");
-      setUsersWithPrivatePermission(perms?.map(p => p.user_id) || []);
+          .eq("tab_key", "privatne-biljeske"),
+        supabase
+          .from("tab_permissions")
+          .select("user_id")
+          .eq("tab_key", "privatne_biljeske")
+          .eq("enabled", true),
+      ]);
+      setUsersWithPrivatePermission([
+        ...(oldPerms?.map(p => p.user_id) || []),
+        ...(newPerms?.map(p => p.user_id) || []),
+      ]);
       return;
     }
     // Check if user has 'privatne-biljeske-sve' (can view ALL private notes)
-    const { data: allPerms } = await supabase
+    const [{ data: oldAllPerms }, { data: newAllPerms }] = await Promise.all([
+      supabase
       .from("user_tab_permissions")
       .select("tab_key")
       .eq("user_id", user.id)
-      .in("tab_key", ["privatne-biljeske", "privatne-biljeske-sve"]);
-    const userPermKeys = allPerms?.map(p => p.tab_key) || [];
+        .in("tab_key", ["privatne-biljeske", "privatne-biljeske-sve"]),
+      supabase
+        .from("tab_permissions")
+        .select("tab_key")
+        .eq("user_id", user.id)
+        .eq("enabled", true)
+        .in("tab_key", ["privatne_biljeske", "sve_privatne_biljeske"]),
+    ]);
+    const userPermKeys = [
+      ...(oldAllPerms?.map(p => p.tab_key) || []),
+      ...(newAllPerms?.map(p => mapNewPrivatePermission(p.tab_key)) || []),
+    ];
     const hasViewAll = userPermKeys.includes("privatne-biljeske-sve");
     const hasBasic = userPermKeys.includes("privatne-biljeske") || hasViewAll;
     setCanViewPrivate(hasBasic);
     setCanViewAllPrivate(hasViewAll);
 
     // Fetch all users with private permission for avatar display
-    const { data } = await supabase
+    const [{ data: oldPermUsers }, { data: newPermUsers }] = await Promise.all([
+      supabase
       .from("user_tab_permissions")
       .select("user_id")
-      .eq("tab_key", "privatne-biljeske");
-    const permUserIds = data?.map(p => p.user_id) || [];
+        .eq("tab_key", "privatne-biljeske"),
+      supabase
+        .from("tab_permissions")
+        .select("user_id")
+        .eq("tab_key", "privatne_biljeske")
+        .eq("enabled", true),
+    ]);
+    const permUserIds = [
+      ...(oldPermUsers?.map(p => p.user_id) || []),
+      ...(newPermUsers?.map(p => p.user_id) || []),
+    ];
     setUsersWithPrivatePermission(permUserIds);
   };
 

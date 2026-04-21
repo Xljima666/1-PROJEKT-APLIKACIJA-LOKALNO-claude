@@ -331,6 +331,18 @@ export default function LearningPanel({ onClose }: Props) {
           <Wand2 className="w-3.5 h-3.5" /> Smart Auto
         </button>
 
+        <button
+          type="button"
+          className="flex items-center gap-2 px-6 h-11 rounded-2xl border text-base font-black tracking-[0.22em] text-white shrink-0 shadow-[0_0_32px_rgba(236,72,153,0.26)]"
+          style={{
+            background: "linear-gradient(135deg, rgba(236,72,153,0.30), rgba(168,85,247,0.24), rgba(34,211,238,0.18))",
+            borderColor: "rgba(244,114,182,0.38)",
+          }}
+        >
+          <Sparkles className="w-4 h-4" />
+          JOVANKA TEST
+        </button>
+
         <div className="h-4 w-px shrink-0" style={{ background: border }} />
 
         {/* URL + Record / Stop */}

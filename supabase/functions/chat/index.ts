@@ -16,7 +16,7 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const UPSTREAM_TIMEOUT_MS = 300000;
+const UPSTREAM_TIMEOUT_MS = 60000; // 60s — dovoljno za LLM, ne čeka 5min ako API zavisi
 const MEMORY_UPDATE_TIMEOUT_MS = 25000;
 
 // ─── OpenAI modeli ────────────────────────────────────────────
@@ -2120,6 +2120,69 @@ function buildTools(opts: {
         type: "object",
         properties: { path: { type: "string" }, recursive: { type: "boolean" } },
       }),
+      fn("find_files", "Pronađi fileove po imenu/patternu u lokalnom projektu. Koristi prvo kad trebaš naći relevantne fileove prije čitanja ili izmjene.", {
+        type: "object",
+        properties: {
+          root: { type: "string" },
+          pattern: { type: "string" },
+          recursive: { type: "boolean" },
+          max_results: { type: "number" },
+        },
+        required: ["root", "pattern"],
+      }),
+      fn("search_in_files", "Pretraži sadržaj lokalnih fileova po tekstu. Koristi za brzo pronalaženje komponente, route, funkcije ili stringa prije čitanja cijelog filea.", {
+        type: "object",
+        properties: {
+          root: { type: "string" },
+          query: { type: "string" },
+          extensions: { type: "array", items: { type: "string" } },
+          recursive: { type: "boolean" },
+        },
+        required: ["root", "query"],
+      }),
+      fn("backup_project", "Napravi ZIP backup lokalnog projekta prije izmjena. U DEV modu koristi prije prve promjene koda.", {
+        type: "object",
+        properties: {
+          repo_path: { type: "string" },
+          limit: { type: "number" },
+        },
+      }),
+      fn("list_backups", "Prikaži zadnje backupove lokalnog projekta.", {
+        type: "object",
+        properties: {
+          repo_path: { type: "string" },
+          limit: { type: "number" },
+        },
+      }),
+      fn("run_build", "Pokreni lokalni build ili drugi provjerni command u projektu.", {
+        type: "object",
+        properties: {
+          cwd: { type: "string" },
+          command: { type: "array", items: { type: "string" } },
+          timeout: { type: "number" },
+        },
+      }),
+      fn("git_status", "Provjeri git status lokalnog repozitorija.", {
+        type: "object",
+        properties: {
+          repo_path: { type: "string" },
+        },
+      }),
+      fn("git_commit", "Napravi lokalni git commit. Koristi samo kad korisnik potvrdi da je lokalno sve dobro.", {
+        type: "object",
+        properties: {
+          repo_path: { type: "string" },
+          message: { type: "string" },
+        },
+        required: ["message"],
+      }),
+      fn("git_pull_rebase", "Povuci zadnje promjene s remote repozitorija uz rebase. Koristi samo kad za to postoji jasan razlog.", {
+        type: "object",
+        properties: {
+          repo_path: { type: "string" },
+          branch: { type: "string" },
+        },
+      }),
       fn("git_push", "Git add, commit i push.", {
         type: "object",
         properties: {
@@ -2287,9 +2350,21 @@ async function executeTool(
     supabaseAdmin: any;
     user_id: string;
     openaiApiKey: string;
+    chatMode?: "chat" | "dev";
+    devProjectRoot?: string | null;
+    devLocalAppUrl?: string | null;
+    devState?: {
+      backupDone: boolean;
+      writtenFiles: string[];
+      toolCalls: string[];
+      buildRan: boolean;
+    };
   },
 ): Promise<string> {
   const { accessToken, brainFolderId, geoterraToken, supabaseAdmin, user_id, openaiApiKey } = ctx;
+  const devState = ctx.devState;
+  const chatMode = ctx.chatMode || "chat";
+  const devProjectRoot = ctx.devProjectRoot || null;
 
   if (ctx.enableDriveTools && accessToken && brainFolderId) {
     const driveToolNames = [
@@ -2424,15 +2499,78 @@ async function executeTool(
       return fillPdf(args);
     case "run_python":
       return callAgent("run_python", args);
-    case "run_shell":
+    case "run_shell": {
+      if (ctx.chatMode === "dev") {
+        return JSON.stringify({
+          success: false,
+          blocked: true,
+          error: "run_shell je blokiran u Lokal modu za obične code zadatke. Za izmjene koda koristi find_files → search_in_files → agent_read_file → backup_project → agent_write_file → run_build. run_shell koristi samo kad korisnik izričito traži shell naredbu.",
+        });
+      }
       return callAgent("run_shell", args);
+    }
     case "agent_read_file":
       return callAgent("read_file", args);
-    case "agent_write_file":
-      return callAgent("write_file", args);
+    case "agent_write_file": {
+      if (devState && !devState.backupDone && devProjectRoot) {
+        try {
+          await callAgent("backup_project", { repo_path: devProjectRoot });
+          devState.backupDone = true;
+        } catch {
+          // ignore, actual write call below will surface any real error
+        }
+      }
+      const writeResult = await callAgent("write_file", {
+        ...args,
+        backup_first: args?.backup_first ?? true,
+      });
+      try {
+        const parsed = JSON.parse(writeResult);
+        if (parsed?.success && parsed?.path && devState) {
+          devState.writtenFiles.push(String(parsed.path));
+        }
+      } catch {
+        // ignore parse failure
+      }
+      return writeResult;
+    }
     case "agent_list_files":
       return callAgent("list_files", args);
+    case "find_files":
+      return callAgent("find_files", args);
+    case "search_in_files":
+      return callAgent("search_in_files", args);
+    case "backup_project": {
+      const backupResult = await callAgent("backup_project", args);
+      if (devState) devState.backupDone = true;
+      return backupResult;
+    }
+    case "list_backups":
+      return callAgent("list_backups", args);
+    case "run_build": {
+      const buildResult = await callAgent("run_build", args);
+      if (devState) devState.buildRan = true;
+      return buildResult;
+    }
+    case "git_status":
+      return callAgent("git_status", args);
+    case "git_commit":
+      if (chatMode === "dev") {
+        return JSON.stringify({
+          success: false,
+          error: "git_commit je blokiran u Lokal modu. Prvo pokaži korisniku lokalne promjene i traži eksplicitnu potvrdu kroz DEV tipke.",
+        });
+      }
+      return callAgent("git_commit", args);
+    case "git_pull_rebase":
+      return callAgent("git_pull_rebase", args);
     case "git_push":
+      if (chatMode === "dev") {
+        return JSON.stringify({
+          success: false,
+          error: "git_push je blokiran u Lokal modu. Prvo pokaži korisniku lokalne promjene i traži eksplicitnu potvrdu kroz DEV tipke.",
+        });
+      }
       return callAgent("git_push", args);
     case "pip_install":
       return callAgent("pip_install", args);
@@ -2806,12 +2944,29 @@ async function runResponsesApiWithTools(
     user_id: string;
     openaiApiKey: string;
     model: string;
+    chatMode?: "chat" | "dev";
+    devProjectRoot?: string | null;
+    devLocalAppUrl?: string | null;
+    devState?: {
+      backupDone: boolean;
+      writtenFiles: string[];
+      toolCalls: string[];
+      buildRan: boolean;
+    };
   },
 ): Promise<string> {
   let fullResponse = "";
   const OPENAI_MODEL = ctx.model;
+  if (ctx.chatMode === "dev" && !ctx.devState) {
+    ctx.devState = { backupDone: false, writtenFiles: [], toolCalls: [], buildRan: false };
+  }
   const responseTools = convertCustomToolsToResponsesTools(tools);
   let previousResponseId: string | null = null;
+
+  const lastUserMsg = [...(messages || [])].reverse().find((m: any) => m.role === "user");
+  const lastUserText = typeof lastUserMsg?.content === "string" ? lastUserMsg.content : "";
+  const forceLocalWrite = ctx.chatMode === "dev" && isLikelyLocalMutationIntent(lastUserText);
+  let forcedWriteRetryCount = 0;
 
   let pendingInput: any[] = convertMessagesToResponsesInput(messages);
 
@@ -2876,7 +3031,49 @@ async function runResponsesApiWithTools(
     const webSources = extractWebSourcesFromResponse(response);
 
     if (functionCalls.length === 0) {
-      const finalText = appendWebSourcesToAnswer(responseText, webSources);
+      let finalText = appendWebSourcesToAnswer(responseText, webSources);
+      if (ctx.chatMode === "dev") {
+        const writtenFiles = ctx.devState?.writtenFiles || [];
+        const toolCalls = ctx.devState?.toolCalls || [];
+        const hadRead = toolCalls.includes("agent_read_file");
+        const hadWrite = toolCalls.includes("agent_write_file") || toolCalls.includes("safe_apply_patch_set");
+        const looksLikeVerifiedNoChange = /(već postoji|vec postoji|nije potrebno|nije mijenjao nijedan file|nisam mijenjao nijedan file)/i.test(finalText || "");
+
+        if (forceLocalWrite && writtenFiles.length === 0 && forcedWriteRetryCount < 2 && (!hadWrite || !hadRead) && !looksLikeVerifiedNoChange) {
+          forcedWriteRetryCount += 1;
+          pendingInput = [{
+            type: "message",
+            role: "user",
+            content: [{
+              type: "input_text",
+              text: buildForcedWriteInstruction(lastUserText, finalText, toolCalls),
+            }],
+          }];
+          continue;
+        }
+
+        if (writtenFiles.length > 0) {
+          const changedBlock = [
+            "",
+            "Stvarno promijenjeni fileovi:",
+            ...writtenFiles.map((file) => `- ${file}`),
+          ].join("\n");
+          if (!finalText.includes("Stvarno promijenjeni fileovi:")) {
+            finalText = `${finalText.trim()}
+
+${changedBlock.trim()}`.trim();
+          }
+        } else {
+          const noWriteBlock = forceLocalWrite
+            ? "Napomena: korisnik je tražio stvarnu izmjenu, ali u ovom koraku nije napravljen nijedan stvarni upis u lokalne datoteke. Za dovršetak zadatka agent mora proći tok find_files/search_in_files → agent_read_file → backup_project → agent_write_file, ili nakon agent_read_file jasno potvrditi da je traženi rezultat već doslovno prisutan."
+            : "Napomena: u ovom koraku nije napravljen nijedan stvarni upis u lokalne datoteke. Ako želiš stvarne izmjene, agent mora pozvati local toolove poput find_files → agent_read_file → backup_project → agent_write_file.";
+          if (!finalText.includes("nije napravljen nijedan stvarni upis")) {
+            finalText = `${finalText.trim()}
+
+${noWriteBlock}`.trim();
+          }
+        }
+      }
       if (finalText) {
         await streamDelta(finalText);
         fullResponse += finalText;
@@ -2921,6 +3118,7 @@ async function runResponsesApiWithTools(
     const functionOutputs: any[] = [];
 
     for (const call of functionCalls) {
+      if (ctx.devState) ctx.devState.toolCalls.push(call.name);
       let args = {};
       try {
         args = JSON.parse(call.arguments || "{}");
@@ -3943,7 +4141,7 @@ serve(async (req) => {
     const SECRET_GOOGLE_AI_API_KEY = Deno.env.get("GOOGLE_AI_API_KEY") || "";
     const SECRET_GROK_API_KEY = Deno.env.get("GROK_API_KEY") || "";
 
-    const { messages, conversation_id, user_id: _client_user_id, model: requestedModel, reasoning, provider: requestedProvider, provider_model: requestedProviderModel } = await req.json();
+    const { messages, conversation_id, user_id: _client_user_id, model: requestedModel, reasoning, provider: requestedProvider, provider_model: requestedProviderModel, mode: requestedMode, dev_context: requestedDevContext } = await req.json();
 
     const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabaseAdmin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
@@ -4072,6 +4270,15 @@ serve(async (req) => {
     const hasFirecrawl = !!Deno.env.get("FIRECRAWL_API_KEY");
     const hasGeoterraDrive = !!geoterraToken;
     const hasAgent = !!(Deno.env.get("AGENT_SERVER_URL") && sanitizeAgentServerUrl(Deno.env.get("AGENT_SERVER_URL")!));
+    const chatMode = requestedMode === "dev" ? "dev" : "chat";
+    const devContext = requestedDevContext && typeof requestedDevContext === "object" ? requestedDevContext : {};
+    const devProjectRoot = typeof devContext?.project_root === "string" && devContext.project_root.trim()
+      ? devContext.project_root.trim()
+      : null;
+    const devLocalAppUrl = typeof devContext?.local_app_url === "string" && devContext.local_app_url.trim()
+      ? devContext.local_app_url.trim()
+      : "http://localhost:8080";
+    const devAgentState = devContext?.agent_online === true ? "ONLINE" : devContext?.agent_online === false ? "OFFLINE" : "UNKNOWN";
 
     const providerLabel = activeProvider === "openai" ? `OpenAI (${effectiveModel})`
       : activeProvider === "anthropic" ? `Claude (${effectiveModel})`
@@ -4085,9 +4292,57 @@ serve(async (req) => {
     ]);
 
     // ── System prompt ─────────────────────────────────────────
+    const devModePrompt = chatMode === "dev" ? `
+═══════════════════════════════════════════════════════
+## 🛠️ DEV STUDIO MODE — LOKALNI RAD JE GLAVNI
+═══════════════════════════════════════════════════════
+
+Radiš kao senior lokalni DEV agent za korisnikov repo.
+
+### Autonomna dijagnoza — ODMAH, bez pitanja:
+- Korisnik pošalje screenshot s greškom ili konzolom → ODMAH search_in_files po error poruci i agent_read_file relevantnih fileova — ne čekaj da te pitate "pogledaj taj file"
+- Vidiš console error s imenom filea/endpointa → find_files → agent_read_file → napiši fix → agent_write_file
+- Nikad ne pitaj "želiš li da pogledam?" — POGLEDAJ i odmah reci što si našao i što ćeš promijeniti
+- Ako agent toolovi ne rade ili vraćaju grešku → odmah reci korisniku s konkretnom porukom, NIKAD ne šuti
+
+### Fiksni workflow:
+1. Prvo shvati zadatak i pronađi relevantne fileove (find_files / search_in_files).
+2. Prije prve izmjene koda napravi backup projekta.
+3. Radi ISKLJUČIVO lokalno dok korisnik ne potvrdi da je sve dobro.
+4. Nakon izmjena provjeri lokalni rezultat.
+5. Tek ako korisnik izričito potvrdi da je lokalno sve dobro, smiješ raditi commit/push/deploy.
+
+### Lokalna pravila:
+- Project root: ${devProjectRoot || "nije poslan — koristi workspace/repo root koji dobiješ kroz agent toolove"}
+- Local app URL: ${devLocalAppUrl}
+- Agent status iz frontenda: ${devAgentState}
+- Lokalni agent toolovi su prioritet nad općim objašnjenjima.
+- Za pronalazak fileova prvo koristi find_files ili search_in_files, zatim agent_read_file.
+- Za zahtjeve tipa dodaj/promijeni/popravi/makni ne smiješ stati samo na analizi; moraš ili stvarno upisati promjenu ili nakon agent_read_file jasno dokazati da je traženi rezultat već doslovno prisutan.
+- Datoteke koje mijenjaš pročitaj cijele prije izmjene.
+- Za izmjene koristi agent_write_file ili druge lokalne agent toolove, ne lijepeći kod u chat.
+- Za obične izmjene React/TS/TSX/Python fileova NEMOJ koristiti run_shell; koristi ga samo ako korisnik izričito traži shell naredbu ili terminalski task.
+- NIKAD ne tvrdi da je nešto promijenjeno ako stvarno nisi pozvao agent_write_file, safe_apply_patch_set ili drugi tool koji je vratio success za upis.
+- Ako nema stvarnog tool rezultata za promjenu filea, reci jasno da je analiza gotova ali da fileovi još nisu promijenjeni.
+- Prije prvog agent_write_file / run_shell koji mijenja repozitorij pozovi backup_project.
+- Kad god je moguće napravi najmanju sigurnu izmjenu umjesto velikog refactora.
+- Ne mijenjaj dizajn, arhitekturu, imena fileova ili postojeće featuree ako to korisnik nije tražio.
+- Ako lokalni app ne radi, fokus je prvo vratiti lokalni rad.
+- Ne radi git_push, git_commit, git_pull_rebase ili deploy korake bez jasne korisnikove potvrde.
+- Ne traži od korisnika da svaki put ponavlja ova pravila — ova pravila su već aktivna.
+
+### Odgovor nakon rada:
+- Problem
+- Promijenjeni fileovi
+- Što je napravljeno
+- Lokalni status
+- Treba li korisnik potvrditi commit/deploy
+` : "";
+
     const systemPrompt = `
 Ti si Stellan — AI agent za GeoTerra Info d.o.o., hrvatsku geodetsku tvrtku.
 Koristiš ${providerLabel}. Datum: ${new Date().toISOString().split("T")[0]}.
+${devModePrompt ? `\n${devModePrompt}\n` : ""}
 
 ═══════════════════════════════════════════════════════
 ## 🧠 CORE WORKFLOW
@@ -4275,6 +4530,15 @@ ${memoryContext ? `════════════════════�
       user_id,
       openaiApiKey: OPENAI_API_KEY,
       model: effectiveModel,
+      chatMode,
+      devProjectRoot,
+      devLocalAppUrl,
+      devState: {
+        backupDone: false,
+        writtenFiles: [],
+        toolCalls: [],
+        buildRan: false,
+      },
     };
 
     const streamWork = (async () => {
@@ -4302,7 +4566,10 @@ ${memoryContext ? `════════════════════�
         console.error("Stream error:", e);
         try {
           const errDetail = e instanceof Error ? e.message : String(e);
-          const errMsg = `⚠️ Greška: ${errDetail.substring(0, 300)}`;
+          const isTimeout = errDetail.toLowerCase().includes("abort") || errDetail.toLowerCase().includes("timeout");
+          const errMsg = isTimeout
+            ? "⚠️ LLM API nije odgovorio u 60 sekundi. Pokušaj ponovo ili provjeri API status na status.x.ai / status.openai.com."
+            : `⚠️ Greška: ${errDetail.substring(0, 300)}`;
           await writer.write(
             encoder.encode(`data: ${JSON.stringify({ choices: [{ delta: { content: errMsg } }] })}\n\n`),
           );

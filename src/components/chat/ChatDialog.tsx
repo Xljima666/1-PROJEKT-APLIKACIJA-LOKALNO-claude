@@ -1,6 +1,6 @@
 import DevPanel from "../dev/DevPanel";
 import type { ConsoleLog } from "../dev/DevPanel";
-import LearningPanel from "./LearningPanel";
+import StellanLearningPanel from "./StellanLearningPanel";
 import BrainPanel from "./BrainPanel";
 import MozakV2Panel from "./MozakV2Panel";
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
@@ -59,14 +59,61 @@ interface Conversation {
 
 // CodeBlock type imported from ChatMessage
 const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/chat`;
+
+const LOCAL_DEV_ASSISTANT_STORAGE_KEY = "stellan_local_dev_assistant";
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function shouldRetryChatNetworkError(err: unknown) {
+  const msg = String((err as any)?.message || err || "").toLowerCase();
+  return (
+    err instanceof TypeError ||
+    msg.includes("network error") ||
+    msg.includes("failed to fetch") ||
+    msg.includes("load failed") ||
+    msg.includes("quic") ||
+    msg.includes("fetch")
+  );
+}
+
+function describeChatNetworkError(err: unknown) {
+  const msg = String((err as any)?.message || err || "").trim();
+  if (!msg) return "Greška u povezivanju s AI servisom.";
+
+  const lower = msg.toLowerCase();
+  if (lower.includes("quic")) {
+    return "Veza prema AI servisu je prekinuta tijekom streama (QUIC/protokol). Pokušaj ponovo.";
+  }
+  if (lower.includes("failed to fetch") || lower.includes("network error") || lower.includes("load failed")) {
+    return "Veza prema AI servisu je prekinuta. Pokušaj ponovo.";
+  }
+
+  return `Greška u povezivanju s AI servisom: ${msg}`;
+}
+
+function buildLocalDevInstruction(projectRoot?: string, previewUrl?: string) {
+  const lines = [
+    "INTERNAL LOCAL DEV MODE — vrijedi za cijeli ovaj razgovor.",
+    "Radi samo lokalno i ponašaj se kao oprezan senior developer.",
+    "Prvo pronađi relevantne fajlove i pregledaj postojeću logiku prije bilo kakve izmjene.",
+    "Prije izmjena računaj da backup mora postojati ili ga izričito zatraži ako nije napravljen.",
+    "Napravi najmanju moguću izmjenu koja rješava problem.",
+    "Ne diraj izgled, druge tabove ili nevezane dijelove ako to nije nužno.",
+    "Ne commitaj, ne pushaj i ne deployaj bez moje jasne potvrde.",
+    "Na kraju uvijek reci koje si fajlove promijenio, što si točno napravio i što trebam lokalno testirati.",
+  ];
+
+  if (projectRoot?.trim()) lines.push(`Project root: ${projectRoot.trim()}`);
+  if (previewUrl?.trim()) lines.push(`Lokalna aplikacija: ${previewUrl.trim()}`);
+
+  return lines.join("\n");
+}
 const SUPABASE_PUBLIC_KEY =
   import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
   import.meta.env.VITE_SUPABASE_ANON_KEY ||
   "";
 const AGENT_KEY_FALLBACKS = [
   import.meta.env.VITE_AGENT_API_KEY || "",
-  "stellan-agent-2026-v2-x7k9m2p",
-  "promijeni-me-na-siguran-kljuc-123",
 ].filter(Boolean);
 
 const MODEL_LABELS: Record<"flash" | "pro" | "flash3" | "pro3", string> = {
@@ -212,6 +259,11 @@ const ChatDialog = ({
   const [reasoningMode, setReasoningMode] = useState(false);
   const [devMode, setDevMode] = useState(false);
   const [devStudioMode, setDevStudioMode] = useState(false);
+  const [localDevAssistantMode, setLocalDevAssistantMode] = useState<boolean>(() =>
+    typeof window !== "undefined"
+      ? localStorage.getItem(LOCAL_DEV_ASSISTANT_STORAGE_KEY) === "1"
+      : false,
+  );
   const [brainMode, setBrainMode] = useState(false);
   const [mozakV2Mode, setMozakV2Mode] = useState(false);
   const [selectedModel, setSelectedModel] = useState<
@@ -220,6 +272,14 @@ const ChatDialog = ({
   const [selectedProvider, setSelectedProvider] = useState<Provider>("xai");
   const [selectedProviderModel, setSelectedProviderModel] =
     useState<string>("grok-4-1-fast");
+
+  useEffect(() => {
+    const models = PROVIDERS[selectedProvider]?.models || [];
+    if (!models.length) return;
+    if (!models.some((model) => model.id === selectedProviderModel)) {
+      setSelectedProviderModel(models[0].id);
+    }
+  }, [selectedProvider, selectedProviderModel]);
   const [previewUrl, setPreviewUrl] = useState("http://localhost:8080");
   const [isDeploying, setIsDeploying] = useState(false);
   const [deployStatus, setDeployStatus] = useState<
@@ -1126,35 +1186,73 @@ const ChatDialog = ({
         abortController.abort();
       }, 300_000);
 
-      const resp = await fetch(CHAT_URL, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${currentSession.access_token}`,
-        },
-        body: JSON.stringify({
-          messages: cleanMessages,
-          conversation_id: convId,
-          reasoning: reasoningMode,
-          model: selectedModel,
-          provider: selectedProvider,
-          provider_model: selectedProviderModel,
-        }),
-        signal: abortController.signal,
-      });
+      const localAppUrl =
+        previewUrl?.trim() ||
+        previewScreenshotUrl?.trim() ||
+        "http://localhost:8080";
+
+      const requestPayload = {
+        messages: cleanMessages,
+        conversation_id: convId,
+        reasoning: reasoningMode,
+        model: selectedModel,
+        provider: selectedProvider,
+        provider_model: selectedProviderModel,
+        mode: localDevAssistantMode ? "dev" : "chat",
+        dev_context: localDevAssistantMode
+          ? {
+              project_root: projectRootState?.trim() || undefined,
+              local_app_url: localAppUrl,
+              agent_online:
+                typeof agentOnline === "boolean" ? agentOnline : undefined,
+            }
+          : undefined,
+      };
+
+      const sendChatRequest = async () =>
+        fetch(CHAT_URL, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${currentSession.access_token}`,
+          },
+          body: JSON.stringify(requestPayload),
+          signal: abortController.signal,
+        });
+
+      let resp: Response;
+      try {
+        resp = await sendChatRequest();
+      } catch (err) {
+        if (shouldRetryChatNetworkError(err) && !abortController.signal.aborted) {
+          console.warn("[Chat] Prvi pokušaj je pao — radim jedan automatski retry:", err);
+          setThinkingStatus("Veza je pukla — ponavljam zahtjev...");
+          await sleep(700);
+          resp = await sendChatRequest();
+        } else {
+          throw err;
+        }
+      }
 
       if (!resp.ok) {
         let errMsg = "Greška u komunikaciji s AI servisom.";
         try {
-          const b = await resp.json();
-          errMsg = b.error || errMsg;
+          const raw = await resp.text();
+          if (raw) {
+            try {
+              const parsed = JSON.parse(raw);
+              errMsg = parsed?.error || parsed?.message || raw || errMsg;
+            } catch {
+              errMsg = raw;
+            }
+          }
         } catch {
-          /* not JSON */
+          /* ignore */
         }
         console.error("[Chat] HTTP greška:", resp.status, errMsg);
         setMessages((prev) => [
           ...prev,
-          { role: "assistant", content: errMsg },
+          { role: "assistant", content: `⚠️ ${resp.status}: ${errMsg}` },
         ]);
         if (streamTimeoutId) clearTimeout(streamTimeoutId);
         abortControllerRef.current = null;
@@ -1253,7 +1351,7 @@ const ChatDialog = ({
         }
       } else {
         console.error("[Chat] Greška pri slanju poruke:", e);
-        assistantSoFar = "Greška u povezivanju s AI servisom.";
+        assistantSoFar = describeChatNetworkError(e);
         setMessages((prev) => [
           ...prev,
           { role: "assistant", content: assistantSoFar },
@@ -3011,10 +3109,28 @@ ${summaryText(data, "Backup projekta je spremljen.")}`,
                     (m) => m.id === selectedProviderModel,
                   )?.label || selectedProviderModel}{" "}
                   · vision · memorija ✓
+                  {localDevAssistantMode ? " · lokalni dev ✓" : ""}
                 </p>
               </div>
             </div>
             <div className="flex items-center gap-1.5">
+              <button
+                onClick={() => {
+                  const next = !localDevAssistantMode;
+                  setLocalDevAssistantMode(next);
+                  localStorage.setItem(LOCAL_DEV_ASSISTANT_STORAGE_KEY, next ? "1" : "0");
+                }}
+                title="Lokalni dev assistant — chat automatski radi s lokalnim pravilima, backup/logika prvo, bez deploya bez potvrde"
+                className={cn(
+                  "h-7 px-2.5 rounded-lg flex items-center gap-1.5 text-[10px] transition-colors",
+                  localDevAssistantMode
+                    ? "bg-amber-500/20 text-amber-300 ring-1 ring-amber-500/30"
+                    : "bg-white/[0.06] text-white/40 hover:text-amber-300 hover:bg-amber-500/10",
+                )}
+              >
+                <Bot className="w-3 h-3" />
+                Lokal
+              </button>
               <button
                 onClick={() => {
                   setDevStudioMode(!devStudioMode);
@@ -3202,52 +3318,21 @@ ${summaryText(data, "Backup projekta je spremljen.")}`,
               </div>
             ) : (
               <div className="px-6 py-5 space-y-6">
-                {messages.map((msg, i) => {
-                  // Extract images from user messages for proper display
-                  const imgRegex = /!\[([^\]]*)\]\((data:image\/[^)]+)\)/g;
-                  const imgs: { alt: string; src: string }[] = [];
-                  let cleanContent = msg.content;
-                  if (msg.role === "user") {
-                    let m;
-                    const regex2 = /!\[([^\]]*)\]\((data:image\/[^)]+)\)/g;
-                    while ((m = regex2.exec(msg.content)) !== null) {
-                      imgs.push({ alt: m[1], src: m[2] });
-                    }
-                    cleanContent = msg.content.replace(imgRegex, "").trim();
-                  }
-                  return (
-                    <div key={i}>
-                      {imgs.length > 0 && (
-                        <div className="flex justify-end gap-2 flex-wrap mb-2">
-                          {imgs.map((img, j) => (
-                            <img
-                              key={j}
-                              src={img.src}
-                              alt={img.alt}
-                              className="max-h-52 max-w-[280px] rounded-xl border border-white/10 object-cover shadow-lg"
-                            />
-                          ))}
-                        </div>
-                      )}
-                      <ChatMessage
-                        role={msg.role}
-                        content={
-                          msg.role === "user" && imgs.length > 0
-                            ? cleanContent
-                            : msg.content
-                        }
-                        isLatest={i === messages.length - 1}
-                        codeBlocks={codeBlocks}
-                        hasCode={hasCode}
-                        onShowCodePanel={() => setShowCodePanel(true)}
-                        onScrollToCode={scrollToCode}
-                        messageIndex={i}
-                        onReaction={handleReaction}
-                        reaction={reactions[i] ?? null}
-                      />
-                    </div>
-                  );
-                })}
+                {messages.map((msg, i) => (
+                  <ChatMessage
+                    key={i}
+                    role={msg.role}
+                    content={msg.content}
+                    isLatest={i === messages.length - 1}
+                    codeBlocks={codeBlocks}
+                    hasCode={hasCode}
+                    onShowCodePanel={() => setShowCodePanel(true)}
+                    onScrollToCode={scrollToCode}
+                    messageIndex={i}
+                    onReaction={handleReaction}
+                    reaction={reactions[i] ?? null}
+                  />
+                ))}
                 {isLoading &&
                   messages[messages.length - 1]?.role === "user" && (
                     <motion.div
@@ -3713,12 +3798,13 @@ ${summaryText(data, "Backup projekta je spremljen.")}`,
           </div>
         )}
 
-        {/* STELLAN UČENJE — Browser Use automation panel */}
+        {/* STELLAN UČENJE — fullscreen overlay */}
         {devMode && !isMobile && (
-          <div className="flex-1 border-l border-white/[0.06] min-w-0 overflow-hidden">
-            <LearningPanel
+          <div className="fixed inset-0 z-50">
+            <StellanLearningPanel
               onClose={() => setDevMode(false)}
               agentServerUrl={import.meta.env.VITE_AGENT_SERVER_URL || ""}
+              apiKey={import.meta.env.VITE_AGENT_API_KEY || ""}
             />
           </div>
         )}

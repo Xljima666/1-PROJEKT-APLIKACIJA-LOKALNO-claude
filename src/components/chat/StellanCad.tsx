@@ -1,12 +1,11 @@
 import { useState, useRef, useEffect } from "react";
 import { motion } from "framer-motion";
-import { ArrowLeft, Ruler, Zap, Save, Download, Send, Command, Square, Triangle, Circle, Move, RotateCw, Scale } from "lucide-react";
+import { ArrowLeft, Ruler, Zap, Send, Command, Square, Triangle, Circle, Move, RotateCw, Scale } from "lucide-react";
 import { toast } from "sonner";
 import * as fabric from "fabric";
 
 import BrainPanel from "./BrainPanel";
-import { GEO_NODE_CATALOG, type NodeTemplate } from "./brain/types";
-import DxfViewer from "dxf-viewer";
+import { NODE_CATALOG, type NodeTemplate } from "./brain/types";
 
 interface StellanCadProps { onClose: () => void; }
 
@@ -19,7 +18,6 @@ const StellanCad = ({ onClose }: StellanCadProps) => {
 
   const viewerRef = useRef<HTMLDivElement>(null);
   const overlayRef = useRef<HTMLCanvasElement>(null);
-  const dxfViewerInstance = useRef<any>(null);
   const fabricCanvas = useRef<fabric.Canvas | null>(null);
 
   const [addNodeCallback, setAddNodeCallback] = useState<((t: NodeTemplate, x?: number, y?: number, config?: any) => void) | null>(null);
@@ -93,7 +91,7 @@ const StellanCad = ({ onClose }: StellanCadProps) => {
         <BrainPanel
           onClose={() => {}}
           activeNodes={[]}
-          customCatalog={GEO_NODE_CATALOG}
+          customCatalog={NODE_CATALOG}
           onAddNodeExternal={setAddNodeCallback}
         />
 

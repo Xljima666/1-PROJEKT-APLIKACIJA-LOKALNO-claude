@@ -11,9 +11,12 @@ import {
   FolderOpen,
   GitBranch,
   Loader2,
+  Play,
   RefreshCw,
   Rocket,
+  Save,
   Server,
+  Square,
   TerminalSquare,
   UploadCloud,
 } from "lucide-react";
@@ -58,7 +61,9 @@ type Props = {
   steps: DevStep[];
   preview: DevPreviewState;
   consoleLogs?: ConsoleLog[];
+  isAgentRunning?: boolean;
   agentOnline?: boolean | null;
+  modelBadge?: string;
   isRecording?: boolean;
   recordingName?: string;
   isDeploying?: boolean;
@@ -67,7 +72,9 @@ type Props = {
   projectRoot?: string;
   devOps?: DevOpsSnapshot | null;
   devOpsLoading?: boolean;
+  onStartAgent?: () => void;
   onRunAction?: (action: DevActionType, payload?: ActionPayload) => void;
+  onStopAgent?: () => void;
   onClearSteps?: () => void;
   onDeleteStep?: (stepId: string) => void;
   onSelectStep?: (step: DevStep) => void;
@@ -327,8 +334,11 @@ export default function DevPanel({
   preview,
   consoleLogs = [],
   agentOnline = null,
+  isRecording = false,
+  recordingName,
   isDeploying = false,
   deployStatus = "idle",
+  savedActions = [],
   projectRoot,
   devOps,
   devOpsLoading = false,
@@ -339,6 +349,10 @@ export default function DevPanel({
   onSaveProjectRoot,
   onBackToStellan,
   onBack,
+  onStartRecording,
+  onSaveRecording,
+  onCancelRecording,
+  onRunSavedAction,
 }: Props) {
   const [commitMessage, setCommitMessage] = useState("");
   const [projectRootInput, setProjectRootInput] = useState(projectRoot || "");
@@ -416,13 +430,13 @@ export default function DevPanel({
     const message = commitMessage.trim();
     if (!message) return;
     const safeMessage = message.replace(/"/g, "'");
-    onPortalAction?.(`git commit \"${safeMessage}\"`);
+    onPortalAction?.(`git commit "${safeMessage}"`);
   };
 
   const handleDeployWithMessage = () => {
     const message = commitMessage.trim().replace(/"/g, "'");
     if (message) {
-      onPortalAction?.(`deploy \"${message}\"`);
+      onPortalAction?.(`deploy "${message}"`);
       return;
     }
     onDeploy?.();
@@ -445,6 +459,14 @@ export default function DevPanel({
     window.open(target, "_blank", "noopener,noreferrer");
   };
 
+  const handleAISaveFix = () => {
+    onPortalAction?.("ai fix recording");
+    onSaveRecording?.();
+  };
+
+  const handleConvertToBrain = () => {
+    onPortalAction?.("convert flow to brain card");
+  };
 
   return (
     <div
@@ -698,6 +720,107 @@ export default function DevPanel({
                       )}
                     </div>
                   </Section>
+                </div>
+              </Section>
+
+              {/* NOVI DIO — UČENJE / FLOW RECORDER */}
+              <Section 
+                title="🎥 Učenje / Flow Recorder" 
+                subtitle="Snimanje koraka u Chromium prozoru → AI popravak → Run & Save"
+              >
+                <div className="space-y-4">
+                  <div className="flex gap-3">
+                    <Button
+                      onClick={onStartRecording}
+                      disabled={isRecording}
+                      className={cn(
+                        "flex-1 h-14 rounded-3xl text-base font-semibold transition-all",
+                        isRecording 
+                          ? "bg-red-600 hover:bg-red-700 shadow-lg shadow-red-500/30" 
+                          : "bg-emerald-500 hover:bg-emerald-600"
+                      )}
+                    >
+                      {isRecording ? (
+                        <>
+                          <span className="mr-2 animate-pulse">●</span>
+                          SNIMAM FLOW...
+                        </>
+                      ) : (
+                        <>
+                          <Play className="mr-3 h-5 w-5" />
+                          START RECORDING (otvara Chromium)
+                        </>
+                      )}
+                    </Button>
+
+                    {isRecording && onCancelRecording && (
+                      <Button
+                        onClick={onCancelRecording}
+                        variant="outline"
+                        className="h-14 px-8 rounded-3xl border-red-400/30 text-red-400 hover:bg-red-950"
+                      >
+                        <Square className="mr-2 h-5 w-5" />
+                        STOP
+                      </Button>
+                    )}
+                  </div>
+
+                  {steps.length > 0 && (
+                    <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
+                      <div className="mb-3 text-xs uppercase tracking-widest text-white/40">Zadnji snimljeni koraci (live)</div>
+                      <div className={`max-h-[220px] ${HIDE_SCROLL} space-y-2`}>
+                        {steps.slice().reverse().map((step) => (
+                          <StepRow key={step.id} step={step} />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <Button
+                      onClick={handleAISaveFix}
+                      className="h-12 rounded-2xl bg-violet-600 hover:bg-violet-500 text-white font-medium"
+                      disabled={!isRecording && steps.length === 0}
+                    >
+                      <Bot className="mr-2 h-4 w-4" />
+                      🤖 AI Stellan — popravi code
+                    </Button>
+
+                    <Button
+                      onClick={() => onRunSavedAction?.("last-recording")}
+                      className="h-12 rounded-2xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-medium"
+                      disabled={steps.length === 0}
+                    >
+                      <Play className="mr-2 h-4 w-4" />
+                      ▶ Run Flow
+                    </Button>
+
+                    <Button
+                      onClick={onSaveRecording}
+                      variant="outline"
+                      className="h-12 rounded-2xl border-white/20 hover:bg-white/[0.06]"
+                      disabled={steps.length === 0}
+                    >
+                      <Save className="mr-2 h-4 w-4" />
+                      Spremi flow
+                    </Button>
+
+                    <Button
+                      onClick={handleConvertToBrain}
+                      variant="outline"
+                      className="h-12 rounded-2xl border-amber-400/30 text-amber-300 hover:bg-amber-400/[0.08]"
+                      disabled={steps.length === 0}
+                    >
+                      <Save className="mr-2 h-4 w-4" />
+                      Pretvori u Mozak karticu
+                    </Button>
+                  </div>
+
+                  {recordingName && (
+                    <div className="text-center text-[10px] text-white/40">
+                      Snimanje: <span className="text-white/70 font-mono">{recordingName}</span>
+                    </div>
+                  )}
                 </div>
               </Section>
             </div>

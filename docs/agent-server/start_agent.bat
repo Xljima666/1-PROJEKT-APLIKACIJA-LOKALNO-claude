@@ -10,18 +10,24 @@ set "AGENT_WORKSPACE=D:\1 PROJEKT APLIKACIJA LOKALNO\1 PROJEKT APLIKACIJA LOKALN
 set "AGENT_READ_ROOT=D:\1 PROJEKT APLIKACIJA LOKALNO\1 PROJEKT APLIKACIJA LOKALNO claude\STELLAN-GIT"
 set "AGENT_WRITE_ROOT=D:\1 PROJEKT APLIKACIJA LOKALNO\1 PROJEKT APLIKACIJA LOKALNO claude\STELLAN-GIT"
 set "AGENT_SERVER_DIR=D:\1 PROJEKT APLIKACIJA LOKALNO\1 PROJEKT APLIKACIJA LOKALNO claude\STELLAN-GIT\docs\agent-server"
-set "AGENT_API_KEY=promijeni-me-na-siguran-kljuc-123"
+REM Postavi ove vrijednosti lokalno prije pokretanja ili ih upisi u privatnu kopiju ovog .bat filea.
+set "AGENT_API_KEY="
+set "FRONTEND_URL=http://localhost:8080/dashboard"
 
 REM SDGE
-set "SDGE_USERNAME=geo97825632376"
-set "SDGE_PASSWORD=GeoterrA2008"
+set "SDGE_USERNAME="
+set "SDGE_PASSWORD="
 
 REM OSS
-set "OSS_USERNAME=darpet"
-set "OSS_PASSWORD=GeoterrA20089"
+set "OSS_USERNAME="
+set "OSS_PASSWORD="
 
 REM GEMINI (za Stellan brain - embeddings, learning, reflection)
-set "GEMINI_API_KEY=AIzaSyCQpVFc0B9TucdNKkij5YsCtwst-zgFGyE"
+set "GEMINI_API_KEY="
+
+REM GROK (za AI polish flowova)
+set "GROK_API_KEY="
+set "XAI_API_KEY="
 
 REM =============================================
 REM  PYTHON
@@ -45,9 +51,21 @@ if not exist "%AGENT_SERVER_DIR%\agent_server.py" (
 )
 
 REM =============================================
-REM  AGENT SERVER
+REM  FRONTEND
 REM =============================================
-cd /d "%AGENT_SERVER_DIR%"
+if not exist "%AGENT_WORKSPACE%\package.json" (
+    echo [GRESKA] package.json nije pronadjen:
+    echo %AGENT_WORKSPACE%\package.json
+    pause
+    exit /b 1
+)
+
+where npm >nul 2>&1
+if %errorlevel% neq 0 (
+    echo [GRESKA] npm nije dostupan u PATH-u.
+    pause
+    exit /b 1
+)
 
 echo.
 echo ========================================
@@ -60,7 +78,19 @@ echo.
 echo Cloudflare tunnel koristis odvojeno.
 echo Ovaj BAT vise NE pokrece ngrok.
 echo.
+echo [1/3] Pokrecem frontend (npm run dev)...
+start "Stellan Frontend" cmd /k "cd /d ""%AGENT_WORKSPACE%"" && npm run dev"
 
+echo [2/3] Cekam kratko da se frontend digne...
+timeout /t 4 /nobreak >nul
+
+echo [3/3] Otvaram lokalnu stranicu: %FRONTEND_URL%
+start "" "%FRONTEND_URL%"
+
+REM =============================================
+REM  AGENT SERVER
+REM =============================================
+cd /d "%AGENT_SERVER_DIR%"
 "%PYTHON_PATH%" "%AGENT_SERVER_DIR%\agent_server.py"
 
 if %errorlevel% neq 0 (

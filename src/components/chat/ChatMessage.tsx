@@ -225,106 +225,108 @@ function parseFileDownloads(content: string): { cleanContent: string; downloads:
 function parseUserContent(content: string) {
   const attachments: Array<any> = [];
   const textParts: string[] = [];
-  // Ordered list for correct rendering sequence
   const orderedItems: Array<{ type: "text" | "attachment"; index: number }> = [];
 
-  // Check for ««FILE:...»» delimiters
-  const fileRegex = /\u00ab\u00abFILE:([^»]+)\u00bb\u00bb\n([\s\S]*?)\n\u00ab\u00ab\/FILE\u00bb\u00bb/g;
-  let hasFiles = false;
+  const tokenRegex = /(\u00ab\u00abFILE:[^»]+\u00bb\u00bb\n[\s\S]*?\n\u00ab\u00ab\/FILE\u00bb\u00bb)|(!\[[^\]]*\]\((?:data:image\/[^)]+)\))/g;
   let lastEnd = 0;
-  let match;
+  let match: RegExpExecArray | null;
 
-  while ((match = fileRegex.exec(content)) !== null) {
-    hasFiles = true;
-    // Text before this file block
-    const before = content.slice(lastEnd, match.index).trim();
-    if (before) {
-      orderedItems.push({ type: "text", index: textParts.length });
-      textParts.push(before);
-    }
-    lastEnd = match.index + match[0].length;
+  const pushText = (value: string) => {
+    const trimmed = value.trim();
+    if (!trimmed) return;
+    orderedItems.push({ type: "text", index: textParts.length });
+    textParts.push(trimmed);
+  };
 
-    const meta = match[1]; // e.g. "tsx:ChatDialog.tsx:60.5 KB" or "pdf:file.pdf:45 KB:3:url" or "bin:file.zip:5 KB"
-    const fileContent = match[2];
-    const parts = meta.split(":");
-    const lang = parts[0] || "";
-    const filename = parts[1] || "file";
-    const size = parts[2] || "";
+  while ((match = tokenRegex.exec(content)) !== null) {
+    pushText(content.slice(lastEnd, match.index));
 
-    if (lang === "pdf") {
-      const pages = parts[3] || "";
-      attachments.push({ type: "pdf", filename, size, pages: pages !== "0" ? `${pages} str.` : undefined });
-    } else if (lang === "bin") {
-      attachments.push({ type: "file", filename, size });
-    } else {
-      attachments.push({ type: "code-file", filename, size, language: lang, code: fileContent });
-    }
-    orderedItems.push({ type: "attachment", index: attachments.length - 1 });
-  }
+    const token = match[0];
+    if (token.startsWith("\u00ab\u00abFILE:")) {
+      const fileMatch = token.match(/^\u00ab\u00abFILE:([^»]+)\u00bb\u00bb\n([\s\S]*?)\n\u00ab\u00ab\/FILE\u00bb\u00bb$/);
+      if (fileMatch) {
+        const meta = fileMatch[1];
+        const fileContent = fileMatch[2];
+        const parts = meta.split(":");
+        const lang = parts[0] || "";
+        const filename = parts[1] || "file";
+        const size = parts[2] || "";
 
-  if (hasFiles) {
-    // Text after the last file block
-    const after = content.slice(lastEnd).trim();
-    if (after) {
-      orderedItems.push({ type: "text", index: textParts.length });
-      textParts.push(after);
-    }
-  }
-
-  if (!hasFiles) {
-    // Legacy format fallback: 📎 and 📄 patterns
-    let remaining = content;
-
-    // Images
-    const imageRegex = /!\[([^\]]*)\]\((data:image\/[^)]+)\)/g;
-    let imgMatch;
-    while ((imgMatch = imageRegex.exec(content)) !== null) {
-      attachments.push({ type: "image", name: imgMatch[1] || "Slika", src: imgMatch[2] });
-    }
-    if (attachments.length > 0) {
-      remaining = remaining.replace(imageRegex, "").trim();
-    }
-
-    // Legacy code file with backticks (best effort)
-    const legacyCodeRegex = /📎\s*Učitana datoteka:\s*\*\*([^*]+)\*\*\s*\(([^)]+)\)/;
-    const legacyMatch = legacyCodeRegex.exec(remaining);
-    if (legacyMatch) {
-      const before = remaining.slice(0, legacyMatch.index).trim();
-      const after = remaining.slice(legacyMatch.index + legacyMatch[0].length).trim();
-      // Check if there's a code block after
-      const codeBlockMatch = after.match(/^\s*```(\w+)\n([\s\S]*?)```\s*([\s\S]*)$/);
-      if (codeBlockMatch) {
-        attachments.push({ type: "code-file", filename: legacyMatch[1], size: legacyMatch[2], language: codeBlockMatch[1], code: codeBlockMatch[2].trimEnd() });
-        const trailing = codeBlockMatch[3]?.trim();
-        if (before) textParts.push(before);
-        if (trailing) textParts.push(trailing);
-      } else {
-        attachments.push({ type: "file", filename: legacyMatch[1], size: legacyMatch[2] });
-        if (before) textParts.push(before);
-        if (after) textParts.push(after);
+        if (lang === "pdf") {
+          const pages = parts[3] || "";
+          attachments.push({ type: "pdf", filename, size, pages: pages !== "0" ? `${pages} str.` : undefined });
+        } else if (lang === "bin") {
+          attachments.push({ type: "file", filename, size });
+        } else {
+          attachments.push({ type: "code-file", filename, size, language: lang, code: fileContent });
+        }
+        orderedItems.push({ type: "attachment", index: attachments.length - 1 });
       }
-      return { attachments, textParts, orderedItems };
+    } else {
+      const imgMatch = token.match(/^!\[([^\]]*)\]\((data:image\/[^)]+)\)$/);
+      if (imgMatch) {
+        attachments.push({ type: "image", name: imgMatch[1] || "Slika", src: imgMatch[2] });
+        orderedItems.push({ type: "attachment", index: attachments.length - 1 });
+      }
     }
 
-    // Legacy PDF
-    const pdfRegex = /📄\s*PDF:\s*\*\*([^*]+)\*\*\s*([^\n]*)/;
-    const pdfMatch = pdfRegex.exec(remaining);
-    if (pdfMatch) {
-      const before = remaining.slice(0, pdfMatch.index).trim();
-      const meta = pdfMatch[2].trim();
-      const sizeMatch = meta.match(/\(([^)]*KB[^)]*)\)/);
-      const pagesMatch = meta.match(/\((\d+\s*str\.?[^)]*)\)/);
-      attachments.push({ type: "pdf", filename: pdfMatch[1], size: sizeMatch?.[1], pages: pagesMatch?.[1] });
-      if (before) textParts.push(before);
-      return { attachments, textParts, orderedItems };
-    }
-
-    if (remaining && attachments.length === 0) textParts.push(remaining);
-    else if (remaining && attachments.length > 0) textParts.push(remaining);
+    lastEnd = match.index + token.length;
   }
+
+  pushText(content.slice(lastEnd));
+
+  if (orderedItems.length > 0) {
+    return { attachments, textParts, orderedItems };
+  }
+
+  let remaining = content;
+
+  const imageRegex = /!\[([^\]]*)\]\((data:image\/[^)]+)\)/g;
+  let imgMatch;
+  while ((imgMatch = imageRegex.exec(content)) !== null) {
+    attachments.push({ type: "image", name: imgMatch[1] || "Slika", src: imgMatch[2] });
+  }
+  if (attachments.length > 0) {
+    remaining = remaining.replace(imageRegex, "").trim();
+  }
+
+  const legacyCodeRegex = /📎\s*Učitana datoteka:\s*\*\*([^*]+)\*\*\s*\(([^)]+)\)/;
+  const legacyMatch = legacyCodeRegex.exec(remaining);
+  if (legacyMatch) {
+    const before = remaining.slice(0, legacyMatch.index).trim();
+    const after = remaining.slice(legacyMatch.index + legacyMatch[0].length).trim();
+    const codeBlockMatch = after.match(/^\s*```(\w+)\n([\s\S]*?)```\s*([\s\S]*)$/);
+    if (codeBlockMatch) {
+      attachments.push({ type: "code-file", filename: legacyMatch[1], size: legacyMatch[2], language: codeBlockMatch[1], code: codeBlockMatch[2].trimEnd() });
+      const trailing = codeBlockMatch[3]?.trim();
+      if (before) textParts.push(before);
+      if (trailing) textParts.push(trailing);
+    } else {
+      attachments.push({ type: "file", filename: legacyMatch[1], size: legacyMatch[2] });
+      if (before) textParts.push(before);
+      if (after) textParts.push(after);
+    }
+    return { attachments, textParts, orderedItems };
+  }
+
+  const pdfRegex = /📄\s*PDF:\s*\*\*([^*]+)\*\*\s*([^\n]*)/;
+  const pdfMatch = pdfRegex.exec(remaining);
+  if (pdfMatch) {
+    const before = remaining.slice(0, pdfMatch.index).trim();
+    const meta = pdfMatch[2].trim();
+    const sizeMatch = meta.match(/\(([^)]*KB[^)]*)\)/);
+    const pagesMatch = meta.match(/\((\d+\s*str\.?[^)]*)\)/);
+    attachments.push({ type: "pdf", filename: pdfMatch[1], size: sizeMatch?.[1], pages: pagesMatch?.[1] });
+    if (before) textParts.push(before);
+    return { attachments, textParts, orderedItems };
+  }
+
+  if (remaining && attachments.length === 0) textParts.push(remaining);
+  else if (remaining && attachments.length > 0) textParts.push(remaining);
 
   return { attachments, textParts, orderedItems };
 }
+
 
 // ─── Copy button ────────────────────────────────────────────
 const CopyButton = memo(({ text, size = "normal" }: { text: string; size?: "normal" | "small" }) => {
@@ -449,7 +451,7 @@ function UserContent({ content }: { content: string }) {
               {group.indices.map((ai, fi) => {
                 const a = attachments[ai];
                 if (!a) return null;
-                if (a.type === "image") return <img key={`f-${fi}`} src={a.src} alt={a.name} style={{ maxHeight: "120px", maxWidth: "200px", borderRadius: "10px", border: "1px solid rgba(255,255,255,0.1)", objectFit: "cover" as const }} />;
+                if (a.type === "image") return <img key={`f-${fi}`} src={a.src} alt={a.name} style={{ maxHeight: "180px", maxWidth: "280px", borderRadius: "10px", border: "1px solid rgba(255,255,255,0.1)", objectFit: "cover" as const, display: "block" }} />;
                 if (a.type === "file" || a.type === "pdf") return <FileCard key={`f-${fi}`} filename={a.filename} size={a.size} extra={a.pages} />;
                 if (a.type === "code-file") return <CodeFileCard key={`f-${fi}`} filename={a.filename} size={a.size} language={a.language} code={a.code} />;
                 return null;
@@ -466,7 +468,7 @@ function UserContent({ content }: { content: string }) {
     <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
       <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
         {attachments.filter((a: any) => a.type === "image").map((a: any, i: number) => (
-          <img key={`img-${i}`} src={a.src} alt={a.name} style={{ maxHeight: "120px", maxWidth: "200px", borderRadius: "10px", border: "1px solid rgba(255,255,255,0.1)", objectFit: "cover" as const }} />
+          <img key={`img-${i}`} src={a.src} alt={a.name} style={{ maxHeight: "180px", maxWidth: "280px", borderRadius: "10px", border: "1px solid rgba(255,255,255,0.1)", objectFit: "cover" as const, display: "block" }} />
         ))}
         {attachments.filter((a: any) => a.type === "file" || a.type === "pdf").map((a: any, i: number) => (
           <FileCard key={`fc-${i}`} filename={a.filename} size={a.size} extra={a.pages} />
@@ -570,7 +572,7 @@ const ChatMessage = memo(({ role, content, isLatest, isStreaming, codeBlocks, ha
         </div>
       )}
 
-      <div className={cn("flex flex-col gap-1.5", role==="user"?"items-end max-w-[80%]":"items-start flex-1 min-w-0")}>
+      <div className={cn("flex flex-col gap-1.5 min-w-0", role==="user"?"items-end max-w-[80%] w-fit ml-auto":"items-start flex-1")}>
         <div className={cn("text-[15px] leading-[1.75]",
           role==="user"
             ?"bg-gradient-to-br from-white/[0.10] to-white/[0.06] text-white/90 rounded-2xl rounded-br-sm px-4 py-3 leading-relaxed border border-white/[0.08]"
