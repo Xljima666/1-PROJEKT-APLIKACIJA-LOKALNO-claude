@@ -129,13 +129,14 @@ const Team = () => {
 
     try {
       // 1) Provjeri je li trenutni korisnik admin
-      const { data: myRole } = await supabase
+      const { data: myAdminRoles } = await supabase
         .from("user_roles")
         .select("role")
         .eq("user_id", user.id)
-        .maybeSingle();
+        .eq("role", "admin")
+        .limit(1);
 
-      const isAdmin = myRole?.role === "admin";
+      const isAdmin = (myAdminRoles?.length ?? 0) > 0;
       setCurrentUserIsAdmin(isAdmin);
 
       // 2) Odredi organization_id (admin_user_id) za filtriranje članova
@@ -206,7 +207,11 @@ const Team = () => {
         .in("user_id", userIds.length ? userIds : ["00000000-0000-0000-0000-000000000000"]);
 
       const roleMap = new Map<string, "admin" | "korisnik">();
-      (rolesData ?? []).forEach((r: any) => roleMap.set(r.user_id, r.role));
+      (rolesData ?? []).forEach((r: any) => {
+        if (r.role === "admin" || !roleMap.has(r.user_id)) {
+          roleMap.set(r.user_id, r.role);
+        }
+      });
 
       const mappedMembers: TeamMember[] = (profilesData ?? []).map((p: any) => {
         // Fallback za ime: profile.full_name → auth metadata → dio emaila prije @

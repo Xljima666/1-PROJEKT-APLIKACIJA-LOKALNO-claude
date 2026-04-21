@@ -69,13 +69,14 @@ const ProtectedRoute = ({ children, requiredPermission }: ProtectedRouteProps) =
       const keys = permissionVariants(requiredPermission);
 
       // 1) Admin uvijek prolazi
-      const { data: roleRow } = await supabase
+      const { data: adminRoles } = await supabase
         .from("user_roles")
         .select("role")
         .eq("user_id", user.id)
-        .maybeSingle();
+        .eq("role", "admin")
+        .limit(1);
 
-      if (roleRow?.role === "admin") {
+      if ((adminRoles?.length ?? 0) > 0) {
         if (!cancelled) {
           setAllowed(true);
           setChecking(false);
