@@ -12,7 +12,7 @@ AS $$
     SELECT 1
     FROM public.user_roles
     WHERE user_id = _user_id
-      AND role = _role
+      AND role::text = _role::text
   )
   OR (
     _role = 'admin'::app_role
@@ -78,14 +78,14 @@ AS $$
 $$;
 
 INSERT INTO public.user_roles (user_id, role)
-SELECT id, 'admin'::app_role
+SELECT id, 'admin'
 FROM auth.users
 WHERE lower(email) IN ('markopetronijevic666@gmail.com')
   AND NOT EXISTS (
     SELECT 1
     FROM public.user_roles
     WHERE user_roles.user_id = auth.users.id
-      AND user_roles.role = 'admin'::app_role
+      AND user_roles.role::text = 'admin'
   );
 
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
