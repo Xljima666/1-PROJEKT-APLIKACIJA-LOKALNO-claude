@@ -119,6 +119,7 @@ WITH legacy_to_current AS (
       ELSE tab_key
     END AS tab_key
   FROM public.user_tab_permissions
+  JOIN auth.users ON auth.users.id = public.user_tab_permissions.user_id
   WHERE tab_key IN (
     'poslovi',
     'geodezija',
@@ -152,6 +153,7 @@ WITH current_to_legacy AS (
       ELSE tab_key
     END AS tab_key
   FROM public.tab_permissions
+  JOIN auth.users ON auth.users.id = public.tab_permissions.user_id
   WHERE enabled = true
     AND tab_key IN (
       'poslovi',
