@@ -449,12 +449,21 @@ const Team = () => {
       [userId]: { ...(prev[userId] ?? {}), [tabKey]: next },
     }));
 
-    const { error } = await supabase
+    const { data: updatedRows, error: updateError } = await supabase
       .from("tab_permissions")
-      .upsert(
-        { user_id: userId, tab_key: tabKey, enabled: next, granted_by: user?.id },
-        { onConflict: "user_id,tab_key" }
-      );
+      .update({ enabled: next, granted_by: user?.id })
+      .eq("user_id", userId)
+      .eq("tab_key", tabKey)
+      .select("id");
+
+    const insertResult =
+      !updateError && (updatedRows?.length ?? 0) === 0
+        ? await supabase
+            .from("tab_permissions")
+            .insert({ user_id: userId, tab_key: tabKey, enabled: next, granted_by: user?.id })
+        : { error: null };
+
+    const error = updateError ?? insertResult.error;
 
     if (error) {
       // Rollback

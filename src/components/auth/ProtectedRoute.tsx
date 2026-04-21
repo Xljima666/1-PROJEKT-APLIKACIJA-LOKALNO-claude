@@ -24,6 +24,21 @@ interface ProtectedRouteProps {
 // Normaliziraj ključ (App.tsx koristi "kontakt-upiti", baza "kontakt_upiti")
 const normalizeKey = (k?: string) => (k ? k.replace(/-/g, "_") : undefined);
 
+const legacyKey = (key: string) => {
+  const map: Record<string, string> = {
+    kontakt_upiti: "kontakt-upiti",
+    privatne_biljeske: "privatne-biljeske",
+    sve_privatne_biljeske: "privatne-biljeske-sve",
+    stellan_only: "samo-stellan",
+  };
+  return map[key] ?? key;
+};
+
+const permissionVariants = (requiredPermission: PermissionKey) => {
+  const normalized = normalizeKey(requiredPermission)!;
+  return Array.from(new Set([requiredPermission, normalized, legacyKey(normalized)]));
+};
+
 const ProtectedRoute = ({ children, requiredPermission }: ProtectedRouteProps) => {
   const { user, isLoading: authLoading } = useAuth();
   const location = useLocation();
@@ -51,6 +66,7 @@ const ProtectedRoute = ({ children, requiredPermission }: ProtectedRouteProps) =
       }
 
       const key = normalizeKey(requiredPermission)!;
+      const keys = permissionVariants(requiredPermission);
 
       // 1) Admin uvijek prolazi
       const { data: roleRow } = await supabase
@@ -75,8 +91,23 @@ const ProtectedRoute = ({ children, requiredPermission }: ProtectedRouteProps) =
         .eq("tab_key", key)
         .maybeSingle();
 
+      if (permRow?.enabled) {
+        if (!cancelled) {
+          setAllowed(true);
+          setChecking(false);
+        }
+        return;
+      }
+
+      const { data: legacyRows } = await supabase
+        .from("user_tab_permissions")
+        .select("tab_key")
+        .eq("user_id", user.id)
+        .in("tab_key", keys)
+        .limit(1);
+
       if (!cancelled) {
-        setAllowed(!!permRow?.enabled);
+        setAllowed((legacyRows?.length ?? 0) > 0);
         setChecking(false);
       }
     };

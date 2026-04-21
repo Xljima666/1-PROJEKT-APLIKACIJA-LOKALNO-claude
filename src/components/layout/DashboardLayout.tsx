@@ -37,6 +37,27 @@ interface TabPermission {
   tab_key: string;
 }
 
+const mapPermissionForNavigation = (key: string) => {
+  const map: Record<string, string> = {
+    kontakt_upiti: "kontakt-upiti",
+    privatne_biljeske: "privatne-biljeske",
+    sve_privatne_biljeske: "privatne-biljeske-sve",
+    stellan_only: "samo-stellan",
+  };
+  return map[key] ?? key;
+};
+
+const mergePermissionKeys = (...groups: Array<TabPermission[] | null | undefined>) => {
+  const keys = new Set<string>();
+  groups.forEach((group) => {
+    group?.forEach((permission) => {
+      keys.add(mapPermissionForNavigation(permission.tab_key));
+      keys.add(permission.tab_key);
+    });
+  });
+  return Array.from(keys);
+};
+
 // Search context for global header search
 const SearchContext = createContext<string>("");
 export const useHeaderSearch = () => useContext(SearchContext);
@@ -89,13 +110,18 @@ const DashboardLayout = ({ children, headerCenter, noScroll }: DashboardLayoutPr
     };
     const fetchTabPermissions = async () => {
       if (!user || isAdmin) return;
-      const { data } = await supabase
-        .from("user_tab_permissions")
-        .select("tab_key")
-        .eq("user_id", user.id);
-      if (data) {
-        setUserTabPermissions(data.map((p: TabPermission) => p.tab_key));
-      }
+      const [{ data: legacyPermissions }, { data: currentPermissions }] = await Promise.all([
+        supabase
+          .from("user_tab_permissions")
+          .select("tab_key")
+          .eq("user_id", user.id),
+        supabase
+          .from("tab_permissions")
+          .select("tab_key")
+          .eq("user_id", user.id)
+          .eq("enabled", true),
+      ]);
+      setUserTabPermissions(mergePermissionKeys(legacyPermissions, currentPermissions));
     };
     fetchProfiles();
     fetchTabPermissions();
@@ -108,11 +134,18 @@ const DashboardLayout = ({ children, headerCenter, noScroll }: DashboardLayoutPr
       return;
     }
     const fetchImpPerms = async () => {
-      const { data } = await supabase
-        .from("user_tab_permissions")
-        .select("tab_key")
-        .eq("user_id", impersonatedUser.id);
-      setImpersonatedPermissions(data ? data.map((p: TabPermission) => p.tab_key) : []);
+      const [{ data: legacyPermissions }, { data: currentPermissions }] = await Promise.all([
+        supabase
+          .from("user_tab_permissions")
+          .select("tab_key")
+          .eq("user_id", impersonatedUser.id),
+        supabase
+          .from("tab_permissions")
+          .select("tab_key")
+          .eq("user_id", impersonatedUser.id)
+          .eq("enabled", true),
+      ]);
+      setImpersonatedPermissions(mergePermissionKeys(legacyPermissions, currentPermissions));
     };
     fetchImpPerms();
   }, [isImpersonating, impersonatedUser]);
