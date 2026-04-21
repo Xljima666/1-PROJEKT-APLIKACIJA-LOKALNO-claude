@@ -29,15 +29,25 @@ AS $$
   )
 $$;
 
+WITH mapped_permissions AS (
+  SELECT DISTINCT
+    user_id,
+    CASE tab_key
+      WHEN 'privatne_biljeske' THEN 'privatne-biljeske'
+      WHEN 'sve_privatne_biljeske' THEN 'privatne-biljeske-sve'
+      WHEN 'kontakt_upiti' THEN 'kontakt-upiti'
+      ELSE tab_key
+    END AS tab_key
+  FROM public.tab_permissions
+  WHERE enabled = true
+    AND tab_key IN ('privatne_biljeske', 'sve_privatne_biljeske', 'kontakt_upiti')
+)
 INSERT INTO public.user_tab_permissions (user_id, tab_key)
-SELECT user_id,
-  CASE tab_key
-    WHEN 'privatne_biljeske' THEN 'privatne-biljeske'
-    WHEN 'sve_privatne_biljeske' THEN 'privatne-biljeske-sve'
-    WHEN 'kontakt_upiti' THEN 'kontakt-upiti'
-    ELSE tab_key
-  END
-FROM public.tab_permissions
-WHERE enabled = true
-  AND tab_key IN ('privatne_biljeske', 'sve_privatne_biljeske', 'kontakt_upiti')
-ON CONFLICT (user_id, tab_key) DO NOTHING;
+SELECT mp.user_id, mp.tab_key
+FROM mapped_permissions mp
+WHERE NOT EXISTS (
+  SELECT 1
+  FROM public.user_tab_permissions existing
+  WHERE existing.user_id = mp.user_id
+    AND existing.tab_key = mp.tab_key
+);
