@@ -45,10 +45,17 @@ BEGIN
   IF marko_id IS NULL THEN
     RAISE NOTICE 'Korisnik markopetronijevic666@gmail.com nije pronađen u auth.users';
   ELSE
-    -- Postavi ulogu admin
+    -- Postavi ulogu admin bez oslanjanja na UNIQUE(user_id).
+    -- Starija shema ima UNIQUE(user_id, role), pa ON CONFLICT(user_id) puca.
+    DELETE FROM public.user_roles
+     WHERE user_id = marko_id
+       AND role <> 'admin';
+
     INSERT INTO public.user_roles (user_id, role)
-    VALUES (marko_id, 'admin')
-    ON CONFLICT (user_id) DO UPDATE SET role = 'admin';
+    SELECT marko_id, 'admin'
+    WHERE NOT EXISTS (
+      SELECT 1 FROM public.user_roles WHERE user_id = marko_id AND role = 'admin'
+    );
 
     -- Pobrini se da je profil "root" (bez admin_user_id)
     UPDATE public.profiles
@@ -56,10 +63,12 @@ BEGIN
            email = COALESCE(email, 'markopetronijevic666@gmail.com')
      WHERE user_id = marko_id;
 
-    -- Ako profil ne postoji, napravi ga
+    -- Ako profil ne postoji, napravi ga bez oslanjanja na constraint ime.
     INSERT INTO public.profiles (user_id, email, admin_user_id)
-    VALUES (marko_id, 'markopetronijevic666@gmail.com', NULL)
-    ON CONFLICT (user_id) DO NOTHING;
+    SELECT marko_id, 'markopetronijevic666@gmail.com', NULL
+    WHERE NOT EXISTS (
+      SELECT 1 FROM public.profiles WHERE user_id = marko_id
+    );
 
     RAISE NOTICE 'Marko postavljen kao admin, user_id = %', marko_id;
   END IF;

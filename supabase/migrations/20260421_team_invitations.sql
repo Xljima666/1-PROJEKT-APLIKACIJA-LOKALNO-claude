@@ -8,6 +8,8 @@ DO $$ BEGIN
   CREATE TYPE app_role AS ENUM ('admin', 'korisnik');
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
+ALTER TYPE public.app_role ADD VALUE IF NOT EXISTS 'korisnik';
+
 -- 2) user_roles (ako ne postoji)
 CREATE TABLE IF NOT EXISTS public.user_roles (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -34,6 +36,34 @@ CREATE TABLE IF NOT EXISTS public.invitations (
   expires_at timestamptz NOT NULL DEFAULT (now() + interval '7 days'),
   accepted_at timestamptz
 );
+
+ALTER TABLE public.invitations
+  ADD COLUMN IF NOT EXISTS role app_role NOT NULL DEFAULT 'korisnik',
+  ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'pending',
+  ADD COLUMN IF NOT EXISTS accepted_by uuid REFERENCES auth.users(id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS accepted_at timestamptz;
+
+UPDATE public.invitations
+   SET role = 'korisnik'
+ WHERE role IS NULL;
+
+UPDATE public.invitations
+   SET status = 'pending'
+ WHERE status IS NULL
+    OR status NOT IN ('pending','accepted','revoked','expired');
+
+ALTER TABLE public.invitations
+  ALTER COLUMN role SET DEFAULT 'korisnik',
+  ALTER COLUMN role SET NOT NULL,
+  ALTER COLUMN status SET DEFAULT 'pending',
+  ALTER COLUMN status SET NOT NULL;
+
+ALTER TABLE public.invitations
+  DROP CONSTRAINT IF EXISTS invitations_status_check;
+
+ALTER TABLE public.invitations
+  ADD CONSTRAINT invitations_status_check
+  CHECK (status IN ('pending','accepted','revoked','expired'));
 
 CREATE INDEX IF NOT EXISTS idx_invitations_email ON public.invitations(email);
 CREATE INDEX IF NOT EXISTS idx_invitations_invited_by ON public.invitations(invited_by);
@@ -168,9 +198,17 @@ BEGIN
   -- Postavi profil: poveži s adminom
   UPDATE public.profiles SET admin_user_id = inv.invited_by WHERE user_id = uid;
 
-  -- Postavi ulogu
-  INSERT INTO public.user_roles (user_id, role) VALUES (uid, inv.role)
-  ON CONFLICT (user_id) DO UPDATE SET role = EXCLUDED.role;
+  -- Postavi ulogu bez oslanjanja na UNIQUE(user_id).
+  -- Starija shema ima UNIQUE(user_id, role), pa ON CONFLICT(user_id) puca.
+  DELETE FROM public.user_roles
+   WHERE user_id = uid
+     AND role <> inv.role;
+
+  INSERT INTO public.user_roles (user_id, role)
+  SELECT uid, inv.role
+  WHERE NOT EXISTS (
+    SELECT 1 FROM public.user_roles WHERE user_id = uid AND role = inv.role
+  );
 
   -- Označi prihvaćeno
   UPDATE public.invitations
