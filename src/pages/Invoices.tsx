@@ -6,34 +6,61 @@ import { exportDXF, importDXF } from "@/cad/dxf";
 import { dwgTemplatePresets, makeCadDocFromDwgTemplate, type DwgTemplatePreset } from "@/cad/dwgTemplatePresets";
 import { parseCoord } from "@/cad/coords";
 import { defaultOsnap, findOSnap } from "@/cad/osnap";
-import type { Point, Shape } from "@/cad/types";
+import { extendLine, mirrorShape, offsetShape, trimLine } from "@/cad/modify";
+import type { LineShape, Point, Shape } from "@/cad/types";
 import {
+  ArrowLeftRight,
   ChevronDown,
   Circle as CircleIcon,
+  Copy,
   Crosshair,
   Download,
   ExternalLink,
+  FlipHorizontal2,
   FileDown,
   FolderOpen,
   Grid3X3,
+  Hexagon,
   Layers,
+  Maximize2,
   MousePointer2,
   Move,
   PenLine,
   Redo2,
+  RotateCw,
   Ruler,
   Search,
   Settings,
+  Scissors,
   Square,
   Terminal,
   Trash2,
   TriangleRight,
+  Type as TypeIcon,
   Undo2,
   Upload,
+  Waypoints,
   ZoomIn,
 } from "lucide-react";
 
-type CadTool = "select" | "line" | "rect" | "circle" | "polyline";
+type CadTool =
+  | "select"
+  | "line"
+  | "rect"
+  | "circle"
+  | "polyline"
+  | "arc"
+  | "polygon"
+  | "text"
+  | "dim"
+  | "move"
+  | "copy"
+  | "rotate"
+  | "scale"
+  | "trim"
+  | "extend"
+  | "offset"
+  | "mirror";
 
 const CANVAS_W = 1800;
 const CANVAS_H = 980;
@@ -123,6 +150,29 @@ const geoHrStats = [
 
 const layerTools = ["S1", "SP", "NS", "SN", "C1", "C2", "L1", "L2", "L3", "L4", "L5", "L6", "L7"];
 
+const drawTools = [
+  { id: "select" as CadTool, title: "Select (S)", Icon: MousePointer2 },
+  { id: "line" as CadTool, title: "Line (L)", Icon: PenLine },
+  { id: "polyline" as CadTool, title: "Polyline (PL)", Icon: TriangleRight },
+  { id: "rect" as CadTool, title: "Rectangle (R)", Icon: Square },
+  { id: "circle" as CadTool, title: "Circle (C)", Icon: CircleIcon },
+  { id: "arc" as CadTool, title: "Arc (A)", Icon: Waypoints },
+  { id: "polygon" as CadTool, title: "Polygon (G)", Icon: Hexagon },
+  { id: "text" as CadTool, title: "Text (T)", Icon: TypeIcon },
+  { id: "dim" as CadTool, title: "Linear dimension (D)", Icon: Ruler },
+];
+
+const modifyTools = [
+  { id: "move" as CadTool, title: "Move (M)", Icon: Move },
+  { id: "copy" as CadTool, title: "Copy (Y)", Icon: Copy },
+  { id: "rotate" as CadTool, title: "Rotate (O)", Icon: RotateCw },
+  { id: "scale" as CadTool, title: "Scale (SC)", Icon: Maximize2 },
+  { id: "trim" as CadTool, title: "Trim (X)", Icon: Scissors },
+  { id: "extend" as CadTool, title: "Extend (W)", Icon: ZoomIn },
+  { id: "offset" as CadTool, title: "Offset (F)", Icon: ArrowLeftRight },
+  { id: "mirror" as CadTool, title: "Mirror (I)", Icon: FlipHorizontal2 },
+];
+
 function ToolbarButton({
   children,
   active,
@@ -183,7 +233,9 @@ function shapeBounds(s: Shape) {
   if (s.type === "circle") return `c ${s.cx.toFixed(1)},${s.cy.toFixed(1)}, r ${s.r.toFixed(1)}`;
   if (s.type === "polyline") return `${s.points.length} tocaka${s.closed ? ", zatvoreno" : ""}`;
   if (s.type === "text") return s.text;
-  return s.type;
+  if (s.type === "arc") return `arc c ${s.cx.toFixed(1)},${s.cy.toFixed(1)}, r ${s.r.toFixed(1)}`;
+  if (s.type === "dim-linear") return `dim ${s.x1.toFixed(1)},${s.y1.toFixed(1)} -> ${s.x2.toFixed(1)},${s.y2.toFixed(1)}`;
+  return "object";
 }
 
 function hitTest(shape: Shape, p: Point, tol = 10) {
@@ -207,6 +259,18 @@ function hitTest(shape: Shape, p: Point, tol = 10) {
     }
   }
   if (shape.type === "text") return Math.hypot(p.x - shape.x, p.y - shape.y) <= tol * 2;
+  if (shape.type === "dim-linear") {
+    const dx = shape.x2 - shape.x1;
+    const dy = shape.y2 - shape.y1;
+    const len = Math.hypot(dx, dy) || 1;
+    const nx = -dy / len;
+    const ny = dx / len;
+    return distToSegment(
+      p,
+      { x: shape.x1 + nx * shape.offset, y: shape.y1 + ny * shape.offset },
+      { x: shape.x2 + nx * shape.offset, y: shape.y2 + ny * shape.offset },
+    ) <= tol;
+  }
   return false;
 }
 
@@ -218,6 +282,82 @@ function distToSegment(p: Point, a: Point, b: Point) {
   const x = a.x + t * dx;
   const y = a.y + t * dy;
   return Math.hypot(p.x - x, p.y - y);
+}
+
+const cadUid = () => Math.random().toString(36).slice(2, 9);
+
+function cloneForAdd(shape: Shape) {
+  const { id: _id, ...rest } = shape as any;
+  return rest;
+}
+
+function translateShape(s: Shape, dx: number, dy: number): Shape {
+  if (s.type === "line") return { ...s, x1: s.x1 + dx, y1: s.y1 + dy, x2: s.x2 + dx, y2: s.y2 + dy };
+  if (s.type === "rect") return { ...s, x: s.x + dx, y: s.y + dy };
+  if (s.type === "circle" || s.type === "arc") return { ...s, cx: s.cx + dx, cy: s.cy + dy };
+  if (s.type === "polyline") return { ...s, points: s.points.map((p) => ({ x: p.x + dx, y: p.y + dy })) };
+  if (s.type === "text") return { ...s, x: s.x + dx, y: s.y + dy };
+  if (s.type === "dim-linear") return { ...s, x1: s.x1 + dx, y1: s.y1 + dy, x2: s.x2 + dx, y2: s.y2 + dy };
+  return s;
+}
+
+function rotatePoint(p: Point, c: Point, angle: number): Point {
+  const cs = Math.cos(angle);
+  const sn = Math.sin(angle);
+  const x = p.x - c.x;
+  const y = p.y - c.y;
+  return { x: c.x + x * cs - y * sn, y: c.y + x * sn + y * cs };
+}
+
+function rotateShape(s: Shape, c: Point, angle: number): Shape {
+  if (s.type === "line") {
+    const p1 = rotatePoint({ x: s.x1, y: s.y1 }, c, angle);
+    const p2 = rotatePoint({ x: s.x2, y: s.y2 }, c, angle);
+    return { ...s, x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y };
+  }
+  if (s.type === "circle" || s.type === "arc") {
+    const p = rotatePoint({ x: s.cx, y: s.cy }, c, angle);
+    return { ...s, cx: p.x, cy: p.y };
+  }
+  if (s.type === "polyline") return { ...s, points: s.points.map((p) => rotatePoint(p, c, angle)) };
+  if (s.type === "text") {
+    const p = rotatePoint({ x: s.x, y: s.y }, c, angle);
+    return { ...s, x: p.x, y: p.y };
+  }
+  if (s.type === "dim-linear") {
+    const p1 = rotatePoint({ x: s.x1, y: s.y1 }, c, angle);
+    const p2 = rotatePoint({ x: s.x2, y: s.y2 }, c, angle);
+    return { ...s, x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y };
+  }
+  return s;
+}
+
+function scaleCadShape(s: Shape, c: Point, factor: number): Shape {
+  const sp = (p: Point) => ({ x: c.x + (p.x - c.x) * factor, y: c.y + (p.y - c.y) * factor });
+  if (s.type === "line") {
+    const p1 = sp({ x: s.x1, y: s.y1 });
+    const p2 = sp({ x: s.x2, y: s.y2 });
+    return { ...s, x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y };
+  }
+  if (s.type === "rect") {
+    const p = sp({ x: s.x, y: s.y });
+    return { ...s, x: p.x, y: p.y, w: s.w * factor, h: s.h * factor };
+  }
+  if (s.type === "circle" || s.type === "arc") {
+    const p = sp({ x: s.cx, y: s.cy });
+    return { ...s, cx: p.x, cy: p.y, r: s.r * factor };
+  }
+  if (s.type === "polyline") return { ...s, points: s.points.map(sp) };
+  if (s.type === "text") {
+    const p = sp({ x: s.x, y: s.y });
+    return { ...s, x: p.x, y: p.y, size: s.size * factor };
+  }
+  if (s.type === "dim-linear") {
+    const p1 = sp({ x: s.x1, y: s.y1 });
+    const p2 = sp({ x: s.x2, y: s.y2 });
+    return { ...s, x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y, offset: s.offset * factor };
+  }
+  return s;
 }
 
 function renderShape(
@@ -270,6 +410,26 @@ function renderShape(
       </text>
     );
   }
+  if (shape.type === "dim-linear") {
+    const dx = shape.x2 - shape.x1;
+    const dy = shape.y2 - shape.y1;
+    const len = Math.hypot(dx, dy) || 1;
+    const nx = -dy / len;
+    const ny = dx / len;
+    const a = { x: shape.x1 + nx * shape.offset, y: shape.y1 + ny * shape.offset };
+    const b = { x: shape.x2 + nx * shape.offset, y: shape.y2 + ny * shape.offset };
+    const text = `${(len / 100).toFixed(2)} m`;
+    return (
+      <g key={shape.id} onMouseDown={(event) => { event.stopPropagation(); onSelect(shape.id); }}>
+        <line x1={shape.x1} y1={shape.y1} x2={a.x} y2={a.y} {...common} strokeWidth={selected ? 2.4 : 1.1} />
+        <line x1={shape.x2} y1={shape.y2} x2={b.x} y2={b.y} {...common} strokeWidth={selected ? 2.4 : 1.1} />
+        <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} {...common} />
+        <text x={(a.x + b.x) / 2 + 6} y={(a.y + b.y) / 2 - 6} fill={stroke} fontSize={20} stroke="none">
+          {text}
+        </text>
+      </g>
+    );
+  }
   return null;
 }
 
@@ -280,10 +440,12 @@ const Invoices = () => {
   const doc = useCad((s) => s.doc);
   const selectedIds = useCad((s) => s.selectedIds);
   const addShape = useCad((s) => s.addShape);
+  const updateShape = useCad((s) => s.updateShape);
   const deleteShapes = useCad((s) => s.deleteShapes);
   const clearAll = useCad((s) => s.clearAll);
   const setSelection = useCad((s) => s.setSelection);
   const setActiveLayer = useCad((s) => s.setActiveLayer);
+  const setDoc = useCad((s) => s.setDoc);
   const loadDoc = useCad((s) => s.loadDoc);
   const undo = useCad((s) => s.undo);
   const redo = useCad((s) => s.redo);
@@ -296,6 +458,9 @@ const Invoices = () => {
   const [gridOn, setGridOn] = useState(true);
   const [osnapOn, setOsnapOn] = useState(true);
   const [orthoOn, setOrthoOn] = useState(false);
+  const [polygonSides, setPolygonSides] = useState(6);
+  const [offsetDistance, setOffsetDistance] = useState(20);
+  const [mirrorAxis, setMirrorAxis] = useState<Point | null>(null);
 
   const layerMap = useMemo(() => new Map(doc.layers.map((l) => [l.id, l])), [doc.layers]);
   const visibleShapes = useMemo(
@@ -333,6 +498,7 @@ const Invoices = () => {
   const selectTool = (next: CadTool) => {
     setTool(next);
     setPending([]);
+    setMirrorAxis(null);
     addLog(`${next.toUpperCase()} aktivan.`);
   };
 
@@ -347,12 +513,93 @@ const Invoices = () => {
     addLog(`Polyline dodan (${pending.length} tocaka).`);
   };
 
+  const pickShapeAt = (p: Point) => [...visibleShapes].reverse().find((shape) => hitTest(shape, p, 12));
+
+  const applyModifyTool = (modifyTool: CadTool, base: Point, target: Point) => {
+    const ids = selectedIds;
+    if (!ids.length) return addLog(`${modifyTool.toUpperCase()}: prvo odaberi objekt.`);
+    const dx = target.x - base.x;
+    const dy = target.y - base.y;
+    if (modifyTool === "move") {
+      setDoc({ ...doc, shapes: doc.shapes.map((shape) => (ids.includes(shape.id) ? translateShape(shape, dx, dy) : shape)) });
+      return addLog(`MOVE ${ids.length} objekt(a).`);
+    }
+    if (modifyTool === "copy") {
+      const clones = doc.shapes
+        .filter((shape) => ids.includes(shape.id))
+        .map((shape) => ({ ...translateShape(shape, dx, dy), id: cadUid() }));
+      setDoc({ ...doc, shapes: [...doc.shapes, ...clones] });
+      setSelection(clones.map((shape) => shape.id));
+      return addLog(`COPY ${clones.length} objekt(a).`);
+    }
+    if (modifyTool === "rotate") {
+      const angle = Math.atan2(dy, dx);
+      setDoc({ ...doc, shapes: doc.shapes.map((shape) => (ids.includes(shape.id) ? rotateShape(shape, base, angle) : shape)) });
+      return addLog(`ROTATE ${(angle * 180 / Math.PI).toFixed(1)} stupnjeva.`);
+    }
+    if (modifyTool === "scale") {
+      const factor = Math.max(0.05, Math.hypot(dx, dy) / 100);
+      setDoc({ ...doc, shapes: doc.shapes.map((shape) => (ids.includes(shape.id) ? scaleCadShape(shape, base, factor) : shape)) });
+      return addLog(`SCALE faktor ${factor.toFixed(2)}.`);
+    }
+  };
+
   const onCanvasMouseDown = (event: MouseEvent<SVGSVGElement>) => {
     const p = applySnap(toWorld(event.clientX, event.clientY));
 
     if (tool === "select") {
-      const hit = [...visibleShapes].reverse().find((shape) => hitTest(shape, p));
+      const hit = pickShapeAt(p);
       setSelection(hit ? [hit.id] : []);
+      return;
+    }
+
+    if (tool === "trim" || tool === "extend") {
+      const hit = pickShapeAt(p);
+      if (!hit || hit.type !== "line") return addLog(`${tool.toUpperCase()}: klikni LINE objekt.`);
+      const next = tool === "trim" ? trimLine(hit as LineShape, doc.shapes, p) : extendLine(hit as LineShape, doc.shapes, p);
+      if (!next) return addLog(`${tool.toUpperCase()}: nema granice za tu radnju.`);
+      updateShape(hit.id, next as Partial<Shape>);
+      return addLog(`${tool.toUpperCase()} napravljen.`);
+    }
+
+    if (tool === "offset") {
+      if (!selectedIds.length) {
+        const hit = pickShapeAt(p);
+        if (hit) setSelection([hit.id]);
+        return addLog(hit ? "OFFSET: objekt odabran, klikni stranu za kopiju." : "OFFSET: odaberi objekt.");
+      }
+      const src = doc.shapes.find((shape) => shape.id === selectedIds[0]);
+      if (!src) return;
+      const clone = offsetShape(src, offsetDistance, p);
+      if (!clone) return addLog("OFFSET: ovaj objekt se jos ne moze offsetati.");
+      const id = addShape(cloneForAdd(clone) as any);
+      setSelection([id]);
+      return addLog(`OFFSET ${offsetDistance}.`);
+    }
+
+    if (tool === "mirror") {
+      if (!selectedIds.length) return addLog("MIRROR: prvo odaberi objekte.");
+      if (!mirrorAxis) {
+        setMirrorAxis(p);
+        return addLog(`MIRROR prva tocka osi ${formatPoint(p)}.`);
+      }
+      const clones = doc.shapes
+        .filter((shape) => selectedIds.includes(shape.id))
+        .map((shape) => mirrorShape(shape, mirrorAxis, p));
+      setDoc({ ...doc, shapes: [...doc.shapes, ...clones] });
+      setSelection(clones.map((shape) => shape.id));
+      setMirrorAxis(null);
+      return addLog(`MIRROR ${clones.length} objekt(a).`);
+    }
+
+    if (tool === "move" || tool === "copy" || tool === "rotate" || tool === "scale") {
+      if (!selectedIds.length) return addLog(`${tool.toUpperCase()}: prvo odaberi objekt.`);
+      if (!pending.length) {
+        setPending([p]);
+        return addLog(`${tool.toUpperCase()} base point ${formatPoint(p)}.`);
+      }
+      applyModifyTool(tool, pending[0], p);
+      setPending([]);
       return;
     }
 
@@ -404,6 +651,81 @@ const Invoices = () => {
       return;
     }
 
+    if (tool === "arc") {
+      if (!pending.length) {
+        setPending([p]);
+        addLog(`ARC center ${formatPoint(p)}`);
+      } else if (pending.length === 1) {
+        setPending((prev) => [...prev, p]);
+        addLog(`ARC start ${formatPoint(p)}`);
+      } else {
+        const center = pending[0];
+        const start = pending[1];
+        const r = Math.hypot(start.x - center.x, start.y - center.y);
+        const startAngle = (Math.atan2(start.y - center.y, start.x - center.x) * 180) / Math.PI;
+        const endAngle = (Math.atan2(p.y - center.y, p.x - center.x) * 180) / Math.PI;
+        const id = addShape({ type: "arc", cx: center.x, cy: center.y, r, startAngle, endAngle } as any);
+        setSelection([id]);
+        setPending([]);
+        addLog("ARC dodan.");
+      }
+      return;
+    }
+
+    if (tool === "polygon") {
+      if (!pending.length) {
+        setPending([p]);
+        addLog(`POLYGON center ${formatPoint(p)}`);
+      } else {
+        const center = pending[0];
+        const r = Math.hypot(p.x - center.x, p.y - center.y);
+        const a0 = Math.atan2(p.y - center.y, p.x - center.x);
+        const points = Array.from({ length: polygonSides }, (_, index) => {
+          const angle = a0 + (index * 2 * Math.PI) / polygonSides;
+          return { x: center.x + r * Math.cos(angle), y: center.y + r * Math.sin(angle) };
+        });
+        const id = addShape({ type: "polyline", points, closed: true } as any);
+        setSelection([id]);
+        setPending([]);
+        addLog(`POLYGON ${polygonSides} stranica dodan.`);
+      }
+      return;
+    }
+
+    if (tool === "text") {
+      const text = window.prompt("Tekst:", "Tekst");
+      if (text) {
+        const id = addShape({ type: "text", x: p.x, y: p.y, text, size: 28 } as any);
+        setSelection([id]);
+        addLog(`TEXT dodan: ${text}`);
+      }
+      return;
+    }
+
+    if (tool === "dim") {
+      if (!pending.length) {
+        setPending([p]);
+        addLog(`DIM prva tocka ${formatPoint(p)}`);
+      } else if (pending.length === 1) {
+        setPending((prev) => [...prev, p]);
+        addLog(`DIM druga tocka ${formatPoint(p)}`);
+      } else {
+        const a = pending[0];
+        const b = pending[1];
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
+        const len = Math.hypot(dx, dy) || 1;
+        const nx = -dy / len;
+        const ny = dx / len;
+        const offset = (p.x - a.x) * nx + (p.y - a.y) * ny;
+        const id = addShape({ type: "dim-linear", x1: a.x, y1: a.y, x2: b.x, y2: b.y, offset } as any);
+        setSelection([id]);
+        setPending([]);
+        addLog("DIM dodan.");
+      }
+      return;
+    }
+
     if (tool === "polyline") {
       setPending((prev) => [...prev, p]);
       addLog(`PL point ${pending.length + 1}: ${formatPoint(p)}. Enter ili dvoklik zavrsava.`);
@@ -430,6 +752,21 @@ const Invoices = () => {
     if (cmd === "R" || cmd === "RECT") return setAndLog("rect");
     if (cmd === "C" || cmd === "CIRCLE") return setAndLog("circle");
     if (cmd === "PL" || cmd === "POLY") return setAndLog("polyline");
+    if (cmd === "A" || cmd === "ARC") return setAndLog("arc");
+    if (cmd === "G" || cmd === "POLYGON") return setAndLog("polygon");
+    if (cmd === "D" || cmd === "DIM") return setAndLog("dim");
+    if ((cmd === "T" || cmd === "TEXT") && args.length < 2) return setAndLog("text");
+    if (cmd === "M" || cmd === "MOVE") return setAndLog("move");
+    if (cmd === "Y" || cmd === "COPY") return setAndLog("copy");
+    if (cmd === "O" || cmd === "ROTATE") return setAndLog("rotate");
+    if (cmd === "SC" || cmd === "SCALE") return setAndLog("scale");
+    if (cmd === "X" || cmd === "TRIM") return setAndLog("trim");
+    if (cmd === "W" || cmd === "EXTEND") return setAndLog("extend");
+    if (cmd === "I" || cmd === "MIRROR") return setAndLog("mirror");
+    if (cmd === "F" || cmd === "OFFSET") {
+      if (args[0] && Number.isFinite(Number(args[0]))) setOffsetDistance(Math.max(0.1, Number(args[0])));
+      return setAndLog("offset");
+    }
     if (cmd === "S" || cmd === "SELECT") return setAndLog("select");
     if (cmd === "U" || cmd === "UNDO") {
       undo();
@@ -534,6 +871,41 @@ const Invoices = () => {
     if (tool === "line") return <line x1={a.x} y1={a.y} x2={cursor.x} y2={cursor.y} stroke={stroke} strokeWidth={1.4} strokeDasharray="8 8" vectorEffect="non-scaling-stroke" />;
     if (tool === "rect") return <rect x={Math.min(a.x, cursor.x)} y={Math.min(a.y, cursor.y)} width={Math.abs(cursor.x - a.x)} height={Math.abs(cursor.y - a.y)} stroke={stroke} strokeWidth={1.4} strokeDasharray="8 8" fill="none" vectorEffect="non-scaling-stroke" />;
     if (tool === "circle") return <circle cx={a.x} cy={a.y} r={Math.hypot(cursor.x - a.x, cursor.y - a.y)} stroke={stroke} strokeWidth={1.4} strokeDasharray="8 8" fill="none" vectorEffect="non-scaling-stroke" />;
+    if (tool === "arc" && pending.length === 1) return <circle cx={a.x} cy={a.y} r={Math.hypot(cursor.x - a.x, cursor.y - a.y)} stroke={stroke} strokeWidth={1.4} strokeDasharray="8 8" fill="none" vectorEffect="non-scaling-stroke" />;
+    if (tool === "arc" && pending.length >= 2) {
+      const center = pending[0];
+      const start = pending[1];
+      const r = Math.hypot(start.x - center.x, start.y - center.y);
+      const sa = Math.atan2(start.y - center.y, start.x - center.x);
+      const ea = Math.atan2(cursor.y - center.y, cursor.x - center.x);
+      const p1 = { x: center.x + Math.cos(sa) * r, y: center.y + Math.sin(sa) * r };
+      const p2 = { x: center.x + Math.cos(ea) * r, y: center.y + Math.sin(ea) * r };
+      return <path d={`M ${p1.x} ${p1.y} A ${r} ${r} 0 ${Math.abs(ea - sa) > Math.PI ? 1 : 0} 1 ${p2.x} ${p2.y}`} stroke={stroke} strokeWidth={1.4} strokeDasharray="8 8" fill="none" vectorEffect="non-scaling-stroke" />;
+    }
+    if (tool === "polygon") {
+      const r = Math.hypot(cursor.x - a.x, cursor.y - a.y);
+      const a0 = Math.atan2(cursor.y - a.y, cursor.x - a.x);
+      const points = Array.from({ length: polygonSides }, (_, index) => {
+        const angle = a0 + (index * 2 * Math.PI) / polygonSides;
+        return `${a.x + r * Math.cos(angle)},${a.y + r * Math.sin(angle)}`;
+      }).join(" ");
+      return <polygon points={points} stroke={stroke} strokeWidth={1.4} strokeDasharray="8 8" fill="none" vectorEffect="non-scaling-stroke" />;
+    }
+    if (tool === "dim" && pending.length >= 2) {
+      const b = pending[1];
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const len = Math.hypot(dx, dy) || 1;
+      const nx = -dy / len;
+      const ny = dx / len;
+      const off = (cursor.x - a.x) * nx + (cursor.y - a.y) * ny;
+      const p1 = { x: a.x + nx * off, y: a.y + ny * off };
+      const p2 = { x: b.x + nx * off, y: b.y + ny * off };
+      return <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={stroke} strokeWidth={1.4} strokeDasharray="8 8" vectorEffect="non-scaling-stroke" />;
+    }
+    if ((tool === "move" || tool === "copy" || tool === "rotate" || tool === "scale" || tool === "mirror") && pending.length) {
+      return <line x1={a.x} y1={a.y} x2={cursor.x} y2={cursor.y} stroke={stroke} strokeWidth={1.4} strokeDasharray="8 8" vectorEffect="non-scaling-stroke" />;
+    }
     if (tool === "polyline") {
       const pts = [...pending, cursor].map((p) => `${p.x},${p.y}`).join(" ");
       return <polyline points={pts} stroke={stroke} strokeWidth={1.4} strokeDasharray="8 8" fill="none" vectorEffect="non-scaling-stroke" />;
@@ -588,24 +960,38 @@ const Invoices = () => {
           </div>
 
           <div className="flex min-h-8 items-center gap-1 overflow-x-auto border-t border-[#40515f] px-2 py-1">
-            <ToolbarButton title="Select" active={tool === "select"} onClick={() => selectTool("select")}>
-              <MousePointer2 className="h-3.5 w-3.5" />
-            </ToolbarButton>
-            <ToolbarButton title="Line" active={tool === "line"} onClick={() => selectTool("line")}>
-              <PenLine className="h-3.5 w-3.5" />
-            </ToolbarButton>
-            <ToolbarButton title="Rectangle" active={tool === "rect"} onClick={() => selectTool("rect")}>
-              <Square className="h-3.5 w-3.5" />
-            </ToolbarButton>
-            <ToolbarButton title="Circle" active={tool === "circle"} onClick={() => selectTool("circle")}>
-              <CircleIcon className="h-3.5 w-3.5" />
-            </ToolbarButton>
-            <ToolbarButton title="Polyline" active={tool === "polyline"} onClick={() => selectTool("polyline")}>
-              <TriangleRight className="h-3.5 w-3.5" />
-            </ToolbarButton>
+            {drawTools.map(({ id, title, Icon }) => (
+              <ToolbarButton key={id} title={title} active={tool === id} onClick={() => selectTool(id)}>
+                <Icon className="h-3.5 w-3.5" />
+              </ToolbarButton>
+            ))}
             <ToolbarButton title="Finish polyline" onClick={finishPolyline}>
               OK
             </ToolbarButton>
+            <div className="mx-1 h-5 w-px bg-[#607181]" />
+            {modifyTools.map(({ id, title, Icon }) => (
+              <ToolbarButton key={id} title={title} active={tool === id} onClick={() => selectTool(id)}>
+                <Icon className="h-3.5 w-3.5" />
+              </ToolbarButton>
+            ))}
+            <input
+              title="Polygon sides"
+              type="number"
+              min={3}
+              max={32}
+              value={polygonSides}
+              onChange={(event) => setPolygonSides(Math.max(3, Number(event.target.value) || 3))}
+              className="h-6 w-10 border border-[#607181] bg-[#18232d] text-center text-[10px] text-slate-100 outline-none"
+            />
+            <input
+              title="Offset distance"
+              type="number"
+              min={0.1}
+              step={1}
+              value={offsetDistance}
+              onChange={(event) => setOffsetDistance(Math.max(0.1, Number(event.target.value) || 1))}
+              className="h-6 w-12 border border-[#607181] bg-[#18232d] text-center text-[10px] text-slate-100 outline-none"
+            />
             <div className="mx-1 h-5 w-px bg-[#607181]" />
             {geoHrIcons.map((icon) => (
               <button
@@ -738,6 +1124,12 @@ const Invoices = () => {
                 {pending.map((p, index) => (
                   <circle key={`${p.x}-${p.y}-${index}`} cx={p.x} cy={p.y} r={4} fill="#facc15" />
                 ))}
+                {mirrorAxis && cursor && (
+                  <g pointerEvents="none">
+                    <circle cx={mirrorAxis.x} cy={mirrorAxis.y} r={4} fill="#facc15" />
+                    <line x1={mirrorAxis.x} y1={mirrorAxis.y} x2={cursor.x} y2={cursor.y} stroke="#facc15" strokeWidth={1.4} strokeDasharray="8 8" vectorEffect="non-scaling-stroke" />
+                  </g>
+                )}
               </g>
               {cursor && (
                 <g pointerEvents="none" stroke="rgba(226,232,240,0.75)" strokeWidth="1.2" vectorEffect="non-scaling-stroke">
@@ -763,7 +1155,7 @@ const Invoices = () => {
                 value={command}
                 onChange={(event) => setCommand(event.target.value)}
                 onKeyDown={(event) => event.key === "Enter" && executeCommand()}
-                placeholder="L, RECT, CIRCLE, PL, TEXT 100,100 opis, DXF, IMPORT, UNDO, ERASE, CLEAR"
+                placeholder="L R C PL A G D T, M Y O SC X W F 20 I, TEXT 100,100 opis, DXF, IMPORT, UNDO, ERASE, CLEAR"
                 className="min-w-0 flex-1 bg-transparent font-mono text-xs text-slate-100 outline-none placeholder:text-slate-500"
               />
               <button onClick={executeCommand} className="ml-2 rounded border border-[#607181] px-2 py-1 text-[10px] hover:bg-[#40515f]">
@@ -780,7 +1172,7 @@ const Invoices = () => {
                 {[
                   [MousePointer2, tool === "select", () => selectTool("select")],
                   [Crosshair, osnapOn, () => setOsnapOn((v) => !v)],
-                  [Move, false, () => addLog("MOVE dolazi u sljedecoj rundi.")],
+                  [Move, tool === "move", () => selectTool("move")],
                   [Ruler, orthoOn, () => setOrthoOn((v) => !v)],
                   [Layers, true, () => addLog(`Aktivni layer: ${activeLayer?.name}`)],
                   [Square, tool === "rect", () => selectTool("rect")],

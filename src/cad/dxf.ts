@@ -99,6 +99,23 @@ export function exportDXF(doc: CadDoc): string {
       push(10, s.x); push(20, -s.y); push(30, 0);
       push(40, s.size);
       push(1, s.text);
+    } else if (s.type === "dim-linear") {
+      const dx = s.x2 - s.x1;
+      const dy = s.y2 - s.y1;
+      const len = Math.hypot(dx, dy) || 1;
+      const nx = -dy / len;
+      const ny = dx / len;
+      const a = { x: s.x1 + nx * s.offset, y: s.y1 + ny * s.offset };
+      const b = { x: s.x2 + nx * s.offset, y: s.y2 + ny * s.offset };
+      push(0, "LINE");
+      push(8, layerName);
+      push(10, a.x); push(20, -a.y); push(30, 0);
+      push(11, b.x); push(21, -b.y); push(31, 0);
+      push(0, "TEXT");
+      push(8, layerName);
+      push(10, (a.x + b.x) / 2); push(20, -((a.y + b.y) / 2)); push(30, 0);
+      push(40, 20);
+      push(1, `${(len / 100).toFixed(2)} m`);
     }
   }
 
