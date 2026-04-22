@@ -3,6 +3,7 @@ import DashboardLayout from "@/components/layout/DashboardLayout";
 import { cn } from "@/lib/utils";
 import { useCad } from "@/cad/store";
 import { exportDXF, importDXF } from "@/cad/dxf";
+import { dwgTemplatePresets, makeCadDocFromDwgTemplate, type DwgTemplatePreset } from "@/cad/dwgTemplatePresets";
 import { parseCoord } from "@/cad/coords";
 import { defaultOsnap, findOSnap } from "@/cad/osnap";
 import type { Point, Shape } from "@/cad/types";
@@ -116,15 +117,8 @@ const geoHrStats = [
   ["SLD simboli", "374"],
   ["LISP alati", "123"],
   ["BMP ikone", "102"],
-  ["DWT template", "5"],
-];
-
-const templates = [
-  "Digitalna_skica_original.dwt",
-  "Prazan_crtez.dwt",
-  "Skica_izmjere.dwt",
-  "Skica_izmjere_sud.dwt",
-  "Terenska_situacija.dwt",
+  ["DWG predlosci", "2"],
+  ["Layeri iz DWG", "121"],
 ];
 
 const layerTools = ["S1", "SP", "NS", "SN", "C1", "C2", "L1", "L2", "L3", "L4", "L5", "L6", "L7"];
@@ -522,6 +516,17 @@ const Invoices = () => {
     event.target.value = "";
   };
 
+  const applyDwgTemplate = (template: DwgTemplatePreset, keepShapes = false) => {
+    const nextDoc = makeCadDocFromDwgTemplate(template, keepShapes ? doc.shapes : []);
+    loadDoc(nextDoc);
+    setPending([]);
+    setSelection([]);
+    const layoutNames = template.layouts.map((layout) => layout.name).filter((name) => name !== "Model").join(", ");
+    addLog(
+      `${template.title}: ucitano ${template.layers.length} layera, ${template.layouts.length} layouta, ${template.blocks.length} blokova. Layouti: ${layoutNames}`,
+    );
+  };
+
   const previewShape = () => {
     if (!cursor || !pending.length) return null;
     const a = pending[0];
@@ -631,6 +636,9 @@ const Invoices = () => {
               <div className="bg-[#273541] px-2 py-1 text-[12px] font-semibold">General</div>
               <PropertyRow label="Color" value={selectedShape ? layerMap.get(selectedShape.layerId)?.color || "ByLayer" : "ByLayer"} />
               <PropertyRow label="Layer" value={selectedShape ? layerMap.get(selectedShape.layerId)?.name || "0" : activeLayer?.name || "0"} />
+              <PropertyRow label="ACI" value={String((selectedShape ? layerMap.get(selectedShape.layerId)?.aciColor : activeLayer?.aciColor) ?? "ByLayer")} />
+              <PropertyRow label="Linetype" value={(selectedShape ? layerMap.get(selectedShape.layerId)?.lineType : activeLayer?.lineType) || "Continuous"} />
+              <PropertyRow label="Lineweight" value={String((selectedShape ? layerMap.get(selectedShape.layerId)?.lineWeight : activeLayer?.lineWeight) ?? "ByLayer")} />
               <PropertyRow label="Type" value={selectedShape?.type || tool} />
               <PropertyRow label="Geometry" value={selectedShape ? shapeBounds(selectedShape) : "klikni ili upisi naredbu"} />
               <PropertyRow label="Objects" value={String(doc.shapes.length)} />
@@ -813,22 +821,47 @@ const Invoices = () => {
               </button>
             </div>
 
-            <div className="absolute left-4 top-24 z-10 max-w-[420px] rounded border border-[#425360] bg-[#121d26]/80 p-3 text-xs text-slate-300">
+            <div className="absolute left-4 top-24 z-10 max-h-[62vh] w-[460px] overflow-y-auto rounded border border-[#425360] bg-[#121d26]/85 p-3 text-xs text-slate-300">
               <div className="mb-2 flex items-center gap-2 font-semibold text-slate-100">
                 <Search className="h-3.5 w-3.5 text-cyan-300" />
-                GeoHR template
+                DWG predlosci iz tvojih crteza
               </div>
-              <div className="grid grid-cols-1 gap-1">
-                {templates.map((name) => (
-                  <button
-                    key={name}
-                    onClick={() => addLog(`Template odabran: ${name}. DWT je u GeoHR paketu; web crtez ostaje DXF kompatibilan.`)}
-                    className="flex items-center justify-between border border-[#334451] bg-[#1b2833] px-2 py-1 text-left hover:bg-[#263846]"
-                  >
-                    <span>{name}</span>
-                    <span className="text-slate-500">DWT</span>
-                  </button>
-                ))}
+              <div className="grid grid-cols-1 gap-2">
+                {dwgTemplatePresets.map((template) => {
+                  const plotStyle = template.layouts.find((layout) => layout.styleSheet)?.styleSheet || "bez CTB";
+                  const paper = Array.from(new Set(template.layouts.map((layout) => layout.media).filter(Boolean))).join(", ");
+                  return (
+                    <div key={template.id} className="border border-[#334451] bg-[#1b2833] p-2">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="truncate font-semibold text-slate-100">{template.title}</p>
+                          <p className="truncate text-[10px] text-slate-500">{template.sourceFile}</p>
+                        </div>
+                        <span className="shrink-0 rounded bg-[#24394a] px-1.5 py-0.5 text-[10px] text-cyan-200">DWG</span>
+                      </div>
+                      <div className="mt-2 grid grid-cols-3 gap-1 text-[10px] text-slate-400">
+                        <span>{template.layers.length} layera</span>
+                        <span>{template.layouts.length} layouta</span>
+                        <span>{template.blocks.length} blokova</span>
+                      </div>
+                      <p className="mt-1 truncate text-[10px] text-slate-500">{paper || "model"} / {plotStyle}</p>
+                      <div className="mt-2 flex gap-1">
+                        <button
+                          onClick={() => applyDwgTemplate(template)}
+                          className="h-7 flex-1 border border-blue-500/50 bg-blue-600/80 px-2 text-[11px] font-semibold text-white hover:bg-blue-500"
+                        >
+                          Novi crtez
+                        </button>
+                        <button
+                          onClick={() => applyDwgTemplate(template, true)}
+                          className="h-7 flex-1 border border-[#607181] bg-[#26333f] px-2 text-[11px] hover:bg-[#40515f]"
+                        >
+                          Primijeni layer-e
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           </main>

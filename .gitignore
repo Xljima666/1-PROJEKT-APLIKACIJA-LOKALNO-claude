@@ -44,6 +44,7 @@ _agent_backups/
 
 # local project runtime outputs
 /1 PROJEKTI/
+/analysis/
 /script_*.py
 /screenshot*.png
 /oss_search*.png

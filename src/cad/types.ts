@@ -31,6 +31,13 @@ export type Layer = {
   color: string;
   visible: boolean;
   locked: boolean;
+  /** Original AutoCAD ACI color when the layer came from a DWG/DXF template. */
+  aciColor?: number;
+  colorName?: string;
+  lineType?: string;
+  lineWeight?: number;
+  plottable?: boolean;
+  plotStyleName?: string;
 };
 
 export type CadDoc = {

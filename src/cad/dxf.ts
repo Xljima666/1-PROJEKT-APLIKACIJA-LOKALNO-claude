@@ -3,7 +3,7 @@ import type { CadDoc, Layer, Shape } from "./types";
 const uid = () => Math.random().toString(36).slice(2, 9);
 
 /* =========================
-   EXPORT  (minimal AutoCAD R12-compatible DXF)
+   EXPORT  (minimal AutoCAD 2000-compatible DXF)
    ========================= */
 
 export function exportDXF(doc: CadDoc): string {
@@ -17,12 +17,26 @@ export function exportDXF(doc: CadDoc): string {
   push(0, "SECTION");
   push(2, "HEADER");
   push(9, "$ACADVER");
-  push(1, "AC1009");
+  push(1, "AC1015");
   push(0, "ENDSEC");
 
   // TABLES — layers
   push(0, "SECTION");
   push(2, "TABLES");
+  const linetypes = Array.from(new Set(doc.layers.map((l) => normalizeLinetype(l.lineType)).filter(Boolean)));
+  push(0, "TABLE");
+  push(2, "LTYPE");
+  push(70, linetypes.length || 1);
+  for (const lineType of linetypes.length ? linetypes : ["CONTINUOUS"]) {
+    push(0, "LTYPE");
+    push(2, lineType);
+    push(70, 0);
+    push(3, lineType === "CONTINUOUS" ? "Solid line" : lineType);
+    push(72, 65);
+    push(73, 0);
+    push(40, 0);
+  }
+  push(0, "ENDTAB");
   push(0, "TABLE");
   push(2, "LAYER");
   push(70, doc.layers.length);
@@ -30,8 +44,11 @@ export function exportDXF(doc: CadDoc): string {
     push(0, "LAYER");
     push(2, sanitizeName(l.name));
     push(70, l.locked ? 4 : 0);
-    push(62, layerColorIndex(l.color, doc.layers.indexOf(l)));
-    push(6, "CONTINUOUS");
+    const aci = l.aciColor || layerColorIndex(l.color, doc.layers.indexOf(l));
+    push(62, l.visible === false ? -Math.abs(aci) : Math.abs(aci));
+    push(6, normalizeLinetype(l.lineType));
+    if (typeof l.lineWeight === "number" && l.lineWeight >= 0) push(370, l.lineWeight);
+    if (typeof l.plottable === "boolean") push(290, l.plottable ? 1 : 0);
   }
   push(0, "ENDTAB");
   push(0, "ENDSEC");
@@ -215,6 +232,10 @@ function parsePairs(text: string): Pair[] {
 
 function sanitizeName(n: string) {
   return n.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 31) || "L";
+}
+
+function normalizeLinetype(name?: string) {
+  return sanitizeName((name || "CONTINUOUS").toUpperCase());
 }
 
 function layerColorIndex(_color: string, fallbackIdx: number): number {
