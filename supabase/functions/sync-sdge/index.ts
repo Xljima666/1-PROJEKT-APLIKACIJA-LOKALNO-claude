@@ -13,6 +13,27 @@ interface SdgeEvent {
   rawId: string;
 }
 
+const normalizeForKey = (value: string) =>
+  value
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+
+const sha256Hex = async (value: string) => {
+  const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+  return Array.from(new Uint8Array(bytes))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+};
+
+const buildStableSdgeId = async (event: SdgeEvent) => {
+  const stableKey = `${event.type}|${event.date}|${normalizeForKey(event.title)}`;
+  const digest = await sha256Hex(stableKey);
+  return `vaadin-${event.type}-${event.date}-${digest.slice(0, 24)}`;
+};
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -435,7 +456,9 @@ Deno.serve(async (req) => {
     let newEventsCreated = 0;
     let saveErrors = 0;
     let skippedExisting = 0;
+    let skippedInRun = 0;
     const savedEventDates: string[] = [];
+    const seenSdgeIds = new Set<string>();
     const foundEventDates = Array.from(new Set(
       events
         .filter((event) => event.type !== "ostalo")
@@ -445,7 +468,14 @@ Deno.serve(async (req) => {
     for (const event of events) {
       if (event.type === "ostalo") continue; // Only sync terenski and zakljucak
       
-      const sdgeId = `vaadin-${event.type}-${event.date}-${event.rawId}`;
+      const sdgeId = await buildStableSdgeId(event);
+      const description = `[SDGE] ${event.type === "terenski_uvidaj" ? "Terenski uviđaj" : "Zaključak"}`;
+      if (seenSdgeIds.has(sdgeId)) {
+        skippedInRun++;
+        continue;
+      }
+      seenSdgeIds.add(sdgeId);
+
       const { data: existing, error: existingError } = await supabase
         .from("sdge_notifications").select("id").eq("sdge_id", sdgeId).limit(1);
       if (existingError) {
@@ -458,10 +488,39 @@ Deno.serve(async (req) => {
         continue;
       }
 
+      const { data: existingCalendar, error: existingCalendarError } = await supabase
+        .from("calendar_events")
+        .select("id")
+        .eq("user_id", userId)
+        .eq("event_date", event.date)
+        .eq("title", event.title)
+        .eq("description", description)
+        .limit(1);
+      if (existingCalendarError) {
+        console.error("SDGE calendar duplicate check failed:", existingCalendarError);
+        saveErrors++;
+        continue;
+      }
+      if (existingCalendar && existingCalendar.length > 0) {
+        const { error: notificationError } = await supabase.from("sdge_notifications").upsert({
+          sdge_id: sdgeId, title: event.title,
+          description: event.type === "terenski_uvidaj" ? "Terenski uviđaj" : "Zaključak",
+          event_type: event.type, event_date: event.date,
+          raw_data: { rawId: event.rawId, stableKey: true },
+          synced_to_calendar: true, calendar_event_id: existingCalendar[0].id, user_id: userId,
+        }, { onConflict: "sdge_id" });
+        if (notificationError) {
+          console.error("SDGE notification upsert for existing calendar event failed:", notificationError);
+          saveErrors++;
+        }
+        skippedExisting++;
+        continue;
+      }
+
       const color = event.type === "terenski_uvidaj" ? "#F97316" : "#22C55E";
       const { data: calEvent, error: calendarError } = await supabase.from("calendar_events").insert({
         title: event.title,
-        description: `[SDGE] ${event.type === "terenski_uvidaj" ? "Terenski uviđaj" : "Zaključak"}`,
+        description,
         event_date: event.date, color, user_id: userId, all_day: true,
       }).select("id").single();
 
@@ -475,7 +534,7 @@ Deno.serve(async (req) => {
         sdge_id: sdgeId, title: event.title,
         description: event.type === "terenski_uvidaj" ? "Terenski uviđaj" : "Zaključak",
         event_type: event.type, event_date: event.date,
-        raw_data: { rawId: event.rawId },
+        raw_data: { rawId: event.rawId, stableKey: true },
         synced_to_calendar: !!calEvent, calendar_event_id: calEvent?.id || null, user_id: userId,
       });
       if (notificationError) {
@@ -498,6 +557,7 @@ Deno.serve(async (req) => {
       events_found: events.length,
       new_events_created: newEventsCreated,
       skipped_existing: skippedExisting,
+      skipped_in_run: skippedInRun,
       save_errors: saveErrors,
       found_event_dates: foundEventDates,
       saved_event_dates: savedEventDates,

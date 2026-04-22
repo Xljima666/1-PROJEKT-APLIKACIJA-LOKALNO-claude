@@ -176,11 +176,12 @@ const DashboardContent = () => {
       const found = Number(data?.events_found ?? 0);
       const created = Number(data?.new_events_created ?? 0);
       const skipped = Number(data?.skipped_existing ?? 0);
+      const skippedInRun = Number(data?.skipped_in_run ?? 0);
       const saveErrors = Number(data?.save_errors ?? 0);
       const dates = Array.isArray(data?.saved_event_dates) ? data.saved_event_dates.slice(0, 4).join(", ") : "";
       const detail = found === 0
         ? "SDGE nije vratio događaje za dohvaćeni period."
-        : `Nađeno ${found}, novo ${created}, već postojalo ${skipped}, grešaka ${saveErrors}${dates ? `. Datumi: ${dates}` : ""}`;
+        : `Nađeno ${found}, novo ${created}, već postojalo ${skipped}, duplo u dohvaćanju ${skippedInRun}, grešaka ${saveErrors}${dates ? `. Datumi: ${dates}` : ""}`;
 
       toast({
         title: "SDGE sinkronizacija završena",
