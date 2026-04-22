@@ -190,6 +190,25 @@ const STATUS_OPTIONS = [
   { label: "NAPLAČENO", color: "#14B8A6" },
 ] as const;
 
+const COLUMN_ACCENTS = [
+  { keywords: ["dogovor", "ponud", "upit"], color: "#10B981" },
+  { keywords: ["terensk", "teren", "uvid"], color: "#3B82F6" },
+  { keywords: ["elaborat", "katastar"], color: "#F97316" },
+];
+
+const FALLBACK_COLUMN_COLORS = ["#10B981", "#3B82F6", "#F97316", "#8B5CF6", "#64748B"];
+
+const getColumnAccent = (title: string, index: number) => {
+  const normalized = title.toLowerCase();
+  const match = COLUMN_ACCENTS.find(item => item.keywords.some(keyword => normalized.includes(keyword)));
+  return match?.color || FALLBACK_COLUMN_COLORS[index % FALLBACK_COLUMN_COLORS.length];
+};
+
+const getStatusColor = (status: string | null, color: string | null) =>
+  STATUS_OPTIONS.find(s => s.label === status || s.color === color)?.color
+  || color
+  || "hsl(var(--muted-foreground))";
+
 interface ArchivedBoard {
   id: string;
   original_id: string;
@@ -289,12 +308,9 @@ const KanbanRows = () => {
     const { data: cols } = await supabase.from("columns").select("*").eq("board_id", boardId).order("position");
     if (cols) {
       setColumns(cols);
-      // Auto-select first column if none selected
       setSelectedColumn(prev => {
-        if (!prev || !cols.find(c => c.id === prev)) {
-          return cols.length > 0 ? cols[0].id : null;
-        }
-        return prev;
+        if (!prev) return null;
+        return cols.find(c => c.id === prev) ? prev : null;
       });
       const colIds = cols.map(c => c.id);
       if (colIds.length > 0) {
@@ -367,28 +383,70 @@ const KanbanRows = () => {
     const { source, destination, draggableId } = result;
     if (source.index === destination.index && source.droppableId === destination.droppableId) return;
 
-    const colId = source.droppableId;
-    const parentCards = cards
-      .filter(c => c.column_id === colId && !c.parent_card_id)
-      .filter(c => !search || c.title.toLowerCase().includes(search.toLowerCase()))
-      .sort((a, b) => a.position - b.position);
+    const visibleParentCards = (columnId: string) =>
+      cards
+        .filter(c => c.column_id === columnId && !c.parent_card_id)
+        .filter(c => !search || c.title.toLowerCase().includes(search.toLowerCase()))
+        .filter(c => !filterUser || c.assigned_to === filterUser)
+        .filter(c => !filterStatus || (c as any).status === filterStatus)
+        .sort((a, b) => a.position - b.position);
 
-    const reordered = [...parentCards];
-    const [moved] = reordered.splice(source.index, 1);
-    reordered.splice(destination.index, 0, moved);
+    const sourceColumnId = source.droppableId;
+    const destinationColumnId = destination.droppableId;
+    const sourceCards = visibleParentCards(sourceColumnId);
+    const destinationCards = sourceColumnId === destinationColumnId
+      ? sourceCards
+      : visibleParentCards(destinationColumnId);
+    const moved = cards.find(c => c.id === draggableId);
 
-    // Optimistic update
-    const updatedCards = cards.map(c => {
-      const idx = reordered.findIndex(r => r.id === c.id);
-      if (idx !== -1) return { ...c, position: idx };
-      return c;
-    });
-    setCards(updatedCards);
+    if (!moved) return;
 
-    // Persist
-    await Promise.all(reordered.map((card, idx) =>
-      supabase.from("cards").update({ position: idx }).eq("id", card.id)
-    ));
+    if (sourceColumnId === destinationColumnId) {
+      const reordered = [...sourceCards];
+      const [reorderedCard] = reordered.splice(source.index, 1);
+      reordered.splice(destination.index, 0, reorderedCard);
+
+      setCards(prev => prev.map(card => {
+        const nextPosition = reordered.findIndex(r => r.id === card.id);
+        return nextPosition === -1 ? card : { ...card, position: nextPosition };
+      }));
+
+      await Promise.all(reordered.map((card, idx) =>
+        supabase.from("cards").update({ position: idx }).eq("id", card.id)
+      ));
+      return;
+    }
+
+    const nextSourceCards = sourceCards.filter(card => card.id !== draggableId);
+    const movedInDestination = { ...moved, column_id: destinationColumnId };
+    const nextDestinationCards = [...destinationCards];
+    nextDestinationCards.splice(destination.index, 0, movedInDestination);
+
+    setCards(prev => prev.map(card => {
+      const sourcePosition = nextSourceCards.findIndex(c => c.id === card.id);
+      if (sourcePosition !== -1) return { ...card, position: sourcePosition };
+
+      const destinationPosition = nextDestinationCards.findIndex(c => c.id === card.id);
+      if (destinationPosition !== -1) {
+        return { ...card, column_id: destinationColumnId, position: destinationPosition };
+      }
+
+      if (card.parent_card_id === draggableId) {
+        return { ...card, column_id: destinationColumnId };
+      }
+
+      return card;
+    }));
+
+    await Promise.all([
+      ...nextSourceCards.map((card, idx) =>
+        supabase.from("cards").update({ position: idx }).eq("id", card.id)
+      ),
+      ...nextDestinationCards.map((card, idx) =>
+        supabase.from("cards").update({ column_id: destinationColumnId, position: idx }).eq("id", card.id)
+      ),
+      supabase.from("cards").update({ column_id: destinationColumnId }).eq("parent_card_id", draggableId),
+    ]);
   };
 
   const getColumnCards = (colId: string) =>
@@ -560,9 +618,21 @@ const KanbanRows = () => {
     );
   }
 
-  const displayedColumns = selectedColumn
+  const boardColumns = selectedColumn
     ? columns.filter(c => c.id === selectedColumn)
     : columns;
+  const isMemberNamedColumn = (title: string) => {
+    const normalizedTitle = title.trim().toLowerCase();
+    return teamProfiles.some(profile => {
+      const fullName = (profile.full_name || "").trim().toLowerCase();
+      const firstName = fullName.split(/\s+/)[0];
+      return normalizedTitle === fullName || normalizedTitle === firstName;
+    });
+  };
+  const displayedColumns = boardColumns.filter(column => {
+    const visibleParentCards = getColumnCards(column.id).filter(card => !card.parent_card_id).length;
+    return visibleParentCards > 0 || !isMemberNamedColumn(column.title);
+  });
 
   return (
     <DashboardLayout noScroll>
@@ -588,7 +658,7 @@ const KanbanRows = () => {
                 size="sm"
                 onClick={() => { setSelectedBoard(b.id); setSelectedColumn(null); }}
                 onDoubleClick={() => { setRenamingBoardId(b.id); setRenamingBoardTitle(b.title); }}
-                className="shrink-0"
+                className="h-10 shrink-0 rounded-md px-5 text-sm font-bold uppercase"
               >
                 {b.title}
               </Button>
@@ -639,29 +709,10 @@ const KanbanRows = () => {
           </DropdownMenu>
         </div>
 
-        {/* Column sub-tabs + filters */}
+        {/* Board controls */}
         {selectedBoard && columns.length > 0 && (
-          <div className="flex items-center gap-2">
-            <div className="flex items-center gap-2 overflow-x-auto scrollbar-hide flex-1">
-              {columns.map(col => (
-                <Tooltip key={col.id}>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant={selectedColumn === col.id ? "default" : "outline"}
-                      size="sm"
-                      className="shrink-0"
-                      onClick={() => setSelectedColumn(col.id)}
-                    >
-                      <span className="hidden sm:inline">{col.title}</span>
-                      <span className="sm:hidden">{col.title.split(' ').map(w => w[0]).join('').slice(0, 3)}</span>
-                      <Badge variant="secondary" className="ml-1.5 text-[10px] h-4 px-1.5">{getColumnCards(col.id).length}</Badge>
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom" className="sm:hidden">
-                    <p className="text-xs">{col.title}</p>
-                  </TooltipContent>
-                </Tooltip>
-              ))}
+          <div className="flex items-center gap-2 justify-end">
+            <div className="flex-1">
               {showNewSubTab && (
                 <form onSubmit={e => { e.preventDefault(); createSubTab(); }} className="flex gap-1 shrink-0">
                   <Input value={newSubTabTitle} onChange={e => setNewSubTabTitle(e.target.value)} placeholder="Naziv podtaba..." className="h-8 w-36 text-sm" autoFocus onBlur={() => { if (!newSubTabTitle.trim()) setShowNewSubTab(false); }} />
@@ -669,7 +720,6 @@ const KanbanRows = () => {
                 </form>
               )}
             </div>
-            {/* Filters */}
             <div className="flex items-center gap-1.5 shrink-0">
               <Popover>
                 <PopoverTrigger asChild>
@@ -736,25 +786,25 @@ const KanbanRows = () => {
           <p className="text-sm text-muted-foreground py-8 text-center">Ova ploča nema kolona. Dodaj ih u "Poslovi".</p>
         )}
 
-        <div className="space-y-4">
-          {displayedColumns.map(col => {
+        <DragDropContext onDragEnd={handleCardDragEnd}>
+          <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4 items-start pb-8">
+          {displayedColumns.map((col, colIndex) => {
             const colCards = getColumnCards(col.id);
-            const isCollapsed = collapsedColumns.has(col.id);
+            const columnAccent = getColumnAccent(col.title, colIndex);
             return (
-              <div key={col.id} className="rounded-lg border border-border bg-card/50 overflow-hidden">
+              <div key={col.id} className="rounded-lg border border-border/80 bg-card/35 overflow-hidden min-h-[420px] flex flex-col">
                 {!selectedColumn && (
-                  <button onClick={() => toggleCollapse(col.id)} className="w-full flex items-center gap-2 px-4 py-2.5 hover:bg-muted/30 transition-colors">
-                    {isCollapsed ? <ChevronRight className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
-                    <span className="font-semibold text-sm">{col.title}</span>
-                    <Badge variant="secondary" className="text-[10px] h-5 px-1.5">{colCards.length}</Badge>
-                  </button>
+                  <div className="flex items-center gap-3 px-5 py-4 border-b border-border/70">
+                    <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: columnAccent }} />
+                    <span className="font-bold text-sm tracking-[0.18em] uppercase text-foreground/85">{col.title}</span>
+                    <Badge variant="secondary" className="ml-auto text-[10px] h-5 min-w-6 justify-center px-1.5 rounded-full">{colCards.filter(c => !(c as any).parent_card_id).length}</Badge>
+                  </div>
                 )}
-                {(!isCollapsed || selectedColumn) && (
-                  <div className={cn(!selectedColumn && "border-t border-border")}>
-                    <DragDropContext onDragEnd={handleCardDragEnd}>
+                {(
+                  <div className="flex min-h-0 flex-1 flex-col">
                       <Droppable droppableId={col.id}>
                         {(provided) => (
-                          <div ref={provided.innerRef} {...provided.droppableProps}>
+                          <div ref={provided.innerRef} {...provided.droppableProps} className="flex-1 space-y-3 p-4 overflow-y-auto scrollbar-subtle">
                             {colCards.filter(c => !(c as any).parent_card_id).map((card, cardIndex) => {
                               const subCards = colCards.filter(c => (c as any).parent_card_id === card.id);
                               const statusLabel = card.status || (STATUS_OPTIONS.find(s => s.color === card.color)?.label);
@@ -774,15 +824,15 @@ const KanbanRows = () => {
                                           setEditCardData({ title: card.title, description: card.description || "", due_date: card.due_date || "", color: card.color || "", status: (card as any).status || "", kontakt: (card as any).kontakt || "", narucitelj_ime: (card as any).narucitelj_ime || "", narucitelj_adresa: (card as any).narucitelj_adresa || "", narucitelj_oib: (card as any).narucitelj_oib || "", adresa_cestice: (card as any).adresa_cestice || "", postanski_broj: (card as any).postanski_broj || "", katastarska_opcina: (card as any).katastarska_opcina || "", katastarska_cestica: (card as any).katastarska_cestica || "", vrsta_posla: (card as any).vrsta_posla || [] });
                                           fetchComments(card.id);
                                         }}
-                                        className={cn("mx-3 my-1.5 px-4 py-2.5 rounded-2xl transition-all cursor-pointer hover:shadow-md", snapshot.isDragging && "shadow-lg")}
-                                        style={{ backgroundColor: card.color ? `${card.color}20` : 'hsl(var(--muted) / 0.3)', borderLeft: card.color ? `3px solid ${card.color}` : '3px solid transparent' }}
+                                        className={cn("rounded-lg border border-border/70 px-4 py-3 transition-all cursor-pointer hover:border-primary/40 hover:shadow-md", snapshot.isDragging && "shadow-lg")}
+                                        style={{ backgroundColor: card.color ? `${card.color}18` : 'hsl(var(--muted) / 0.24)', borderLeft: `3px solid ${card.color || columnAccent}` }}
                                         title={statusLabel || undefined}
                                       >
                                         <div className="flex items-center gap-2">
                                           {card.color && <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: card.color }} />}
                                           <span className="text-sm flex-1 min-w-0 truncate font-medium">{card.title}</span>
                                           {statusLabel && (
-                                            <span className="text-[11px] font-bold shrink-0 px-2 py-0.5 rounded-md" style={{ color: 'white', backgroundColor: card.color || 'hsl(var(--muted-foreground))' }}>
+                                            <span className="text-[10px] font-bold shrink-0 px-2 py-0.5 rounded-md uppercase tracking-wide" style={{ color: 'white', backgroundColor: getStatusColor(statusLabel, card.color) }}>
                                               {statusLabel}
                                             </span>
                                           )}
@@ -860,7 +910,6 @@ const KanbanRows = () => {
                           </div>
                         )}
                       </Droppable>
-                    </DragDropContext>
                     {addingToColumn === col.id ? (
                       <form onSubmit={e => { e.preventDefault(); addCard(col.id); }} className="flex items-center gap-2 px-4 py-2">
                         <Input value={newCardTitle} onChange={e => setNewCardTitle(e.target.value)} placeholder="Naziv kartice..." className="h-7 text-sm flex-1" autoFocus onBlur={() => { if (!newCardTitle.trim()) setAddingToColumn(null); }} />
@@ -876,7 +925,8 @@ const KanbanRows = () => {
               </div>
             );
           })}
-        </div>
+          </div>
+        </DragDropContext>
       </div>
 
       {/* ===== Trello-style card editor dialog (same as Poslovi) ===== */}
