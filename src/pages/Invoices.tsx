@@ -5,7 +5,7 @@ import { useCad } from "@/cad/store";
 import { exportDXF, importDXF } from "@/cad/dxf";
 import { dwgTemplatePresets, makeCadDocFromDwgTemplate, type DwgTemplateLayout, type DwgTemplatePreset } from "@/cad/dwgTemplatePresets";
 import { parseCoord } from "@/cad/coords";
-import { defaultOsnap, findOSnap } from "@/cad/osnap";
+import { defaultOsnap, findOSnap, type SnapHit } from "@/cad/osnap";
 import { extendLine, mirrorShape, offsetShape, trimLine } from "@/cad/modify";
 import type { LineShape, Point, Shape } from "@/cad/types";
 import {
@@ -230,6 +230,30 @@ function PropertyRow({ label, value }: { label: string; value: string }) {
   );
 }
 
+function PropertyInput({
+  label,
+  value,
+  onChange,
+  type = "text",
+}: {
+  label: string;
+  value: string | number;
+  onChange: (value: string) => void;
+  type?: "text" | "number" | "color";
+}) {
+  return (
+    <label className="grid grid-cols-[76px_1fr] items-center border-b border-[#52616e]/60 px-2 py-1 text-[11px] leading-4">
+      <span className="truncate text-slate-300">{label}</span>
+      <input
+        type={type}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="h-5 min-w-0 border border-[#607181] bg-[#18232d] px-1 text-[11px] text-slate-100 outline-none"
+      />
+    </label>
+  );
+}
+
 function snapGrid(p: Point) {
   return { x: Math.round(p.x / GRID) * GRID, y: Math.round(p.y / GRID) * GRID };
 }
@@ -447,6 +471,30 @@ function renderShape(
   return null;
 }
 
+function renderSnapMarker(hit: SnapHit) {
+  const s = 9;
+  const p = hit.p;
+  const common = {
+    stroke: "#facc15",
+    strokeWidth: 1.4,
+    fill: "none",
+    vectorEffect: "non-scaling-stroke" as const,
+    pointerEvents: "none" as const,
+  };
+  if (hit.kind === "endpoint") return <rect x={p.x - s} y={p.y - s} width={s * 2} height={s * 2} {...common} />;
+  if (hit.kind === "midpoint") return <polygon points={`${p.x},${p.y - s} ${p.x + s},${p.y + s} ${p.x - s},${p.y + s}`} {...common} />;
+  if (hit.kind === "center") return <circle cx={p.x} cy={p.y} r={s} {...common} />;
+  if (hit.kind === "intersection") {
+    return (
+      <g {...common}>
+        <line x1={p.x - s} y1={p.y - s} x2={p.x + s} y2={p.y + s} />
+        <line x1={p.x - s} y1={p.y + s} x2={p.x + s} y2={p.y - s} />
+      </g>
+    );
+  }
+  return <circle cx={p.x} cy={p.y} r={s * 0.7} {...common} />;
+}
+
 const Invoices = () => {
   const dxfRef = useRef<HTMLInputElement | null>(null);
   const canvasRef = useRef<SVGSVGElement | null>(null);
@@ -459,6 +507,7 @@ const Invoices = () => {
   const clearAll = useCad((s) => s.clearAll);
   const setSelection = useCad((s) => s.setSelection);
   const setActiveLayer = useCad((s) => s.setActiveLayer);
+  const updateLayer = useCad((s) => s.updateLayer);
   const setDoc = useCad((s) => s.setDoc);
   const loadDoc = useCad((s) => s.loadDoc);
   const undo = useCad((s) => s.undo);
@@ -475,6 +524,7 @@ const Invoices = () => {
   const [polygonSides, setPolygonSides] = useState(6);
   const [offsetDistance, setOffsetDistance] = useState(20);
   const [mirrorAxis, setMirrorAxis] = useState<Point | null>(null);
+  const [snapHit, setSnapHit] = useState<SnapHit | null>(null);
   const [viewBox, setViewBox] = useState<ViewBox>(DEFAULT_VIEW_BOX);
   const [activeTemplateId, setActiveTemplateId] = useState(dwgTemplatePresets[0]?.id ?? "");
   const [activeLayoutName, setActiveLayoutName] = useState("Model");
@@ -486,6 +536,7 @@ const Invoices = () => {
   );
   const selectedShape = doc.shapes.find((shape) => selectedIds.includes(shape.id)) || null;
   const activeLayer = doc.layers.find((layer) => layer.id === doc.activeLayerId) || doc.layers[0];
+  const propertyLayer = selectedShape ? layerMap.get(selectedShape.layerId) || activeLayer : activeLayer;
   const activeTemplate = useMemo(
     () => dwgTemplatePresets.find((template) => template.id === activeTemplateId) || dwgTemplatePresets[0] || null,
     [activeTemplateId],
@@ -498,6 +549,7 @@ const Invoices = () => {
   }, [activeTemplate]);
   const activeLayout = layoutTabs.find((layout) => layout.name === activeLayoutName) || layoutTabs[0] || MODEL_LAYOUT;
   const zoomPercent = Math.round((CANVAS_W / viewBox.w) * 100);
+  const snapTolerance = Math.max(4, (18 * viewBox.w) / CANVAS_W);
 
   const toWorld = (clientX: number, clientY: number): Point => {
     const rect = canvasRef.current?.getBoundingClientRect();
@@ -511,8 +563,11 @@ const Invoices = () => {
   const applySnap = (raw: Point, base = pending[0] || null) => {
     let p = gridOn ? snapGrid(raw) : raw;
     if (osnapOn) {
-      const hit = findOSnap(visibleShapes, raw, 18, defaultOsnap);
+      const hit = findOSnap(visibleShapes, raw, snapTolerance, defaultOsnap);
+      setSnapHit(hit);
       if (hit) p = hit.p;
+    } else {
+      setSnapHit(null);
     }
     if (orthoOn && base) {
       const dx = Math.abs(p.x - base.x);
@@ -579,6 +634,27 @@ const Invoices = () => {
     );
   };
 
+  const updateSelectedShape = (patch: Partial<Shape>) => {
+    if (!selectedShape) return;
+    updateShape(selectedShape.id, patch);
+  };
+
+  const setSelectedNumber = (key: string, value: string) => {
+    if (!selectedShape) return;
+    const next = Number(value);
+    if (!Number.isFinite(next)) return;
+    updateSelectedShape({ [key]: next } as Partial<Shape>);
+  };
+
+  const setSelectedPointNumber = (index: number, key: "x" | "y", value: string) => {
+    if (!selectedShape || selectedShape.type !== "polyline") return;
+    const next = Number(value);
+    if (!Number.isFinite(next)) return;
+    updateSelectedShape({
+      points: selectedShape.points.map((point, pointIndex) => (pointIndex === index ? { ...point, [key]: next } : point)),
+    } as Partial<Shape>);
+  };
+
   const selectTool = (next: CadTool) => {
     setTool(next);
     setPending([]);
@@ -597,7 +673,8 @@ const Invoices = () => {
     addLog(`Polyline dodan (${pending.length} tocaka).`);
   };
 
-  const pickShapeAt = (p: Point) => [...visibleShapes].reverse().find((shape) => hitTest(shape, p, 12));
+  const pickShapeAt = (p: Point) =>
+    [...visibleShapes].reverse().find((shape) => layerMap.get(shape.layerId)?.locked !== true && hitTest(shape, p, 12));
 
   const applyModifyTool = (modifyTool: CadTool, base: Point, target: Point) => {
     const ids = selectedIds;
@@ -696,8 +773,8 @@ const Invoices = () => {
         const end = applySnap(toWorld(event.clientX, event.clientY), start);
         const id = addShape({ type: "line", x1: start.x, y1: start.y, x2: end.x, y2: end.y } as any);
         setSelection([id]);
-        setPending([]);
-        addLog(`LINE added ${formatPoint(start)} -> ${formatPoint(end)}`);
+        setPending([end]);
+        addLog(`LINE added ${formatPoint(start)} -> ${formatPoint(end)}. Nastavi crtati ili Escape/Enter za kraj.`);
       }
       return;
     }
@@ -894,7 +971,7 @@ const Invoices = () => {
       setCommand("");
       return addLog("Crtez ociscen.");
     }
-    if (cmd === "DXF" || cmd === "EXPORT") {
+    if (cmd === "DXF" || cmd === "DWG" || cmd === "EXPORT") {
       exportCurrentDxf();
       setCommand("");
       return;
@@ -945,12 +1022,24 @@ const Invoices = () => {
   const importDxf = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
+    if (file.name.toLowerCase().endsWith(".dwg")) {
+      const normalized = file.name.toLowerCase();
+      const match =
+        dwgTemplatePresets.find((template) => normalized.includes(template.sourceFile.replace(".dwg", "").toLowerCase())) ||
+        ((normalized.includes("kkp") || normalized.includes("zk")) ? dwgTemplatePresets.find((template) => template.id.includes("kkp")) : undefined) ||
+        (normalized.includes("skica") ? dwgTemplatePresets.find((template) => template.id.includes("skica")) : undefined) ||
+        dwgTemplatePresets[0];
+      applyDwgTemplate(match, true);
+      addLog(`DWG ${file.name}: binarni DWG ne citamo u browseru; ucitan najblizi predlozak ${match.title}. Za geometriju uvezi DXF.`);
+      event.target.value = "";
+      return;
+    }
     const reader = new FileReader();
     reader.onload = () => {
       try {
         const { layers, shapes } = importDXF(String(reader.result || ""), doc.layers);
         loadDoc({ ...doc, layers, shapes });
-        addLog(`DXF import: ${file.name}, ${shapes.length} objekata.`);
+        addLog(`DXF/DWG import: ${file.name}, ${shapes.length} objekata.`);
       } catch {
         addLog("DXF import nije uspio.");
       }
@@ -1025,7 +1114,7 @@ const Invoices = () => {
   return (
     <DashboardLayout noScroll>
       <div className="flex h-full min-h-0 flex-col overflow-hidden bg-[#17232d] text-slate-100">
-        <input ref={dxfRef} type="file" accept=".dxf" hidden onChange={importDxf} />
+        <input ref={dxfRef} type="file" accept=".dxf,.dwg" hidden onChange={importDxf} />
 
         <div className="shrink-0 border-b border-[#354653] bg-[#26333f]">
           <div className="flex h-7 items-center gap-4 overflow-x-auto px-2 text-[13px] text-slate-100">
@@ -1040,10 +1129,10 @@ const Invoices = () => {
             <ToolbarButton title="Novi crtez" onClick={() => { clearAll(); addLog("Novi prazni crtez."); }}>
               <FolderOpen className="h-3.5 w-3.5 text-sky-300" />
             </ToolbarButton>
-            <ToolbarButton title="Import DXF" onClick={() => dxfRef.current?.click()}>
+            <ToolbarButton title="Import DXF / DWG predlozak" onClick={() => dxfRef.current?.click()}>
               <Upload className="h-3.5 w-3.5 text-cyan-300" />
             </ToolbarButton>
-            <ToolbarButton title="Export DXF" onClick={exportCurrentDxf}>
+            <ToolbarButton title="Export DXF za AutoCAD/DWG workflow" onClick={exportCurrentDxf}>
               <FileDown className="h-3.5 w-3.5 text-emerald-300" />
             </ToolbarButton>
             <ToolbarButton title="Undo" onClick={undo}>
@@ -1129,17 +1218,85 @@ const Invoices = () => {
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto">
               <div className="bg-[#273541] px-2 py-1 text-[12px] font-semibold">General</div>
-              <PropertyRow label="Color" value={selectedShape ? layerMap.get(selectedShape.layerId)?.color || "ByLayer" : "ByLayer"} />
-              <PropertyRow label="Layer" value={selectedShape ? layerMap.get(selectedShape.layerId)?.name || "0" : activeLayer?.name || "0"} />
-              <PropertyRow label="ACI" value={String((selectedShape ? layerMap.get(selectedShape.layerId)?.aciColor : activeLayer?.aciColor) ?? "ByLayer")} />
-              <PropertyRow label="Linetype" value={(selectedShape ? layerMap.get(selectedShape.layerId)?.lineType : activeLayer?.lineType) || "Continuous"} />
-              <PropertyRow label="Lineweight" value={String((selectedShape ? layerMap.get(selectedShape.layerId)?.lineWeight : activeLayer?.lineWeight) ?? "ByLayer")} />
+              <PropertyInput label="Color" value={propertyLayer?.color || "#ffffff"} onChange={(value) => propertyLayer && updateLayer(propertyLayer.id, { color: value })} />
+              {selectedShape ? (
+                <label className="grid grid-cols-[76px_1fr] items-center border-b border-[#52616e]/60 px-2 py-1 text-[11px] leading-4">
+                  <span className="truncate text-slate-300">Layer</span>
+                  <select
+                    value={selectedShape.layerId}
+                    onChange={(event) => updateSelectedShape({ layerId: event.target.value } as Partial<Shape>)}
+                    className="h-5 min-w-0 border border-[#607181] bg-[#18232d] px-1 text-[11px] text-slate-100 outline-none"
+                  >
+                    {doc.layers.map((layer) => (
+                      <option key={layer.id} value={layer.id}>{layer.name}</option>
+                    ))}
+                  </select>
+                </label>
+              ) : (
+                <PropertyRow label="Layer" value={activeLayer?.name || "0"} />
+              )}
+              <PropertyRow label="ACI" value={String(propertyLayer?.aciColor ?? "ByLayer")} />
+              <PropertyInput label="Linetype" value={propertyLayer?.lineType || "Continuous"} onChange={(value) => propertyLayer && updateLayer(propertyLayer.id, { lineType: value })} />
+              <PropertyInput label="Lineweight" type="number" value={propertyLayer?.lineWeight ?? -1} onChange={(value) => propertyLayer && updateLayer(propertyLayer.id, { lineWeight: Number(value) })} />
               <PropertyRow label="Type" value={selectedShape?.type || tool} />
               <PropertyRow label="Geometry" value={selectedShape ? shapeBounds(selectedShape) : "klikni ili upisi naredbu"} />
+              {selectedShape?.type === "line" && (
+                <>
+                  <PropertyInput label="X1" type="number" value={selectedShape.x1} onChange={(value) => setSelectedNumber("x1", value)} />
+                  <PropertyInput label="Y1" type="number" value={selectedShape.y1} onChange={(value) => setSelectedNumber("y1", value)} />
+                  <PropertyInput label="X2" type="number" value={selectedShape.x2} onChange={(value) => setSelectedNumber("x2", value)} />
+                  <PropertyInput label="Y2" type="number" value={selectedShape.y2} onChange={(value) => setSelectedNumber("y2", value)} />
+                </>
+              )}
+              {selectedShape?.type === "rect" && (
+                <>
+                  <PropertyInput label="X" type="number" value={selectedShape.x} onChange={(value) => setSelectedNumber("x", value)} />
+                  <PropertyInput label="Y" type="number" value={selectedShape.y} onChange={(value) => setSelectedNumber("y", value)} />
+                  <PropertyInput label="W" type="number" value={selectedShape.w} onChange={(value) => setSelectedNumber("w", value)} />
+                  <PropertyInput label="H" type="number" value={selectedShape.h} onChange={(value) => setSelectedNumber("h", value)} />
+                </>
+              )}
+              {(selectedShape?.type === "circle" || selectedShape?.type === "arc") && (
+                <>
+                  <PropertyInput label="CX" type="number" value={selectedShape.cx} onChange={(value) => setSelectedNumber("cx", value)} />
+                  <PropertyInput label="CY" type="number" value={selectedShape.cy} onChange={(value) => setSelectedNumber("cy", value)} />
+                  <PropertyInput label="R" type="number" value={selectedShape.r} onChange={(value) => setSelectedNumber("r", value)} />
+                </>
+              )}
+              {selectedShape?.type === "arc" && (
+                <>
+                  <PropertyInput label="Start" type="number" value={selectedShape.startAngle} onChange={(value) => setSelectedNumber("startAngle", value)} />
+                  <PropertyInput label="End" type="number" value={selectedShape.endAngle} onChange={(value) => setSelectedNumber("endAngle", value)} />
+                </>
+              )}
+              {selectedShape?.type === "text" && (
+                <>
+                  <PropertyInput label="X" type="number" value={selectedShape.x} onChange={(value) => setSelectedNumber("x", value)} />
+                  <PropertyInput label="Y" type="number" value={selectedShape.y} onChange={(value) => setSelectedNumber("y", value)} />
+                  <PropertyInput label="Size" type="number" value={selectedShape.size} onChange={(value) => setSelectedNumber("size", value)} />
+                  <PropertyInput label="Text" value={selectedShape.text} onChange={(value) => updateSelectedShape({ text: value } as Partial<Shape>)} />
+                </>
+              )}
+              {selectedShape?.type === "polyline" && selectedShape.points.slice(0, 4).map((point, index) => (
+                <div key={index} className="grid grid-cols-[76px_1fr_1fr] gap-1 border-b border-[#52616e]/60 px-2 py-1 text-[11px] leading-4">
+                  <span className="truncate text-slate-300">P{index + 1}</span>
+                  <input type="number" value={point.x} onChange={(event) => setSelectedPointNumber(index, "x", event.target.value)} className="h-5 min-w-0 border border-[#607181] bg-[#18232d] px-1 text-slate-100 outline-none" />
+                  <input type="number" value={point.y} onChange={(event) => setSelectedPointNumber(index, "y", event.target.value)} className="h-5 min-w-0 border border-[#607181] bg-[#18232d] px-1 text-slate-100 outline-none" />
+                </div>
+              ))}
+              {selectedShape?.type === "dim-linear" && (
+                <>
+                  <PropertyInput label="X1" type="number" value={selectedShape.x1} onChange={(value) => setSelectedNumber("x1", value)} />
+                  <PropertyInput label="Y1" type="number" value={selectedShape.y1} onChange={(value) => setSelectedNumber("y1", value)} />
+                  <PropertyInput label="X2" type="number" value={selectedShape.x2} onChange={(value) => setSelectedNumber("x2", value)} />
+                  <PropertyInput label="Y2" type="number" value={selectedShape.y2} onChange={(value) => setSelectedNumber("y2", value)} />
+                  <PropertyInput label="Offset" type="number" value={selectedShape.offset} onChange={(value) => setSelectedNumber("offset", value)} />
+                </>
+              )}
               <PropertyRow label="Objects" value={String(doc.shapes.length)} />
               <div className="mt-2 bg-[#273541] px-2 py-1 text-[12px] font-semibold">View</div>
               <PropertyRow label="Cursor" value={formatPoint(cursor)} />
-              <PropertyRow label="Snap" value={osnapOn ? "Endpoint/Mid/Center" : "Off"} />
+              <PropertyRow label="Snap" value={osnapOn ? (snapHit ? snapHit.kind : "Endpoint/Mid/Center/Intersect") : "Off"} />
               <PropertyRow label="Grid" value={gridOn ? `${GRID} mm` : "Off"} />
               <PropertyRow label="Ortho" value={orthoOn ? "On" : "Off"} />
               <div className="mt-2 bg-[#273541] px-2 py-1 text-[12px] font-semibold">Layers</div>
@@ -1148,10 +1305,32 @@ const Invoices = () => {
                   key={layer.id}
                   onClick={() => setActiveLayer(layer.id)}
                   className={cn(
-                    "flex w-full items-center gap-2 border-b border-[#52616e]/60 px-2 py-1 text-left text-[11px] hover:bg-[#52616e]/50",
+                    "flex w-full items-center gap-1.5 border-b border-[#52616e]/60 px-2 py-1 text-left text-[11px] hover:bg-[#52616e]/50",
                     doc.activeLayerId === layer.id && "bg-[#1f6fb5]/40",
                   )}
                 >
+                  <span
+                    role="button"
+                    tabIndex={0}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      updateLayer(layer.id, { visible: !layer.visible });
+                    }}
+                    className={cn("w-4 text-center text-[10px]", layer.visible ? "text-emerald-300" : "text-slate-500")}
+                  >
+                    V
+                  </span>
+                  <span
+                    role="button"
+                    tabIndex={0}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      updateLayer(layer.id, { locked: !layer.locked });
+                    }}
+                    className={cn("w-4 text-center text-[10px]", layer.locked ? "text-amber-300" : "text-slate-500")}
+                  >
+                    L
+                  </span>
                   <span className="h-2.5 w-2.5 rounded-full" style={{ background: layer.color }} />
                   <span className="truncate">{layer.name}</span>
                 </button>
@@ -1221,10 +1400,20 @@ const Invoices = () => {
               onMouseDown={onCanvasMouseDown}
               onMouseMove={onCanvasMove}
               onWheel={onCanvasWheel}
-              onDoubleClick={() => tool === "polyline" && finishPolyline()}
+              onDoubleClick={() => {
+                if (tool === "polyline") finishPolyline();
+                if (tool === "line") {
+                  setPending([]);
+                  addLog("LINE zavrsen.");
+                }
+              }}
               onKeyDown={(event) => {
                 if (event.key === "Delete") deleteShapes(selectedIds);
                 if (event.key === "Escape") setPending([]);
+                if (event.key === "Enter" && tool === "line") {
+                  setPending([]);
+                  addLog("LINE zavrsen.");
+                }
                 if (event.key === "Enter" && tool === "polyline") finishPolyline();
               }}
               tabIndex={0}
@@ -1258,6 +1447,7 @@ const Invoices = () => {
                     <line x1={mirrorAxis.x} y1={mirrorAxis.y} x2={cursor.x} y2={cursor.y} stroke="#facc15" strokeWidth={1.4} strokeDasharray="8 8" vectorEffect="non-scaling-stroke" />
                   </g>
                 )}
+                {snapHit && renderSnapMarker(snapHit)}
               </g>
               {cursor && (
                 <g pointerEvents="none" stroke="rgba(226,232,240,0.75)" strokeWidth="1.2" vectorEffect="non-scaling-stroke">
@@ -1352,7 +1542,7 @@ const Invoices = () => {
                 <ExternalLink className="h-3 w-3" />
               </a>
               <button onClick={exportCurrentDxf} className="inline-flex h-7 items-center gap-1 border border-[#607181] bg-[#26333f] px-2 text-[11px] hover:bg-[#40515f]">
-                DXF
+                DXF/DWG
                 <Download className="h-3 w-3" />
               </button>
             </div>
