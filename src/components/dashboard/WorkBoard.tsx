@@ -315,13 +315,16 @@ const WorkBoard = ({ isOverlay, onMinimize }: WorkBoardProps) => {
       position: maxPos,
       is_private: false,
     });
-    if (!error) {
-      await supabase.functions.invoke("notify-change", {
-        body: { type: "workspace_item", user_id: user.id, text: newText.trim() },
-      });
-      setNewText("");
-      await fetchItems();
+    if (error) {
+      toast({ title: "Greška", description: error.message, variant: "destructive" });
+      inputRef.current?.focus();
+      return;
     }
+    await supabase.functions.invoke("notify-change", {
+      body: { type: "workspace_item", user_id: user.id, text: newText.trim() },
+    });
+    setNewText("");
+    await fetchItems();
     inputRef.current?.focus();
   };
 
@@ -335,10 +338,13 @@ const WorkBoard = ({ isOverlay, onMinimize }: WorkBoardProps) => {
       position: maxPos,
       is_private: true,
     });
-    if (!error) {
-      setPrivateNewText("");
-      await fetchPrivateItems();
+    if (error) {
+      toast({ title: "Greška", description: error.message, variant: "destructive" });
+      privateInputRef.current?.focus();
+      return;
     }
+    setPrivateNewText("");
+    await fetchPrivateItems();
     privateInputRef.current?.focus();
   };
 
