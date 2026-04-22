@@ -299,7 +299,7 @@ const WorkBoard = ({ isOverlay, onMinimize }: WorkBoardProps) => {
         toast({ title: "Greška", description: "Nije moguće pokrenuti Gmail povezivanje.", variant: "destructive" });
         return;
       }
-      window.open(data.url, "_blank");
+      window.location.href = data.url;
     } catch {
       toast({ title: "Greška", variant: "destructive" });
     } finally { setConnectingGmail(false); }
