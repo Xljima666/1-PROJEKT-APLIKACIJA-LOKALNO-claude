@@ -1331,6 +1331,60 @@ async function loadStellanKnowledge(supabaseAdmin: any): Promise<string> {
   } catch { return ""; }
 }
 
+function inferRelevantKnowledgeCategories(userText: string): string[] {
+  const text = (userText || "").toLowerCase();
+  const categories = new Set<string>();
+
+  const add = (...items: string[]) => items.forEach((item) => categories.add(item));
+  const hasAny = (terms: string[]) => terms.some((term) => text.includes(term));
+
+  if (hasAny(["geode", "elaborat", "katastar", "katastars", "cestic", "čestic", "predmet", "narucitelj", "naručitelj"])) {
+    add("geodezija", "pravila-izvora");
+  }
+  if (hasAny(["sdge", "povratnic", "otprem", "dostav", "broj predmeta"])) {
+    add("sdge");
+  }
+  if (hasAny(["oss", "uredena zemlja", "uređena zemlja", "posjedovni", "zk", "zemljisnoknj", "zemljišnoknj", "kopija plana"])) {
+    add("oss");
+  }
+  if (hasAny(["pdf", "obrazac", "zahtjev", "popuni", "ispuni", "potvrde"])) {
+    add("pdf");
+  }
+  if (hasAny(["gml", "dxf", "cad", "koordinate", "htrs", "epsg", "3765"])) {
+    add("cad", "geodezija");
+  }
+  if (hasAny(["zakon", "pravilnik", "narodne novine", "rok", "procedur", "sluzben", "služben", "aktualn"])) {
+    add("pravila-izvora");
+  }
+
+  return Array.from(categories);
+}
+
+async function loadRelevantStellanKnowledge(supabaseAdmin: any, userText: string): Promise<string> {
+  try {
+    const categories = inferRelevantKnowledgeCategories(userText);
+    if (!categories.length) return "";
+
+    const { data, error } = await supabaseAdmin
+      .from("stellan_knowledge")
+      .select("title, category, content, tags")
+      .in("category", categories)
+      .limit(8);
+
+    if (error || !data?.length) return "";
+
+    const entries = data.map((k: any) => {
+      const content = String(k.content || "").substring(0, 1200);
+      const tags = Array.isArray(k.tags) && k.tags.length ? ` [${k.tags.join(", ")}]` : "";
+      return `### ${k.title} (${k.category})${tags}\n${content}`;
+    });
+
+    return `Relevantno operativno znanje za zadnji korisnikov upit:\n${entries.join("\n\n")}`;
+  } catch {
+    return "";
+  }
+}
+
 async function loadStellanToolsRegistry(supabaseAdmin: any): Promise<string> {
   try {
     const { data } = await supabaseAdmin
@@ -1472,11 +1526,17 @@ async function saveKnowledge(supabaseAdmin: any, args: any): Promise<string> {
 
 async function searchKnowledge(supabaseAdmin: any, query: string): Promise<string> {
   try {
-    const { data } = await supabaseAdmin
+    const safeQuery = String(query || "").replace(/[,%()]/g, " ").trim();
+    let dbQuery = supabaseAdmin
       .from("stellan_knowledge")
       .select("title, category, content, tags")
-      .or(`title.ilike.%${query}%,content.ilike.%${query}%,category.ilike.%${query}%`)
       .limit(5);
+
+    if (safeQuery) {
+      dbQuery = dbQuery.or(`title.ilike.%${safeQuery}%,content.ilike.%${safeQuery}%,category.ilike.%${safeQuery}%`);
+    }
+
+    const { data } = await dbQuery;
     if (!data?.length) return JSON.stringify({ success: true, results: [], message: "Nema rezultata." });
     return JSON.stringify({ success: true, results: data.map((k: any) => ({ title: k.title, category: k.category, content: k.content.substring(0, 1200) + (k.content.length > 1200 ? "..." : ""), tags: k.tags })) });
   } catch (e) {
@@ -4313,8 +4373,9 @@ serve(async (req) => {
       : `Grok (${effectiveModel})`;
 
     // ── Load knowledge & tool registry from DB ───────────────
-    const [knowledgeBase, toolsRegistry] = await Promise.all([
+    const [knowledgeBase, relevantKnowledge, toolsRegistry] = await Promise.all([
       loadStellanKnowledge(supabaseAdmin),
+      loadRelevantStellanKnowledge(supabaseAdmin, lastUserText),
       loadStellanToolsRegistry(supabaseAdmin),
     ]);
 
@@ -4534,6 +4595,8 @@ ${toolsRegistry ? `### REGISTRIRANI TOOLOVI\n${toolsRegistry}` : ""}
 - Ulančaj akcije: navigate → fill → click → extract (bez screenshota između)
 
 ${knowledgeBase ? `═══════════════════════════════════════════════════════\n## 📚 BAZA ZNANJA\n═══════════════════════════════════════════════════════\n${knowledgeBase}` : ""}
+
+${relevantKnowledge ? `═══════════════════════════════════════════════════════\n## 📌 RELEVANTNO GEODETSKO ZNANJE\n═══════════════════════════════════════════════════════\n${relevantKnowledge}` : ""}
 
 ${memoryContext ? `═══════════════════════════════════════════════════════\n## 💾 MEMORIJA\n═══════════════════════════════════════════════════════\n${memoryContext.substring(0, 15000)}` : ""}
 `.substring(0, 200000);
