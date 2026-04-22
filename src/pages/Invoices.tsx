@@ -1,9 +1,9 @@
-import { useMemo, useRef, useState, type ChangeEvent, type MouseEvent, type ReactNode } from "react";
+import { useMemo, useRef, useState, type ChangeEvent, type MouseEvent, type ReactNode, type WheelEvent } from "react";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import { cn } from "@/lib/utils";
 import { useCad } from "@/cad/store";
 import { exportDXF, importDXF } from "@/cad/dxf";
-import { dwgTemplatePresets, makeCadDocFromDwgTemplate, type DwgTemplatePreset } from "@/cad/dwgTemplatePresets";
+import { dwgTemplatePresets, makeCadDocFromDwgTemplate, type DwgTemplateLayout, type DwgTemplatePreset } from "@/cad/dwgTemplatePresets";
 import { parseCoord } from "@/cad/coords";
 import { defaultOsnap, findOSnap } from "@/cad/osnap";
 import { extendLine, mirrorShape, offsetShape, trimLine } from "@/cad/modify";
@@ -41,6 +41,7 @@ import {
   Upload,
   Waypoints,
   ZoomIn,
+  ZoomOut,
 } from "lucide-react";
 
 type CadTool =
@@ -65,6 +66,19 @@ type CadTool =
 const CANVAS_W = 1800;
 const CANVAS_H = 980;
 const GRID = 20;
+
+type ViewBox = { x: number; y: number; w: number; h: number };
+
+const DEFAULT_VIEW_BOX: ViewBox = { x: 0, y: 0, w: CANVAS_W, h: CANVAS_H };
+const MODEL_LAYOUT: DwgTemplateLayout = {
+  name: "Model",
+  media: "",
+  plotter: "",
+  styleSheet: "",
+  standardScale: 1,
+  paperUnits: 0,
+  plotType: 0,
+};
 
 const menuItems = [
   "File",
@@ -461,6 +475,9 @@ const Invoices = () => {
   const [polygonSides, setPolygonSides] = useState(6);
   const [offsetDistance, setOffsetDistance] = useState(20);
   const [mirrorAxis, setMirrorAxis] = useState<Point | null>(null);
+  const [viewBox, setViewBox] = useState<ViewBox>(DEFAULT_VIEW_BOX);
+  const [activeTemplateId, setActiveTemplateId] = useState(dwgTemplatePresets[0]?.id ?? "");
+  const [activeLayoutName, setActiveLayoutName] = useState("Model");
 
   const layerMap = useMemo(() => new Map(doc.layers.map((l) => [l.id, l])), [doc.layers]);
   const visibleShapes = useMemo(
@@ -469,13 +486,25 @@ const Invoices = () => {
   );
   const selectedShape = doc.shapes.find((shape) => selectedIds.includes(shape.id)) || null;
   const activeLayer = doc.layers.find((layer) => layer.id === doc.activeLayerId) || doc.layers[0];
+  const activeTemplate = useMemo(
+    () => dwgTemplatePresets.find((template) => template.id === activeTemplateId) || dwgTemplatePresets[0] || null,
+    [activeTemplateId],
+  );
+  const layoutTabs = useMemo(() => {
+    const byName = new Map<string, DwgTemplateLayout>();
+    byName.set(MODEL_LAYOUT.name, MODEL_LAYOUT);
+    activeTemplate?.layouts.forEach((layout) => byName.set(layout.name, layout));
+    return Array.from(byName.values());
+  }, [activeTemplate]);
+  const activeLayout = layoutTabs.find((layout) => layout.name === activeLayoutName) || layoutTabs[0] || MODEL_LAYOUT;
+  const zoomPercent = Math.round((CANVAS_W / viewBox.w) * 100);
 
   const toWorld = (clientX: number, clientY: number): Point => {
     const rect = canvasRef.current?.getBoundingClientRect();
     if (!rect) return { x: 0, y: 0 };
     return {
-      x: ((clientX - rect.left) / rect.width) * CANVAS_W,
-      y: ((clientY - rect.top) / rect.height) * CANVAS_H,
+      x: viewBox.x + ((clientX - rect.left) / rect.width) * viewBox.w,
+      y: viewBox.y + ((clientY - rect.top) / rect.height) * viewBox.h,
     };
   };
 
@@ -494,6 +523,61 @@ const Invoices = () => {
   };
 
   const addLog = (message: string) => setLog(message);
+
+  const setConstrainedViewBox = (next: ViewBox) => {
+    const w = Math.min(CANVAS_W * 8, Math.max(80, next.w));
+    const h = Math.min(CANVAS_H * 8, Math.max(50, next.h));
+    setViewBox({
+      x: Math.min(CANVAS_W * 4, Math.max(-CANVAS_W * 4, next.x)),
+      y: Math.min(CANVAS_H * 4, Math.max(-CANVAS_H * 4, next.y)),
+      w,
+      h,
+    });
+  };
+
+  const zoomAt = (factor: number, center?: Point) => {
+    const p = center || { x: viewBox.x + viewBox.w / 2, y: viewBox.y + viewBox.h / 2 };
+    const w = viewBox.w * factor;
+    const h = viewBox.h * factor;
+    const rx = (p.x - viewBox.x) / viewBox.w;
+    const ry = (p.y - viewBox.y) / viewBox.h;
+    setConstrainedViewBox({ x: p.x - w * rx, y: p.y - h * ry, w, h });
+  };
+
+  const zoomInView = () => {
+    zoomAt(0.75);
+    addLog("ZOOM IN");
+  };
+
+  const zoomOutView = () => {
+    zoomAt(1.33);
+    addLog("ZOOM OUT");
+  };
+
+  const zoomFit = () => {
+    setViewBox(DEFAULT_VIEW_BOX);
+    addLog("ZOOM FIT - cijeli model.");
+  };
+
+  const panView = (dx: number, dy: number) => {
+    setConstrainedViewBox({ ...viewBox, x: viewBox.x + dx, y: viewBox.y + dy });
+    addLog(`PAN ${dx.toFixed(0)}, ${dy.toFixed(0)}`);
+  };
+
+  const onCanvasWheel = (event: WheelEvent<SVGSVGElement>) => {
+    event.preventDefault();
+    zoomAt(event.deltaY < 0 ? 0.86 : 1.16, toWorld(event.clientX, event.clientY));
+  };
+
+  const selectLayout = (layoutName: string) => {
+    const layout = layoutTabs.find((item) => item.name === layoutName) || MODEL_LAYOUT;
+    setActiveLayoutName(layout.name);
+    addLog(
+      layout.name === "Model"
+        ? "Layout Model aktivan."
+        : `Layout ${layout.name}: ${layout.media || "bez papira"} / ${layout.styleSheet || "bez CTB"}`,
+    );
+  };
 
   const selectTool = (next: CadTool) => {
     setTool(next);
@@ -768,6 +852,28 @@ const Invoices = () => {
       return setAndLog("offset");
     }
     if (cmd === "S" || cmd === "SELECT") return setAndLog("select");
+    if (cmd === "Z" || cmd === "ZOOM") {
+      const mode = args[0]?.toUpperCase();
+      if (!mode || mode === "+" || mode === "IN") zoomInView();
+      else if (mode === "-" || mode === "OUT") zoomOutView();
+      else if (mode === "E" || mode === "EXTENTS" || mode === "FIT") zoomFit();
+      else if (Number.isFinite(Number(mode))) zoomAt(Math.max(0.1, Math.min(8, 100 / Number(mode))));
+      setCommand("");
+      return;
+    }
+    if (cmd === "PAN") {
+      panView(Number(args[0] || 0), Number(args[1] || 0));
+      setCommand("");
+      return;
+    }
+    if (cmd === "LAYOUT" || cmd === "LO") {
+      const name = args.join(" ").trim();
+      const match = layoutTabs.find((layout) => layout.name.toLowerCase() === name.toLowerCase());
+      if (match) selectLayout(match.name);
+      else addLog(`Layout nije pronaden: ${name || "(prazno)"}`);
+      setCommand("");
+      return;
+    }
     if (cmd === "U" || cmd === "UNDO") {
       undo();
       setCommand("");
@@ -858,6 +964,9 @@ const Invoices = () => {
     loadDoc(nextDoc);
     setPending([]);
     setSelection([]);
+    setActiveTemplateId(template.id);
+    setActiveLayoutName(template.layouts.find((layout) => layout.name !== "Model")?.name || "Model");
+    setViewBox(DEFAULT_VIEW_BOX);
     const layoutNames = template.layouts.map((layout) => layout.name).filter((name) => name !== "Model").join(", ");
     addLog(
       `${template.title}: ucitano ${template.layers.length} layera, ${template.layouts.length} layouta, ${template.blocks.length} blokova. Layouti: ${layoutNames}`,
@@ -1060,6 +1169,8 @@ const Invoices = () => {
               <span>[Top]</span>
               <span>[2D Wireframe]</span>
               <span>[WCS]</span>
+              <span>[{activeLayout.name}]</span>
+              <span>[{zoomPercent}%]</span>
             </div>
 
             <div className="absolute right-5 top-5 z-10 w-[286px] rounded-sm border border-[#4c5d69] bg-[#202d38]/95 p-3 shadow-2xl">
@@ -1077,6 +1188,22 @@ const Invoices = () => {
                 <button onClick={() => setOsnapOn((v) => !v)} className={cn("border border-[#4c5d69] bg-[#151f28] p-1", osnapOn && "text-emerald-300")}>OSNAP</button>
                 <button onClick={() => setOrthoOn((v) => !v)} className={cn("border border-[#4c5d69] bg-[#151f28] p-1", orthoOn && "text-emerald-300")}>ORTHO</button>
               </div>
+              <div className="mt-2 grid grid-cols-[1fr_1fr_1fr_58px] gap-1 text-center text-[10px]">
+                <button onClick={zoomOutView} className="flex h-7 items-center justify-center border border-[#4c5d69] bg-[#151f28] hover:bg-[#273541]">
+                  <ZoomOut className="h-3.5 w-3.5" />
+                </button>
+                <button onClick={zoomFit} className="h-7 border border-[#4c5d69] bg-[#151f28] font-semibold hover:bg-[#273541]">FIT</button>
+                <button onClick={zoomInView} className="flex h-7 items-center justify-center border border-[#4c5d69] bg-[#151f28] hover:bg-[#273541]">
+                  <ZoomIn className="h-3.5 w-3.5" />
+                </button>
+                <span className="flex h-7 items-center justify-center border border-[#4c5d69] bg-[#0f1821] text-cyan-200">{zoomPercent}%</span>
+              </div>
+              <div className="mt-2 grid grid-cols-4 gap-1 text-center text-[10px]">
+                <button onClick={() => panView(-viewBox.w * 0.12, 0)} className="border border-[#4c5d69] bg-[#151f28] p-1 hover:bg-[#273541]">LEFT</button>
+                <button onClick={() => panView(0, -viewBox.h * 0.12)} className="border border-[#4c5d69] bg-[#151f28] p-1 hover:bg-[#273541]">UP</button>
+                <button onClick={() => panView(0, viewBox.h * 0.12)} className="border border-[#4c5d69] bg-[#151f28] p-1 hover:bg-[#273541]">DOWN</button>
+                <button onClick={() => panView(viewBox.w * 0.12, 0)} className="border border-[#4c5d69] bg-[#151f28] p-1 hover:bg-[#273541]">RIGHT</button>
+              </div>
             </div>
 
             <div className="absolute right-8 top-40 z-10 flex h-28 w-28 items-center justify-center rounded-full border-[16px] border-slate-600/30 text-slate-400">
@@ -1090,9 +1217,10 @@ const Invoices = () => {
             <svg
               ref={canvasRef}
               className="absolute inset-0 h-full w-full cursor-crosshair"
-              viewBox={`0 0 ${CANVAS_W} ${CANVAS_H}`}
+              viewBox={`${viewBox.x} ${viewBox.y} ${viewBox.w} ${viewBox.h}`}
               onMouseDown={onCanvasMouseDown}
               onMouseMove={onCanvasMove}
+              onWheel={onCanvasWheel}
               onDoubleClick={() => tool === "polyline" && finishPolyline()}
               onKeyDown={(event) => {
                 if (event.key === "Delete") deleteShapes(selectedIds);
@@ -1110,7 +1238,7 @@ const Invoices = () => {
                   <path d={`M ${GRID * 5} 0 L 0 0 0 ${GRID * 5}`} fill="none" stroke="rgba(148,163,184,0.1)" strokeWidth="1" />
                 </pattern>
               </defs>
-              {gridOn && <rect width="100%" height="100%" fill="url(#cad-grid)" />}
+              {gridOn && <rect x={viewBox.x} y={viewBox.y} width={viewBox.w} height={viewBox.h} fill="url(#cad-grid)" />}
               <g>
                 {visibleShapes.map((shape) =>
                   renderShape(
@@ -1155,7 +1283,7 @@ const Invoices = () => {
                 value={command}
                 onChange={(event) => setCommand(event.target.value)}
                 onKeyDown={(event) => event.key === "Enter" && executeCommand()}
-                placeholder="L R C PL A G D T, M Y O SC X W F 20 I, TEXT 100,100 opis, DXF, IMPORT, UNDO, ERASE, CLEAR"
+                placeholder="L R C PL A G D T, M Y O SC X W F 20 I, Z/ZOOM FIT, PAN 100 0, LAYOUT Skica_500A4, DXF, IMPORT"
                 className="min-w-0 flex-1 bg-transparent font-mono text-xs text-slate-100 outline-none placeholder:text-slate-500"
               />
               <button onClick={executeCommand} className="ml-2 rounded border border-[#607181] px-2 py-1 text-[10px] hover:bg-[#40515f]">
@@ -1165,7 +1293,21 @@ const Invoices = () => {
 
             <div className="absolute bottom-0 left-0 right-0 z-20 flex h-8 items-center justify-between border-t border-[#354653] bg-[#2e3d49] px-2 text-[11px]">
               <div className="flex h-full min-w-0 items-center gap-1">
-                <button className="h-full bg-[#4d5c68] px-5 font-semibold text-white">Model</button>
+                <div className="flex h-full max-w-[58vw] shrink-0 items-center gap-1 overflow-x-auto">
+                  {layoutTabs.map((layout) => (
+                    <button
+                      key={layout.name}
+                      onClick={() => selectLayout(layout.name)}
+                      className={cn(
+                        "h-full shrink-0 border-x border-[#263642] px-4 font-semibold text-slate-300 hover:bg-[#40515f]",
+                        activeLayout.name === layout.name && "bg-[#4d5c68] text-white",
+                      )}
+                      title={`${layout.name}${layout.media ? ` / ${layout.media}` : ""}${layout.styleSheet ? ` / ${layout.styleSheet}` : ""}`}
+                    >
+                      {layout.name}
+                    </button>
+                  ))}
+                </div>
                 <span className="truncate px-2 text-slate-300">{log}</span>
               </div>
               <div className="flex shrink-0 items-center gap-1">
@@ -1177,7 +1319,9 @@ const Invoices = () => {
                   [Layers, true, () => addLog(`Aktivni layer: ${activeLayer?.name}`)],
                   [Square, tool === "rect", () => selectTool("rect")],
                   [TriangleRight, tool === "polyline", () => selectTool("polyline")],
-                  [ZoomIn, false, () => addLog("Zoom je trenutno viewBox fit.")],
+                  [ZoomOut, false, zoomOutView],
+                  [Maximize2, false, zoomFit],
+                  [ZoomIn, false, zoomInView],
                 ].map(([Icon, active, onClick], index) => {
                   const I = Icon as typeof MousePointer2;
                   return (
