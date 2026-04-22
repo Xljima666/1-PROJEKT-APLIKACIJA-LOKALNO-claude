@@ -4,15 +4,19 @@ import {
   BookTemplate,
   CheckCircle2,
   ClipboardCheck,
+  ExternalLink,
   FileSearch,
   FileText,
   Loader2,
   Mail,
   MessageSquareText,
   Save,
+  Search,
+  ShieldCheck,
   Users,
   Wand2,
   X,
+  type LucideIcon,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
@@ -20,6 +24,7 @@ import { cn } from "@/lib/utils";
 type ActionKey =
   | "document"
   | "pdf"
+  | "sdge"
   | "audit"
   | "workflow"
   | "mail"
@@ -44,7 +49,7 @@ const actionCards: Array<{
   key: ActionKey;
   title: string;
   label: string;
-  icon: typeof FileText;
+  icon: LucideIcon;
   color: string;
   description: string;
 }> = [
@@ -63,6 +68,14 @@ const actionCards: Array<{
     icon: FileSearch,
     color: "text-blue-300 bg-blue-500/10 border-blue-500/20",
     description: "Procitaj zakljucak, rjesenje ili povratnicu i izvuci rokove, radnje i rizike.",
+  },
+  {
+    key: "sdge",
+    title: "SDGE pregled",
+    label: "SDGE",
+    icon: Search,
+    color: "text-amber-300 bg-amber-500/10 border-amber-500/20",
+    description: "Pretrazi SDGE predmete, statuse, povratnice i dostupne PDF-ove bez slanja ili mijenjanja podataka.",
   },
   {
     key: "audit",
@@ -136,6 +149,24 @@ Izvuci:
 7. rizike ili nejasnoce
 
 Na kraju napravi kratku checklistu za karticu posla. Ako je PDF skeniran i tekst nije citljiv, reci mi to jasno.`;
+  }
+
+  if (key === "sdge") {
+    return `Pretrazi i pregledaj SDGE za ovaj geodetski predmet koristeci dostupne SDGE alate.
+
+Predmet / naziv / stranka: ${subject}
+Vrsta posla: ${jobType}
+Dodatni tragovi: ${details}
+
+Radi u sigurnom nacinu:
+1. prvo koristi search_sdge za pronalazak predmeta
+2. ako ima vise kandidata, prikazi ih u kratkoj tablici i predlozi najvjerojatniji
+3. izvuci broj predmeta, godinu, status, narucitelja, k.o., cestice, izradivaca i zadnju vidljivu promjenu ako postoje
+4. ako je korisnik trazio zakljucak, rjesenje ili prilog, koristi download_sdge_pdf samo za citanje i sazetak
+5. ako korisnik pita za otpremu, dostavu ili povratnicu, koristi sdge_povratnice
+6. napravi "Sto dalje" listu za GeoTerra karticu
+
+Ne salji, ne predaj, ne potpisuj, ne mijenjaj i ne brisi nista u SDGE-u. Ako SDGE login ili vjerodajnice nisu dostupne, reci to jasno i predlozi rucni korak.`;
   }
 
   if (key === "audit") {
@@ -285,7 +316,7 @@ ${details.trim() || "Opce pravilo za GeoTerra rad."}
           <Wand2 className="h-4 w-4 text-emerald-300" />
           <div>
             <div className="text-sm font-semibold">Stellan Posao</div>
-            <div className="text-[11px] text-white/38">Zahtjevi, PDF-ovi, elaborati, mailovi, tim i ispravci</div>
+            <div className="text-[11px] text-white/38">SDGE, zahtjevi, PDF-ovi, elaborati, mailovi, tim i ispravci</div>
           </div>
         </div>
         <button onClick={onClose} className="ml-auto text-white/35 hover:text-white/80">
@@ -334,6 +365,22 @@ ${details.trim() || "Opce pravilo za GeoTerra rad."}
               <h2 className="text-lg font-semibold">{activeCard.title}</h2>
             </div>
             <p className="text-sm leading-6 text-white/55">{activeCard.description}</p>
+            {active === "sdge" && (
+              <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                <button
+                  type="button"
+                  onClick={() => window.open("https://sdge.dgu.hr", "_blank", "noopener,noreferrer")}
+                  className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-amber-400/25 bg-amber-500/10 px-3 text-xs font-semibold text-amber-200 hover:bg-amber-500/15"
+                >
+                  <ExternalLink className="h-3.5 w-3.5" />
+                  Otvori SDGE
+                </button>
+                <div className="inline-flex min-h-9 items-center gap-2 rounded-lg border border-emerald-400/20 bg-emerald-500/8 px-3 text-xs text-emerald-100/80">
+                  <ShieldCheck className="h-3.5 w-3.5 shrink-0" />
+                  Sigurni nacin: samo citanje i sazetak.
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="grid gap-3">
@@ -411,6 +458,7 @@ ${details.trim() || "Opce pravilo za GeoTerra rad."}
               Kako koristiti
             </div>
             <div className="space-y-2 text-xs leading-5 text-white/55">
+              <p>Za SDGE pregled upisi naziv, broj predmeta, godinu, stranku ili k.o., zatim ubaci prompt u chat.</p>
               <p>Za PDF analizu prvo priloži PDF u chat, zatim klikni akciju PDF analiza.</p>
               <p>Za dopis/mail popuni predmet i kontekst pa ubaci prompt u chat.</p>
               <p>Za kontrolu elaborata zalijepi popis dokumenata ili dodaj PDF-ove kao privitke.</p>

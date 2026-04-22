@@ -3259,7 +3259,7 @@ ${summaryText(data, "Backup projekta je spremljen.")}`,
                     setKnowledgeMode(false);
                   }
                 }}
-                title="Posao — zahtjevi, PDF analiza, kontrola elaborata, mailovi, tim i ispravci"
+                title="Posao — SDGE pregled, zahtjevi, PDF analiza, kontrola elaborata, mailovi, tim i ispravci"
                 className={cn(
                   "h-7 px-2.5 rounded-lg flex items-center gap-1.5 text-[10px] transition-colors",
                   businessMode
