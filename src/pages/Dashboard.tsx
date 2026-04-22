@@ -19,6 +19,7 @@ import {
   Clock,
   Bell,
   BellOff,
+  RefreshCw,
   CalendarDays,
   ClipboardList,
   ListChecks,
@@ -64,6 +65,7 @@ const DashboardContent = () => {
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [cards, setCards] = useState<CardWithDueDate[]>([]);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [isSyncingSdge, setIsSyncingSdge] = useState(false);
   const [newEvent, setNewEvent] = useState({ title: "", description: "", start_time: "", end_time: "", all_day: true });
   const [nextDayEvents, setNextDayEvents] = useState<CalendarEvent[]>([]);
   const [workBoardOverlay, setWorkBoardOverlay] = useState(() => {
@@ -143,6 +145,56 @@ const DashboardContent = () => {
         column_title: card.columns?.title,
         board_title: card.columns?.boards?.title,
       })));
+    }
+  };
+
+  const syncSdge = async () => {
+    if (!user) {
+      toast({
+        title: "Sesija je istekla",
+        description: "Ponovno se prijavi pa probaj SDGE sinkronizaciju.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsSyncingSdge(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error("Nema aktivne sesije.");
+
+      const { data, error } = await supabase.functions.invoke("sync-sdge", {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+        body: { user_id: user.id },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+
+      await fetchEvents();
+      await fetchNextDayEvents();
+
+      const found = Number(data?.events_found ?? 0);
+      const created = Number(data?.new_events_created ?? 0);
+      const skipped = Number(data?.skipped_existing ?? 0);
+      const saveErrors = Number(data?.save_errors ?? 0);
+      const dates = Array.isArray(data?.saved_event_dates) ? data.saved_event_dates.slice(0, 4).join(", ") : "";
+      const detail = found === 0
+        ? "SDGE nije vratio događaje za dohvaćeni period."
+        : `Nađeno ${found}, novo ${created}, već postojalo ${skipped}, grešaka ${saveErrors}${dates ? `. Datumi: ${dates}` : ""}`;
+
+      toast({
+        title: "SDGE sinkronizacija završena",
+        description: detail,
+        variant: saveErrors > 0 ? "destructive" : "default",
+      });
+    } catch (err: any) {
+      toast({
+        title: "SDGE greška",
+        description: err.message || "Nije moguće sinkronizirati SDGE.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSyncingSdge(false);
     }
   };
 
@@ -351,6 +403,17 @@ const DashboardContent = () => {
                 <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => setCurrentMonth(new Date())}>Danas</Button>
                 <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => setCurrentMonth(addMonths(currentMonth, 1))}>
                   <ChevronRight className="w-3.5 h-3.5" />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="h-7 w-7"
+                  onClick={syncSdge}
+                  disabled={isSyncingSdge}
+                  title="Osvježi SDGE kalendar"
+                  aria-label="Osvježi SDGE kalendar"
+                >
+                  <RefreshCw className={cn("w-3.5 h-3.5", isSyncingSdge && "animate-spin")} />
                 </Button>
                 <Button
                     variant="ghost"

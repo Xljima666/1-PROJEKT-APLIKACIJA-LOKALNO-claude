@@ -434,6 +434,14 @@ Deno.serve(async (req) => {
     // STEP 6: Save to DB
     let newEventsCreated = 0;
     let saveErrors = 0;
+    let skippedExisting = 0;
+    const savedEventDates: string[] = [];
+    const foundEventDates = Array.from(new Set(
+      events
+        .filter((event) => event.type !== "ostalo")
+        .map((event) => event.date)
+    )).sort();
+
     for (const event of events) {
       if (event.type === "ostalo") continue; // Only sync terenski and zakljucak
       
@@ -445,7 +453,10 @@ Deno.serve(async (req) => {
         saveErrors++;
         continue;
       }
-      if (existing && existing.length > 0) continue;
+      if (existing && existing.length > 0) {
+        skippedExisting++;
+        continue;
+      }
 
       const color = event.type === "terenski_uvidaj" ? "#F97316" : "#22C55E";
       const { data: calEvent, error: calendarError } = await supabase.from("calendar_events").insert({
@@ -471,7 +482,10 @@ Deno.serve(async (req) => {
         console.error("SDGE notification insert failed:", notificationError);
         saveErrors++;
       }
-      if (calEvent) newEventsCreated++;
+      if (calEvent) {
+        newEventsCreated++;
+        savedEventDates.push(event.date);
+      }
     }
 
     return new Response(JSON.stringify({
@@ -483,7 +497,10 @@ Deno.serve(async (req) => {
       next_month_events: nextMonthEvents,
       events_found: events.length,
       new_events_created: newEventsCreated,
+      skipped_existing: skippedExisting,
       save_errors: saveErrors,
+      found_event_dates: foundEventDates,
+      saved_event_dates: savedEventDates,
       message: events.length > 0
         ? `Sync gotov. ${newEventsCreated} novih događaja (${currentMonthEvents} ovaj mjesec, ${nextMonthEvents} sljedeći).`
         : "Sync završen - pogledaj logove.",
