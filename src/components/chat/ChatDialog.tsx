@@ -1,6 +1,7 @@
 import DevPanel from "../dev/DevPanel";
 import type { ConsoleLog } from "../dev/DevPanel";
 import StellanLearningPanel from "./StellanLearningPanel";
+import StellanKnowledgePanel from "./StellanKnowledgePanel";
 import BrainPanel from "./BrainPanel";
 import MozakV2Panel from "./MozakV2Panel";
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
@@ -31,6 +32,7 @@ import {
   Zap,
   Brain,
   Bot,
+  BookOpen,
 } from "lucide-react";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { Button } from "@/components/ui/button";
@@ -266,6 +268,7 @@ const ChatDialog = ({
   );
   const [brainMode, setBrainMode] = useState(false);
   const [mozakV2Mode, setMozakV2Mode] = useState(false);
+  const [knowledgeMode, setKnowledgeMode] = useState(false);
   const [selectedModel, setSelectedModel] = useState<
     "flash" | "pro" | "flash3" | "pro3"
   >("flash");
@@ -3138,6 +3141,7 @@ ${summaryText(data, "Backup projekta je spremljen.")}`,
                     setDevMode(false);
                     setBrainMode(false);
                     setMozakV2Mode(false);
+                    setKnowledgeMode(false);
                   }
                 }}
                 title="DEV Studio — agent preview, actions, build, patch i project komande iz chata"
@@ -3158,6 +3162,7 @@ ${summaryText(data, "Backup projekta je spremljen.")}`,
                     setDevStudioMode(false);
                     setBrainMode(false);
                     setMozakV2Mode(false);
+                    setKnowledgeMode(false);
                   }
                 }}
                 title="Učenje — Browser Use automation"
@@ -3178,6 +3183,7 @@ ${summaryText(data, "Backup projekta je spremljen.")}`,
                     setDevMode(false);
                     setDevStudioMode(false);
                     setMozakV2Mode(false);
+                    setKnowledgeMode(false);
                   }
                 }}
                 title="Mozak — Vizualni pregled Stellanovih toolova, znanja i workflowa"
@@ -3198,6 +3204,7 @@ ${summaryText(data, "Backup projekta je spremljen.")}`,
       setDevMode(false);
       setDevStudioMode(false);
       setBrainMode(false);
+      setKnowledgeMode(false);
     }
   }}
   title="Mozak V2 — Playwright Studio za snimanje, spremanje i pokretanje flowova"
@@ -3211,6 +3218,27 @@ ${summaryText(data, "Backup projekta je spremljen.")}`,
   <Bot className="w-3 h-3" />
   Mozak V2
 </button>
+              <button
+                onClick={() => {
+                  setKnowledgeMode(!knowledgeMode);
+                  if (!knowledgeMode) {
+                    setDevMode(false);
+                    setDevStudioMode(false);
+                    setBrainMode(false);
+                    setMozakV2Mode(false);
+                  }
+                }}
+                title="Znanje — učenje iz PDF-ova, elaborata, SDGE/OSS uputa i internih procedura"
+                className={cn(
+                  "h-7 px-2.5 rounded-lg flex items-center gap-1.5 text-[10px] transition-colors",
+                  knowledgeMode
+                    ? "bg-blue-500/20 text-blue-300 ring-1 ring-blue-500/30"
+                    : "bg-white/[0.06] text-white/40 hover:text-blue-300 hover:bg-blue-500/10",
+                )}
+              >
+                <BookOpen className="w-3 h-3" />
+                Znanje
+              </button>
               {hasMessages && (
                 <button
                   onClick={handleExport}
@@ -3813,6 +3841,13 @@ ${summaryText(data, "Backup projekta je spremljen.")}`,
         {brainMode && !isMobile && (
           <div className="fixed inset-0 z-50">
             <BrainPanel onClose={() => setBrainMode(false)} />
+          </div>
+        )}
+
+        {/* STELLAN ZNANJE — corpus learning panel */}
+        {knowledgeMode && !isMobile && (
+          <div className="fixed inset-0 z-50">
+            <StellanKnowledgePanel onClose={() => setKnowledgeMode(false)} />
           </div>
         )}
       </div>
