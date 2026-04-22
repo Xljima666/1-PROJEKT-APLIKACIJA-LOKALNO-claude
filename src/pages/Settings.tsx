@@ -95,6 +95,7 @@ const Settings = () => {
         },
         body: JSON.stringify({
           appOrigin: window.location.origin,
+          appRedirectUrl: window.location.href,
         }),
       }
     );

@@ -291,6 +291,7 @@ const WorkBoard = ({ isOverlay, onMinimize }: WorkBoardProps) => {
           },
           body: JSON.stringify({
             appOrigin: window.location.origin,
+            appRedirectUrl: window.location.href,
           }),
         }
       );

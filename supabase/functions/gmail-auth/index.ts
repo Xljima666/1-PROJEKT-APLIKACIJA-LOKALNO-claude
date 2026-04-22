@@ -40,6 +40,27 @@ const normalizeAppOrigin = (origin: string | null | undefined) => {
   return isAllowedOrigin(value) ? value : DEFAULT_APP_ORIGIN;
 };
 
+const normalizeAppRedirectUrl = (redirectUrl: string | null | undefined, fallbackOrigin: string) => {
+  const fallbackUrl = `${fallbackOrigin}/settings`;
+  const value = (redirectUrl || "").trim();
+  if (!value) return fallbackUrl;
+
+  try {
+    const url = new URL(value, fallbackOrigin);
+    if (!isAllowedOrigin(url.origin)) return fallbackUrl;
+    return `${url.origin}${url.pathname}${url.search}${url.hash}`;
+  } catch {
+    return fallbackUrl;
+  }
+};
+
+const withOAuthResult = (redirectUrl: string, key: "google" | "brain") => {
+  const url = new URL(redirectUrl, DEFAULT_APP_ORIGIN);
+  url.searchParams.set(key, "connected");
+  url.searchParams.set("_cb", Date.now().toString());
+  return url.toString();
+};
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -61,22 +82,29 @@ Deno.serve(async (req) => {
   const url = new URL(req.url);
   const action = url.searchParams.get("action");
 
-  const parseState = (rawState: string | null): { userId: string; appOrigin: string } | null => {
+  const parseState = (rawState: string | null): { userId: string; appOrigin: string; appRedirectUrl: string } | null => {
     if (!rawState) return null;
 
     if (/^[0-9a-fA-F-]{36}$/.test(rawState)) {
-      return { userId: rawState, appOrigin: DEFAULT_APP_ORIGIN };
+      return {
+        userId: rawState,
+        appOrigin: DEFAULT_APP_ORIGIN,
+        appRedirectUrl: `${DEFAULT_APP_ORIGIN}/settings`,
+      };
     }
 
     try {
       const decoded = atob(rawState);
-      const parsed = JSON.parse(decoded) as { userId?: string; appOrigin?: string };
+      const parsed = JSON.parse(decoded) as { userId?: string; appOrigin?: string; appRedirectUrl?: string };
 
       if (!parsed.userId) return null;
 
+      const appOrigin = normalizeAppOrigin(parsed.appOrigin);
+
       return {
         userId: parsed.userId,
-        appOrigin: normalizeAppOrigin(parsed.appOrigin),
+        appOrigin,
+        appRedirectUrl: normalizeAppRedirectUrl(parsed.appRedirectUrl, appOrigin),
       };
     } catch {
       return null;
@@ -119,8 +147,9 @@ Deno.serve(async (req) => {
 
     const requestOrigin = req.headers.get("origin") || "";
     const appOrigin = normalizeAppOrigin(body.appOrigin || requestOrigin);
+    const appRedirectUrl = normalizeAppRedirectUrl((body as { appRedirectUrl?: string }).appRedirectUrl, appOrigin);
 
-    const state = btoa(JSON.stringify({ userId: user.id, appOrigin }));
+    const state = btoa(JSON.stringify({ userId: user.id, appOrigin, appRedirectUrl }));
 
     const params = new URLSearchParams({
       client_id: GOOGLE_CLIENT_ID,
@@ -151,7 +180,7 @@ Deno.serve(async (req) => {
       return new Response("Missing code or state", { status: 400 });
     }
 
-    const { userId, appOrigin } = stateData;
+    const { userId, appRedirectUrl } = stateData;
     const redirectUri = `${SUPABASE_URL}/functions/v1/gmail-auth?action=callback`;
 
     const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
@@ -195,7 +224,7 @@ Deno.serve(async (req) => {
     return new Response(null, {
       status: 302,
       headers: {
-        Location: `${appOrigin}/settings?google=connected&_cb=${Date.now()}`,
+        Location: withOAuthResult(appRedirectUrl, "google"),
       },
     });
   }

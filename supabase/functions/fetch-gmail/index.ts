@@ -19,6 +19,7 @@ Deno.serve(async (req) => {
 
   const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
   const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
+  const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   const GOOGLE_CLIENT_ID = Deno.env.get("GOOGLE_CLIENT_ID");
   const GOOGLE_CLIENT_SECRET = Deno.env.get("GOOGLE_CLIENT_SECRET");
 
@@ -57,12 +58,38 @@ Deno.serve(async (req) => {
     userId = user.id;
   }
 
-  // Get stored tokens
-  const { data: tokenData } = await supabase
+  const supabaseAdmin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
+
+  const { data: ownToken } = await supabaseAdmin
     .from("google_tokens")
     .select("*")
     .eq("user_id", userId)
-    .single();
+    .maybeSingle();
+
+  let tokenData = ownToken;
+  let tokenOwnerId = ownToken?.user_id || userId;
+
+  if (!tokenData) {
+    const { data: adminRoles } = await supabaseAdmin
+      .from("user_roles")
+      .select("user_id")
+      .eq("role", "admin");
+
+    const adminUserIds = [...new Set((adminRoles || []).map((role) => role.user_id).filter(Boolean))];
+
+    if (adminUserIds.length > 0) {
+      const { data: adminToken } = await supabaseAdmin
+        .from("google_tokens")
+        .select("*")
+        .in("user_id", adminUserIds)
+        .order("updated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      tokenData = adminToken;
+      tokenOwnerId = adminToken?.user_id || tokenOwnerId;
+    }
+  }
 
   if (!tokenData) {
     return new Response(JSON.stringify({ error: "not_connected", emails: [] }), {
@@ -101,12 +128,10 @@ Deno.serve(async (req) => {
     accessToken = refreshData.access_token;
     const expiresAt = new Date(Date.now() + refreshData.expires_in * 1000).toISOString();
 
-    const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const supabaseAdmin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
     await supabaseAdmin.from("google_tokens").update({
       access_token: accessToken,
       expires_at: expiresAt,
-    }).eq("user_id", userId);
+    }).eq("user_id", tokenOwnerId);
   }
 
   // Fetch unread emails (max 5)
