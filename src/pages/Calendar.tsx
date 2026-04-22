@@ -136,10 +136,15 @@ const Calendar = () => {
     if (!user) return;
     setIsSyncingSdge(true);
     try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error("Nema aktivne sesije.");
+
       const { data, error } = await supabase.functions.invoke("sync-sdge", {
+        headers: { Authorization: `Bearer ${session.access_token}` },
         body: { user_id: user.id },
       });
       if (error) throw error;
+      if (data?.error) throw new Error(data.error);
       toast({
         title: "SDGE sinkronizacija",
         description: data?.message || `Završeno. Novih događaja: ${data?.new_events_created || 0}`,

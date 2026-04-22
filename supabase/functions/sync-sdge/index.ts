@@ -22,6 +22,7 @@ Deno.serve(async (req) => {
     const SDGE_USERNAME = Deno.env.get("SDGE_USERNAME");
     const SDGE_PASSWORD = Deno.env.get("SDGE_PASSWORD");
     const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+    const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
     const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
     if (!SDGE_USERNAME || !SDGE_PASSWORD) {
@@ -29,27 +30,45 @@ Deno.serve(async (req) => {
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    // Require internal cron secret for authorization
     const CRON_SECRET = Deno.env.get("CRON_SECRET");
     const internalSecret = req.headers.get("x-internal-secret");
     const authHeader = req.headers.get("Authorization");
-    
-    // Allow if cron secret matches OR if called with valid service role auth
-    if (!internalSecret && !authHeader) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-    }
-    if (internalSecret && CRON_SECRET && internalSecret !== CRON_SECRET) {
+
+    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+    const isInternalCall = !!CRON_SECRET && internalSecret === CRON_SECRET;
+
+    if (internalSecret && !isInternalCall) {
       return new Response(JSON.stringify({ error: "Invalid secret" }),
         { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+    let userId: string | null = null;
 
     // Always resolve user_id server-side from admin role — never accept from client
-    const { data: adminRole } = await supabase
-      .from("user_roles").select("user_id").eq("role", "admin").limit(1).single();
-    const userId = adminRole?.user_id || null;
+    if (isInternalCall) {
+      const { data: adminRole } = await supabase
+        .from("user_roles")
+        .select("user_id")
+        .eq("role", "admin")
+        .limit(1)
+        .single();
+      userId = adminRole?.user_id || null;
+    } else {
+      if (!authHeader?.startsWith("Bearer ")) {
+        return new Response(JSON.stringify({ error: "Unauthorized" }),
+          { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      const authClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+        global: { headers: { Authorization: authHeader } },
+      });
+      const { data: { user }, error: authError } = await authClient.auth.getUser();
+      if (authError || !user) {
+        return new Response(JSON.stringify({ error: "Unauthorized" }),
+          { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+      userId = user.id;
+    }
     if (!userId) {
       return new Response(JSON.stringify({ error: "No admin user found" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -414,28 +433,44 @@ Deno.serve(async (req) => {
 
     // STEP 6: Save to DB
     let newEventsCreated = 0;
+    let saveErrors = 0;
     for (const event of events) {
       if (event.type === "ostalo") continue; // Only sync terenski and zakljucak
       
       const sdgeId = `vaadin-${event.type}-${event.date}-${event.rawId}`;
-      const { data: existing } = await supabase
+      const { data: existing, error: existingError } = await supabase
         .from("sdge_notifications").select("id").eq("sdge_id", sdgeId).limit(1);
+      if (existingError) {
+        console.error("SDGE duplicate check failed:", existingError);
+        saveErrors++;
+        continue;
+      }
       if (existing && existing.length > 0) continue;
 
       const color = event.type === "terenski_uvidaj" ? "#F97316" : "#22C55E";
-      const { data: calEvent } = await supabase.from("calendar_events").insert({
+      const { data: calEvent, error: calendarError } = await supabase.from("calendar_events").insert({
         title: event.title,
         description: `[SDGE] ${event.type === "terenski_uvidaj" ? "Terenski uviđaj" : "Zaključak"}`,
         event_date: event.date, color, user_id: userId, all_day: true,
       }).select("id").single();
 
-      await supabase.from("sdge_notifications").insert({
+      if (calendarError) {
+        console.error("SDGE calendar insert failed:", calendarError);
+        saveErrors++;
+        continue;
+      }
+
+      const { error: notificationError } = await supabase.from("sdge_notifications").insert({
         sdge_id: sdgeId, title: event.title,
         description: event.type === "terenski_uvidaj" ? "Terenski uviđaj" : "Zaključak",
         event_type: event.type, event_date: event.date,
         raw_data: { rawId: event.rawId },
         synced_to_calendar: !!calEvent, calendar_event_id: calEvent?.id || null, user_id: userId,
       });
+      if (notificationError) {
+        console.error("SDGE notification insert failed:", notificationError);
+        saveErrors++;
+      }
       if (calEvent) newEventsCreated++;
     }
 
@@ -448,6 +483,7 @@ Deno.serve(async (req) => {
       next_month_events: nextMonthEvents,
       events_found: events.length,
       new_events_created: newEventsCreated,
+      save_errors: saveErrors,
       message: events.length > 0
         ? `Sync gotov. ${newEventsCreated} novih događaja (${currentMonthEvents} ovaj mjesec, ${nextMonthEvents} sljedeći).`
         : "Sync završen - pogledaj logove.",
