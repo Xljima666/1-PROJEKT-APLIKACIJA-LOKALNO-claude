@@ -1284,7 +1284,7 @@ provjere izvora, pripreme nacrta, checklisti i operativnih iducih koraka.
 ### Pravilo izvora
 - Uvijek razlikuj: sluzbeni izvor, interno GeoTerra znanje, podatak iz aplikacije i svoju pretpostavku.
 - Za aktualna pravila, obrasce, rokove, zakone, pravilnike i javne procedure prvo koristi search_knowledge,
-  a zatim web_search/search_internet prema sluzbenim izvorima kad je bitna svjezina informacije.
+  search_knowledge_corpus, a zatim web_search/search_internet prema sluzbenim izvorima kad je bitna svjezina informacije.
 - Preferirani sluzbeni izvori: DGU, Katastar, SDGE, OSS/Uredena zemlja i Narodne novine.
 - Ne izmisljaj clanke, rokove, pravilnike, brojeve obrazaca ni status predmeta. Ako nije provjereno, jasno reci da je pretpostavka.
 
@@ -1385,6 +1385,212 @@ async function loadRelevantStellanKnowledge(supabaseAdmin: any, userText: string
   }
 }
 
+function chunkKnowledgeText(text: string, maxChars = 1800, overlap = 220): string[] {
+  const clean = String(text || "").replace(/\r\n/g, "\n").trim();
+  if (!clean) return [];
+  if (clean.length <= maxChars) return [clean];
+
+  const chunks: string[] = [];
+  let start = 0;
+  while (start < clean.length && chunks.length < 80) {
+    let end = Math.min(clean.length, start + maxChars);
+    if (end < clean.length) {
+      const paragraphBreak = clean.lastIndexOf("\n\n", end);
+      const sentenceBreak = clean.lastIndexOf(". ", end);
+      const softBreak = Math.max(paragraphBreak, sentenceBreak);
+      if (softBreak > start + Math.floor(maxChars * 0.55)) end = softBreak + 1;
+    }
+    const chunk = clean.slice(start, end).trim();
+    if (chunk) chunks.push(chunk);
+    if (end >= clean.length) break;
+    start = Math.max(0, end - overlap);
+  }
+  return chunks;
+}
+
+async function saveKnowledgeDocument(
+  supabaseAdmin: any,
+  userId: string,
+  args: any,
+  openaiApiKey: string,
+): Promise<string> {
+  try {
+    const title = String(args.title || "").trim();
+    const content = String(args.content || "").trim();
+    if (!title || !content) {
+      return JSON.stringify({ success: false, error: "title i content su obavezni" });
+    }
+
+    const category = String(args.category || "geodezija").trim() || "geodezija";
+    const tags = Array.isArray(args.tags) ? args.tags.map((t: any) => String(t).trim()).filter(Boolean) : [];
+    const sourceType = String(args.source_type || "manual").trim() || "manual";
+    const sourceUrl = args.source_url ? String(args.source_url).trim() : null;
+    const sourceRef = String(args.source_ref || sourceUrl || title).trim().slice(0, 500);
+
+    const { data: source, error: sourceError } = await supabaseAdmin
+      .from("stellan_knowledge_sources")
+      .upsert({
+        title: args.source_title || title,
+        source_type: sourceType,
+        source_ref: sourceRef,
+        source_url: sourceUrl,
+        authority: args.authority || null,
+        official: args.official === true,
+        category,
+        tags,
+        metadata: args.source_metadata || {},
+        created_by: userId,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "source_type,source_ref" })
+      .select("id")
+      .single();
+
+    if (sourceError || !source?.id) {
+      return JSON.stringify({ success: false, error: sourceError?.message || "Source insert failed" });
+    }
+
+    const { data: document, error: docError } = await supabaseAdmin
+      .from("stellan_knowledge_documents")
+      .upsert({
+        source_id: source.id,
+        title,
+        document_type: args.document_type || "text",
+        mime_type: args.mime_type || "text/markdown",
+        category,
+        tags,
+        source_url: sourceUrl,
+        valid_from: args.valid_from || null,
+        valid_to: args.valid_to || null,
+        content,
+        metadata: args.metadata || {},
+        created_by: userId,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "source_id,title" })
+      .select("id")
+      .single();
+
+    if (docError || !document?.id) {
+      return JSON.stringify({ success: false, error: docError?.message || "Document insert failed" });
+    }
+
+    await supabaseAdmin
+      .from("stellan_knowledge_chunks")
+      .delete()
+      .eq("document_id", document.id);
+
+    const chunks = chunkKnowledgeText(content);
+    const rows: any[] = [];
+    for (let i = 0; i < chunks.length; i++) {
+      const chunk = chunks[i];
+      const embedding = openaiApiKey ? await createEmbedding(`${title}\n\n${chunk}`, openaiApiKey) : null;
+      rows.push({
+        document_id: document.id,
+        chunk_index: i,
+        title: chunks.length === 1 ? title : `${title} (${i + 1}/${chunks.length})`,
+        content: chunk,
+        category,
+        tags,
+        token_count_estimate: Math.ceil(chunk.length / 4),
+        embedding,
+        metadata: {
+          source_type: sourceType,
+          source_url: sourceUrl,
+          official: args.official === true,
+        },
+      });
+    }
+
+    const { error: chunkError } = await supabaseAdmin
+      .from("stellan_knowledge_chunks")
+      .insert(rows);
+
+    if (chunkError) {
+      return JSON.stringify({ success: false, error: chunkError.message });
+    }
+
+    return JSON.stringify({
+      success: true,
+      message: `Dokument '${title}' spremljen u Stellan Knowledge Corpus.`,
+      document_id: document.id,
+      source_id: source.id,
+      chunks: rows.length,
+      embedded_chunks: rows.filter((r) => Array.isArray(r.embedding)).length,
+    });
+  } catch (e) {
+    return JSON.stringify({ success: false, error: String(e) });
+  }
+}
+
+async function searchKnowledgeCorpus(
+  supabaseAdmin: any,
+  query: string,
+  openaiApiKey: string,
+  limit = 8,
+  category?: string | null,
+): Promise<string> {
+  try {
+    const safeQuery = String(query || "").trim();
+    if (!safeQuery) return JSON.stringify({ success: true, results: [], message: "Prazan upit." });
+
+    const embedding = openaiApiKey ? await createEmbedding(safeQuery, openaiApiKey) : null;
+    const { data, error } = await supabaseAdmin.rpc("search_stellan_knowledge_chunks", {
+      query_text: safeQuery,
+      query_embedding: embedding,
+      match_count: Math.max(1, Math.min(Number(limit) || 8, 20)),
+      filter_category: category || null,
+      min_similarity: 0,
+    });
+
+    if (error) return JSON.stringify({ success: false, error: error.message });
+    const results = (data || []).map((r: any) => ({
+      title: r.document_title || r.title,
+      chunk_title: r.title,
+      category: r.category,
+      source: r.source_title,
+      source_type: r.source_type,
+      source_url: r.source_url,
+      official: r.official,
+      authority: r.authority,
+      similarity: typeof r.similarity === "number" ? Number(r.similarity.toFixed(4)) : r.similarity,
+      content: String(r.content || "").slice(0, 1600),
+      page_start: r.page_start,
+      page_end: r.page_end,
+      tags: r.tags || [],
+    }));
+
+    return JSON.stringify({ success: true, results, count: results.length });
+  } catch (e) {
+    return JSON.stringify({ success: false, error: String(e) });
+  }
+}
+
+async function loadRelevantStellanCorpusKnowledge(
+  supabaseAdmin: any,
+  userText: string,
+  openaiApiKey: string,
+): Promise<string> {
+  try {
+    if (!userText || userText.trim().length < 4) return "";
+    const raw = await searchKnowledgeCorpus(supabaseAdmin, userText, openaiApiKey, 6);
+    const parsed = JSON.parse(raw);
+    if (!parsed?.success || !parsed.results?.length) return "";
+
+    const entries = parsed.results.map((r: any) => {
+      const sourceBits = [
+        r.official ? "sluzbeni izvor" : "interni izvor",
+        r.source || r.source_type,
+        r.authority,
+        r.source_url,
+      ].filter(Boolean).join(" | ");
+      return `### ${r.title} (${r.category || "general"})\nIzvor: ${sourceBits}\n${String(r.content || "").slice(0, 1200)}`;
+    });
+
+    return `Relevantni dijelovi Stellan Knowledge Corpusa:\n${entries.join("\n\n")}`;
+  } catch {
+    return "";
+  }
+}
+
 async function loadStellanToolsRegistry(supabaseAdmin: any): Promise<string> {
   try {
     const { data } = await supabaseAdmin
@@ -1421,6 +1627,7 @@ async function dbInspect(supabaseAdmin: any, args: any): Promise<string> {
         "google_brain_tokens","google_tokens","invitations","invoice_items","invoices",
         "labels","oauth_nonces","profiles","push_subscriptions","quote_items","quotes",
         "sdge_notifications","stellan_memory","stellan_tools","stellan_knowledge",
+        "stellan_knowledge_sources","stellan_knowledge_documents","stellan_knowledge_chunks",
         "token_usage","user_api_keys","user_roles","user_tab_permissions",
         "work_order_items","work_orders","workspace_items"
       ]});
@@ -1537,8 +1744,36 @@ async function searchKnowledge(supabaseAdmin: any, query: string): Promise<strin
     }
 
     const { data } = await dbQuery;
-    if (!data?.length) return JSON.stringify({ success: true, results: [], message: "Nema rezultata." });
-    return JSON.stringify({ success: true, results: data.map((k: any) => ({ title: k.title, category: k.category, content: k.content.substring(0, 1200) + (k.content.length > 1200 ? "..." : ""), tags: k.tags })) });
+    const { data: corpusData } = safeQuery
+      ? await supabaseAdmin.rpc("search_stellan_knowledge_chunks", {
+        query_text: safeQuery,
+        query_embedding: null,
+        match_count: 5,
+        filter_category: null,
+        min_similarity: 0,
+      })
+      : { data: [] };
+
+    const legacyResults = (data || []).map((k: any) => ({
+      title: k.title,
+      category: k.category,
+      content: k.content.substring(0, 1200) + (k.content.length > 1200 ? "..." : ""),
+      tags: k.tags,
+      source: "stellan_knowledge",
+    }));
+    const corpusResults = (corpusData || []).map((r: any) => ({
+      title: r.document_title || r.title,
+      category: r.category,
+      content: String(r.content || "").substring(0, 1200) + (String(r.content || "").length > 1200 ? "..." : ""),
+      tags: r.tags || [],
+      source: r.source_title || r.source_type || "knowledge_corpus",
+      source_url: r.source_url,
+      official: r.official,
+    }));
+
+    const results = [...legacyResults, ...corpusResults];
+    if (!results.length) return JSON.stringify({ success: true, results: [], message: "Nema rezultata." });
+    return JSON.stringify({ success: true, results });
   } catch (e) {
     return JSON.stringify({ success: false, error: String(e) });
   }
@@ -2360,6 +2595,33 @@ function buildTools(opts: {
       properties: { query: { type: "string", description: "Tekst pretrage" } },
       required: ["query"],
     }),
+    fn("save_knowledge_document", "Spremi izvorni dokument ili duzi tekst u Stellan Knowledge Corpus. Koristi za ucenje iz elaborata, pravilnika, SDGE/OSS/PDF sadrzaja i internih procedura.", {
+      type: "object",
+      properties: {
+        title: { type: "string", description: "Naslov dokumenta/znanja" },
+        content: { type: "string", description: "Cijeli tekst koji treba spremiti kao znanje" },
+        category: { type: "string", description: "Kategorija (geodezija, elaborat, sdge, oss, pdf, pravila-izvora, firma)" },
+        tags: { type: "array", items: { type: "string" }, description: "Tagovi za pretragu" },
+        source_type: { type: "string", description: "manual, pdf, sdge, oss, dgu, narodne_novine, firma" },
+        source_title: { type: "string", description: "Naziv izvora ako se razlikuje od dokumenta" },
+        source_ref: { type: "string", description: "Stabilna oznaka izvora/dokumenta" },
+        source_url: { type: "string", description: "URL izvora ako postoji" },
+        authority: { type: "string", description: "Institucija ili interni autor izvora" },
+        official: { type: "boolean", description: "Je li izvor sluzbeni" },
+        valid_from: { type: "string", description: "Datum od kada vrijedi (YYYY-MM-DD)" },
+        valid_to: { type: "string", description: "Datum do kada vrijedi (YYYY-MM-DD)" },
+      },
+      required: ["title", "content"],
+    }),
+    fn("search_knowledge_corpus", "Pretrazi Stellan Knowledge Corpus po dokumentima, chunkovima i izvorima. Koristi prije odgovora o elaboratima, geodeziji, SDGE/OSS-u i pravilima.", {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Tekst pretrage" },
+        category: { type: "string", description: "Opcionalna kategorija" },
+        limit: { type: "number", description: "Broj rezultata, default 8" },
+      },
+      required: ["query"],
+    }),
   );
 
   // ── Geodetski alati ───────────────────────────────────────
@@ -2719,6 +2981,10 @@ async function executeTool(
       return saveKnowledge(supabaseAdmin, args);
     case "search_knowledge":
       return searchKnowledge(supabaseAdmin, args.query || "");
+    case "save_knowledge_document":
+      return saveKnowledgeDocument(supabaseAdmin, user_id, args, openaiApiKey);
+    case "search_knowledge_corpus":
+      return searchKnowledgeCorpus(supabaseAdmin, args.query || "", openaiApiKey, args.limit || 8, args.category || null);
     // ── Geodetski alati ──────────────────────────────────────
     case "generate_file":
       return generateFile(supabaseAdmin, user_id, args);
@@ -4323,7 +4589,7 @@ serve(async (req) => {
       }
     }
 
-    const memoryContext = [localBrainContext, recentMemories, vectorMemories].filter(Boolean).join("\n");
+    let memoryContext = [localBrainContext, recentMemories, vectorMemories].filter(Boolean).join("\n");
     // ── Brain/Drive tools — dinamički check ──────────────
     let enableDriveTools = false;
     let brainAccessToken: string | null = null;
@@ -4373,11 +4639,17 @@ serve(async (req) => {
       : `Grok (${effectiveModel})`;
 
     // ── Load knowledge & tool registry from DB ───────────────
-    const [knowledgeBase, relevantKnowledge, toolsRegistry] = await Promise.all([
+    const [knowledgeBase, relevantKnowledge, corpusKnowledge, toolsRegistry] = await Promise.all([
       loadStellanKnowledge(supabaseAdmin),
       loadRelevantStellanKnowledge(supabaseAdmin, lastUserText),
+      loadRelevantStellanCorpusKnowledge(supabaseAdmin, lastUserText, OPENAI_API_KEY),
       loadStellanToolsRegistry(supabaseAdmin),
     ]);
+    if (corpusKnowledge) {
+      memoryContext = [`====== STELLAN KNOWLEDGE CORPUS ======\n${corpusKnowledge}\n====== KRAJ KNOWLEDGE CORPUSA ======`, memoryContext]
+        .filter(Boolean)
+        .join("\n");
+    }
 
     // ── System prompt ─────────────────────────────────────────
     const devModePrompt = chatMode === "dev" ? `
