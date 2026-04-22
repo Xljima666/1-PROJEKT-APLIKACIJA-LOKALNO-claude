@@ -2,6 +2,7 @@ import DevPanel from "../dev/DevPanel";
 import type { ConsoleLog } from "../dev/DevPanel";
 import StellanLearningPanel from "./StellanLearningPanel";
 import StellanKnowledgePanel from "./StellanKnowledgePanel";
+import StellanBusinessPanel from "./StellanBusinessPanel";
 import BrainPanel from "./BrainPanel";
 import MozakV2Panel from "./MozakV2Panel";
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
@@ -269,6 +270,7 @@ const ChatDialog = ({
   const [brainMode, setBrainMode] = useState(false);
   const [mozakV2Mode, setMozakV2Mode] = useState(false);
   const [knowledgeMode, setKnowledgeMode] = useState(false);
+  const [businessMode, setBusinessMode] = useState(false);
   const [selectedModel, setSelectedModel] = useState<
     "flash" | "pro" | "flash3" | "pro3"
   >("flash");
@@ -452,6 +454,8 @@ const ChatDialog = ({
       setDevMode(false);
       setBrainMode(false);
       setMozakV2Mode(false);
+      setKnowledgeMode(false);
+      setBusinessMode(false);
     } else if (initialView === "chat") {
       setDevStudioMode(false);
     }
@@ -3142,6 +3146,7 @@ ${summaryText(data, "Backup projekta je spremljen.")}`,
                     setBrainMode(false);
                     setMozakV2Mode(false);
                     setKnowledgeMode(false);
+                    setBusinessMode(false);
                   }
                 }}
                 title="DEV Studio — agent preview, actions, build, patch i project komande iz chata"
@@ -3163,6 +3168,7 @@ ${summaryText(data, "Backup projekta je spremljen.")}`,
                     setBrainMode(false);
                     setMozakV2Mode(false);
                     setKnowledgeMode(false);
+                    setBusinessMode(false);
                   }
                 }}
                 title="Učenje — Browser Use automation"
@@ -3184,6 +3190,7 @@ ${summaryText(data, "Backup projekta je spremljen.")}`,
                     setDevStudioMode(false);
                     setMozakV2Mode(false);
                     setKnowledgeMode(false);
+                    setBusinessMode(false);
                   }
                 }}
                 title="Mozak — Vizualni pregled Stellanovih toolova, znanja i workflowa"
@@ -3205,6 +3212,7 @@ ${summaryText(data, "Backup projekta je spremljen.")}`,
       setDevStudioMode(false);
       setBrainMode(false);
       setKnowledgeMode(false);
+      setBusinessMode(false);
     }
   }}
   title="Mozak V2 — Playwright Studio za snimanje, spremanje i pokretanje flowova"
@@ -3226,6 +3234,7 @@ ${summaryText(data, "Backup projekta je spremljen.")}`,
                     setDevStudioMode(false);
                     setBrainMode(false);
                     setMozakV2Mode(false);
+                    setBusinessMode(false);
                   }
                 }}
                 title="Znanje — učenje iz PDF-ova, elaborata, SDGE/OSS uputa i internih procedura"
@@ -3238,6 +3247,28 @@ ${summaryText(data, "Backup projekta je spremljen.")}`,
               >
                 <BookOpen className="w-3 h-3" />
                 Znanje
+              </button>
+              <button
+                onClick={() => {
+                  setBusinessMode(!businessMode);
+                  if (!businessMode) {
+                    setDevMode(false);
+                    setDevStudioMode(false);
+                    setBrainMode(false);
+                    setMozakV2Mode(false);
+                    setKnowledgeMode(false);
+                  }
+                }}
+                title="Posao — zahtjevi, PDF analiza, kontrola elaborata, mailovi, tim i ispravci"
+                className={cn(
+                  "h-7 px-2.5 rounded-lg flex items-center gap-1.5 text-[10px] transition-colors",
+                  businessMode
+                    ? "bg-orange-500/20 text-orange-300 ring-1 ring-orange-500/30"
+                    : "bg-white/[0.06] text-white/40 hover:text-orange-300 hover:bg-orange-500/10",
+                )}
+              >
+                <ClipboardList className="w-3 h-3" />
+                Posao
               </button>
               {hasMessages && (
                 <button
@@ -3848,6 +3879,20 @@ ${summaryText(data, "Backup projekta je spremljen.")}`,
         {knowledgeMode && !isMobile && (
           <div className="fixed inset-0 z-50">
             <StellanKnowledgePanel onClose={() => setKnowledgeMode(false)} />
+          </div>
+        )}
+
+        {/* STELLAN POSAO — geodetski workflow promptovi i ispravci */}
+        {businessMode && !isMobile && (
+          <div className="fixed inset-0 z-50">
+            <StellanBusinessPanel
+              onClose={() => setBusinessMode(false)}
+              onUsePrompt={(prompt) => {
+                setInput(prompt);
+                setBusinessMode(false);
+                setTimeout(() => inputRef.current?.focus(), 80);
+              }}
+            />
           </div>
         )}
       </div>
