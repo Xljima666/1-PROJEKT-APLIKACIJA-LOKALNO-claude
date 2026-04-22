@@ -196,6 +196,12 @@ const COLUMN_ACCENTS = [
   { keywords: ["elaborat", "katastar"], color: "#F97316" },
 ];
 
+const BOARD_LANES = [
+  { key: "dogovor", title: "U DOGOVORU", keywords: ["dogovor", "ponud", "upit"], color: "#10B981" },
+  { key: "terenski", title: "TERENSKI POSLOVI", keywords: ["terensk", "teren", "uvid"], color: "#3B82F6" },
+  { key: "elaborati", title: "ELABORATI KATASTAR", keywords: ["elaborat", "katastar"], color: "#F97316" },
+];
+
 const FALLBACK_COLUMN_COLORS = ["#10B981", "#3B82F6", "#F97316", "#8B5CF6", "#64748B"];
 
 const getColumnAccent = (title: string, index: number) => {
@@ -204,7 +210,7 @@ const getColumnAccent = (title: string, index: number) => {
   return match?.color || FALLBACK_COLUMN_COLORS[index % FALLBACK_COLUMN_COLORS.length];
 };
 
-const getStatusColor = (status: string | null, color: string | null) =>
+const getStatusColor = (status: string | null | undefined, color: string | null) =>
   STATUS_OPTIONS.find(s => s.label === status || s.color === color)?.color
   || color
   || "hsl(var(--muted-foreground))";
@@ -378,6 +384,38 @@ const KanbanRows = () => {
     });
   };
 
+  const ensureLaneColumn = async (laneKey: string) => {
+    const lane = BOARD_LANES.find(item => item.key === laneKey);
+    if (!lane || !selectedBoard) return null;
+
+    const existingColumn = columns.find(column =>
+      lane.keywords.some(keyword => column.title.toLowerCase().includes(keyword))
+    );
+    if (existingColumn) return existingColumn.id;
+
+    const maxPos = columns.length > 0 ? Math.max(...columns.map(c => c.position)) + 1 : 0;
+    const { data, error } = await supabase
+      .from("columns")
+      .insert({ title: lane.title, board_id: selectedBoard, position: maxPos })
+      .select()
+      .single();
+
+    if (error || !data) {
+      toast({ title: "Greška", description: `Nisam mogao kreirati kolonu "${lane.title}".`, variant: "destructive" });
+      return null;
+    }
+
+    setColumns(prev => [...prev, data]);
+    return data.id;
+  };
+
+  const resolveDroppableColumnId = async (droppableId: string) => {
+    if (droppableId.startsWith("lane:")) {
+      return ensureLaneColumn(droppableId.replace("lane:", ""));
+    }
+    return droppableId;
+  };
+
   const handleCardDragEnd = async (result: DropResult) => {
     if (!result.destination) return;
     const { source, destination, draggableId } = result;
@@ -391,8 +429,9 @@ const KanbanRows = () => {
         .filter(c => !filterStatus || (c as any).status === filterStatus)
         .sort((a, b) => a.position - b.position);
 
-    const sourceColumnId = source.droppableId;
-    const destinationColumnId = destination.droppableId;
+    const sourceColumnId = await resolveDroppableColumnId(source.droppableId);
+    const destinationColumnId = await resolveDroppableColumnId(destination.droppableId);
+    if (!sourceColumnId || !destinationColumnId) return;
     const sourceCards = visibleParentCards(sourceColumnId);
     const destinationCards = sourceColumnId === destinationColumnId
       ? sourceCards
@@ -533,6 +572,12 @@ const KanbanRows = () => {
     setAddingToColumn(null);
   };
 
+  const addCardToLane = async (laneKey: string, fallbackColumnId: string | null) => {
+    const columnId = fallbackColumnId || await ensureLaneColumn(laneKey);
+    if (!columnId) return;
+    await addCard(columnId);
+  };
+
   const addSubCard = async (parentId: string, columnId: string) => {
     if (!newSubCardTitle.trim()) return;
     const colCards = cards.filter(c => c.column_id === columnId);
@@ -629,10 +674,34 @@ const KanbanRows = () => {
       return normalizedTitle === fullName || normalizedTitle === firstName;
     });
   };
-  const displayedColumns = boardColumns.filter(column => {
-    const visibleParentCards = getColumnCards(column.id).filter(card => !card.parent_card_id).length;
-    return visibleParentCards > 0 || !isMemberNamedColumn(column.title);
+  const laneColumnIds = new Set<string>();
+  const primaryLanes = BOARD_LANES.map((lane) => {
+    const laneColumns = boardColumns.filter(column =>
+      lane.keywords.some(keyword => column.title.toLowerCase().includes(keyword))
+    );
+    laneColumns.forEach(column => laneColumnIds.add(column.id));
+    return {
+      key: lane.key,
+      title: lane.title,
+      color: lane.color,
+      columns: laneColumns,
+      droppableId: laneColumns[0]?.id || `lane:${lane.key}`,
+    };
   });
+  const extraLanes = boardColumns
+    .filter(column => !laneColumnIds.has(column.id))
+    .filter(column => {
+      const visibleParentCards = getColumnCards(column.id).filter(card => !card.parent_card_id).length;
+      return visibleParentCards > 0 || !isMemberNamedColumn(column.title);
+    })
+    .map((column, index) => ({
+      key: column.id,
+      title: column.title,
+      color: getColumnAccent(column.title, index + BOARD_LANES.length),
+      columns: [column],
+      droppableId: column.id,
+    }));
+  const displayedLanes = [...primaryLanes, ...extraLanes];
 
   return (
     <DashboardLayout noScroll>
@@ -788,21 +857,24 @@ const KanbanRows = () => {
 
         <DragDropContext onDragEnd={handleCardDragEnd}>
           <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4 items-start pb-8">
-          {displayedColumns.map((col, colIndex) => {
-            const colCards = getColumnCards(col.id);
-            const columnAccent = getColumnAccent(col.title, colIndex);
+          {displayedLanes.map((lane) => {
+            const colCards = lane.columns
+              .flatMap(column => getColumnCards(column.id).map(card => ({ ...card, __columnPosition: column.position })))
+              .sort((a, b) => a.__columnPosition - b.__columnPosition || a.position - b.position);
+            const parentCardCount = colCards.filter(c => !(c as any).parent_card_id).length;
+            const primaryColumnId = lane.columns[0]?.id || null;
             return (
-              <div key={col.id} className="rounded-lg border border-border/80 bg-card/35 overflow-hidden min-h-[420px] flex flex-col">
+              <div key={lane.key} className="rounded-lg border border-border/80 bg-card/35 overflow-hidden min-h-[420px] flex flex-col">
                 {!selectedColumn && (
                   <div className="flex items-center gap-3 px-5 py-4 border-b border-border/70">
-                    <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: columnAccent }} />
-                    <span className="font-bold text-sm tracking-[0.18em] uppercase text-foreground/85">{col.title}</span>
-                    <Badge variant="secondary" className="ml-auto text-[10px] h-5 min-w-6 justify-center px-1.5 rounded-full">{colCards.filter(c => !(c as any).parent_card_id).length}</Badge>
+                    <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: lane.color }} />
+                    <span className="font-bold text-sm tracking-[0.18em] uppercase text-foreground/85">{lane.title}</span>
+                    <Badge variant="secondary" className="ml-auto text-[10px] h-5 min-w-6 justify-center px-1.5 rounded-full">{parentCardCount}</Badge>
                   </div>
                 )}
                 {(
                   <div className="flex min-h-0 flex-1 flex-col">
-                      <Droppable droppableId={col.id}>
+                      <Droppable droppableId={lane.droppableId}>
                         {(provided) => (
                           <div ref={provided.innerRef} {...provided.droppableProps} className="flex-1 space-y-3 p-4 overflow-y-auto scrollbar-subtle">
                             {colCards.filter(c => !(c as any).parent_card_id).map((card, cardIndex) => {
@@ -825,7 +897,7 @@ const KanbanRows = () => {
                                           fetchComments(card.id);
                                         }}
                                         className={cn("rounded-lg border border-border/70 px-4 py-3 transition-all cursor-pointer hover:border-primary/40 hover:shadow-md", snapshot.isDragging && "shadow-lg")}
-                                        style={{ backgroundColor: card.color ? `${card.color}18` : 'hsl(var(--muted) / 0.24)', borderLeft: `3px solid ${card.color || columnAccent}` }}
+                                        style={{ backgroundColor: card.color ? `${card.color}18` : 'hsl(var(--muted) / 0.24)', borderLeft: `3px solid ${card.color || lane.color}` }}
                                         title={statusLabel || undefined}
                                       >
                                         <div className="flex items-center gap-2">
@@ -896,7 +968,7 @@ const KanbanRows = () => {
                                         </button>
                                       </div>
                                       {addingSubCardTo === card.id && (
-                                        <form onSubmit={e => { e.preventDefault(); addSubCard(card.id, col.id); }} className="mx-6 my-1 flex gap-1">
+                                        <form onSubmit={e => { e.preventDefault(); addSubCard(card.id, card.column_id); }} className="mx-6 my-1 flex gap-1">
                                           <Input value={newSubCardTitle} onChange={e => setNewSubCardTitle(e.target.value)} placeholder="Naziv podkartice..." className="h-6 text-xs flex-1" autoFocus onBlur={() => { if (!newSubCardTitle.trim()) setAddingSubCardTo(null); }} />
                                           <Button type="submit" size="sm" className="h-6 text-[10px] px-2">OK</Button>
                                         </form>
@@ -910,13 +982,13 @@ const KanbanRows = () => {
                           </div>
                         )}
                       </Droppable>
-                    {addingToColumn === col.id ? (
-                      <form onSubmit={e => { e.preventDefault(); addCard(col.id); }} className="flex items-center gap-2 px-4 py-2">
+                    {addingToColumn === lane.droppableId ? (
+                      <form onSubmit={e => { e.preventDefault(); addCardToLane(lane.key, primaryColumnId); }} className="flex items-center gap-2 px-4 py-2">
                         <Input value={newCardTitle} onChange={e => setNewCardTitle(e.target.value)} placeholder="Naziv kartice..." className="h-7 text-sm flex-1" autoFocus onBlur={() => { if (!newCardTitle.trim()) setAddingToColumn(null); }} />
                         <Button type="submit" size="sm" className="h-7 text-xs">Dodaj</Button>
                       </form>
                     ) : (
-                      <button onClick={() => { setAddingToColumn(col.id); setNewCardTitle(""); }} className="w-full flex items-center gap-2 px-4 py-2 text-xs text-muted-foreground hover:text-foreground hover:bg-muted/20 transition-colors">
+                      <button onClick={() => { setAddingToColumn(lane.droppableId); setNewCardTitle(""); }} className="w-full flex items-center gap-2 px-4 py-2 text-xs text-muted-foreground hover:text-foreground hover:bg-muted/20 transition-colors">
                         <Plus className="w-3.5 h-3.5" /> Dodaj karticu
                       </button>
                     )}
