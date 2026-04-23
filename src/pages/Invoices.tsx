@@ -7,7 +7,7 @@ import { dwgTemplatePresets, makeCadDocFromDwgTemplate, type DwgTemplateLayout, 
 import { parseCoord } from "@/cad/coords";
 import { defaultOsnap, findOSnap, type SnapHit } from "@/cad/osnap";
 import { extendLine, mirrorShape, offsetShape, trimLine } from "@/cad/modify";
-import type { LineShape, Point, Shape } from "@/cad/types";
+import type { Layer, LineShape, Point, Shape } from "@/cad/types";
 import { toast } from "sonner";
 import {
   ArrowLeftRight,
@@ -67,8 +67,15 @@ type CadTool =
 const CANVAS_W = 1800;
 const CANVAS_H = 980;
 const GRID = 20;
+const CAD_CONVERTER_URL = String(import.meta.env.VITE_CAD_CONVERTER_URL || "").replace(/\/+$/, "");
 
 type ViewBox = { x: number; y: number; w: number; h: number };
+type CadConverterResponse = {
+  dxf?: string;
+  layers?: Layer[];
+  shapes?: Shape[];
+  message?: string;
+};
 
 const DEFAULT_VIEW_BOX: ViewBox = { x: 0, y: 0, w: CANVAS_W, h: CANVAS_H };
 const MODEL_LAYOUT: DwgTemplateLayout = {
@@ -574,6 +581,35 @@ function findDwgTemplateForFile(fileName: string) {
   return dwgTemplatePresets[0];
 }
 
+function readCadTextFile(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error(`Ne mogu procitati ${file.name}.`));
+    reader.readAsText(file);
+  });
+}
+
+async function convertDwgFile(file: File): Promise<CadConverterResponse> {
+  if (!CAD_CONVERTER_URL) {
+    throw new Error("DWG converter nije spojen. Postavi VITE_CAD_CONVERTER_URL na servis koji pretvara DWG u DXF/JSON.");
+  }
+  const body = new FormData();
+  body.append("file", file);
+  const response = await fetch(`${CAD_CONVERTER_URL}/convert`, { method: "POST", body });
+  const contentType = response.headers.get("content-type") || "";
+  if (!response.ok) {
+    const detail = contentType.includes("application/json")
+      ? ((await response.json()) as { message?: string; error?: string })
+      : { message: await response.text() };
+    throw new Error(detail.message || detail.error || `DWG converter je vratio HTTP ${response.status}.`);
+  }
+  if (contentType.includes("application/json")) {
+    return (await response.json()) as CadConverterResponse;
+  }
+  return { dxf: await response.text() };
+}
+
 const Invoices = () => {
   const dxfRef = useRef<HTMLInputElement | null>(null);
   const canvasRef = useRef<SVGSVGElement | null>(null);
@@ -597,7 +633,11 @@ const Invoices = () => {
   const [cursor, setCursor] = useState<Point | null>(null);
   const [command, setCommand] = useState("");
   const [log, setLog] = useState("LINE: klikni prvu i drugu tocku. RECT/CIRCLE rade s dvije tocke. DXF import/export je aktivan.");
-  const [importStatus, setImportStatus] = useState("Ucitaj DWG za template ili DXF za stvarnu geometriju crteza.");
+  const [importStatus, setImportStatus] = useState(
+    CAD_CONVERTER_URL
+      ? "Ucitaj DWG preko convertera ili DXF direktno u crtez."
+      : "DXF se ucitava direktno. Za pravi DWG import treba spojiti VITE_CAD_CONVERTER_URL.",
+  );
   const [gridOn, setGridOn] = useState(true);
   const [osnapOn, setOsnapOn] = useState(true);
   const [orthoOn, setOrthoOn] = useState(false);
@@ -1198,60 +1238,67 @@ const Invoices = () => {
     addLog("DXF export napravljen.");
   };
 
-  const importDxf = (event: ChangeEvent<HTMLInputElement>) => {
+  const importDxf = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
-    if (file.name.toLowerCase().endsWith(".dwg")) {
-      const match = findDwgTemplateForFile(file.name);
-      applyDwgTemplate(match, true);
-      const message = `DWG ${file.name}: ucitan ${match.title} template (${match.layers.length} layera, ${match.layouts.length} layouta). Za geometriju spremi taj DWG kao DXF i ucitaj DXF.`;
+    event.target.value = "";
+    const fileName = file.name;
+    const isDwg = fileName.toLowerCase().endsWith(".dwg");
+
+    const finishImport = (layers: Layer[], shapes: Shape[], sourceLabel: string) => {
+      if (!shapes.length) {
+        throw new Error(`${sourceLabel}: nisu pronadeni podrzani CAD objekti.`);
+      }
+      loadDoc({ ...doc, layers, shapes, activeLayerId: layers[0]?.id || doc.activeLayerId });
+      setPending([]);
+      setSelection([]);
+      setSnapHit(null);
+      setActiveLayoutName("Model");
+      zoomToShapes(shapes);
+      const message = `${sourceLabel}: ${shapes.length} objekata, ${layers.length} layera.`;
       addLog(message);
       setImportStatus(message);
-      toast.info("DWG template ucitan", { description: "Layeri/layouti su spremni. Za linije/tocke/poligone ucitaj DXF verziju iste skice." });
-      event.target.value = "";
-      return;
-    }
-    const reader = new FileReader();
-    reader.onload = () => {
-      try {
-        const raw = String(reader.result || "");
-        if (!raw.trim()) {
-          addLog(`DXF import: ${file.name} je prazan ili nije tekstualni DXF.`);
-          setImportStatus(`DXF import: ${file.name} je prazan ili nije tekstualni DXF.`);
-          toast.error("DXF nije ucitan", { description: "Datoteka je prazna ili nije tekstualni DXF." });
+      toast.success("CAD crtez ucitan", { description: `${shapes.length} objekata, ${layers.length} layera. Pogled je automatski fitan.` });
+    };
+
+    try {
+      if (isDwg) {
+        setImportStatus(`DWG ${fileName}: saljem converteru...`);
+        addLog(`DWG import: saljem ${fileName} converteru.`);
+        const converted = await convertDwgFile(file);
+        if (converted.dxf) {
+          const { layers, shapes } = importDXF(converted.dxf, doc.layers);
+          finishImport(layers, shapes, `DWG import ${fileName}`);
           return;
         }
-        const { layers, shapes } = importDXF(raw, doc.layers);
-        if (!shapes.length) {
-          addLog(`DXF import: ${file.name} nije dao objekte. Moguce je da je binarni DWG ili DXF s nepodrzanim entitetima.`);
-          setImportStatus(`DXF ${file.name}: nisu pronadeni podrzani objekti. Exportaj kao AutoCAD 2000/LT2000 DXF.`);
-          toast.warning("DXF nije dao objekte", { description: "Probaj exportati kao AutoCAD 2000/LT2000 DXF ili mi posalji primjer." });
+        if (Array.isArray(converted.layers) && Array.isArray(converted.shapes)) {
+          finishImport(converted.layers, converted.shapes, `DWG import ${fileName}`);
           return;
         }
-        loadDoc({ ...doc, layers, shapes });
-        setPending([]);
-        setSelection([]);
-        setSnapHit(null);
-        setActiveLayoutName("Model");
-        zoomToShapes(shapes);
-        const message = `DXF import: ${file.name}, ${shapes.length} objekata, ${layers.length} layera.`;
-        addLog(message);
-        setImportStatus(message);
-        toast.success("DXF ucitan", { description: `${shapes.length} objekata, ${layers.length} layera. Pogled je automatski fitan.` });
-      } catch (error) {
-        const message = error instanceof Error ? error.message : "Nepoznata greska";
-        addLog(`DXF import nije uspio: ${message}`);
-        setImportStatus(`DXF import nije uspio: ${message}`);
-        toast.error("DXF import nije uspio", { description: message });
+        throw new Error(converted.message || "DWG converter nije vratio DXF ni CAD JSON.");
       }
-    };
-    reader.onerror = () => {
-      addLog(`DXF import: ne mogu procitati ${file.name}.`);
-      setImportStatus(`DXF import: ne mogu procitati ${file.name}.`);
-      toast.error("Ne mogu procitati datoteku", { description: file.name });
-    };
-    reader.readAsText(file);
-    event.target.value = "";
+
+      const raw = await readCadTextFile(file);
+      if (!raw.trim()) {
+        addLog(`DXF import: ${fileName} je prazan ili nije tekstualni DXF.`);
+        setImportStatus(`DXF import: ${fileName} je prazan ili nije tekstualni DXF.`);
+        toast.error("DXF nije ucitan", { description: "Datoteka je prazna ili nije tekstualni DXF." });
+        return;
+      }
+      const { layers, shapes } = importDXF(raw, doc.layers);
+      if (!shapes.length) {
+        addLog(`DXF import: ${fileName} nije dao objekte. Moguce je da je binarni DWG ili DXF s nepodrzanim entitetima.`);
+        setImportStatus(`DXF ${fileName}: nisu pronadeni podrzani objekti. Exportaj kao AutoCAD 2000/LT2000 DXF.`);
+        toast.warning("DXF nije dao objekte", { description: "Probaj exportati kao AutoCAD 2000/LT2000 DXF ili mi posalji primjer." });
+        return;
+      }
+      finishImport(layers, shapes, `DXF import ${fileName}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Nepoznata greska";
+      addLog(`CAD import nije uspio: ${message}`);
+      setImportStatus(`CAD import nije uspio: ${message}`);
+      toast.error("CAD import nije uspio", { description: message });
+    }
   };
 
   const applyDwgTemplate = (template: DwgTemplatePreset, keepShapes = false) => {
@@ -1775,7 +1822,7 @@ const Invoices = () => {
                 <Download className="h-3 w-3" />
               </button>
               <button onClick={() => dxfRef.current?.click()} className="inline-flex h-7 items-center gap-1 border border-blue-500/60 bg-blue-600/70 px-2 text-[11px] font-semibold text-white hover:bg-blue-500">
-                Ucitaj DWG/DXF
+                Ucitaj CAD
                 <Upload className="h-3 w-3" />
               </button>
               {skicaTemplate && (
@@ -1793,11 +1840,16 @@ const Invoices = () => {
             <div className="absolute left-4 top-24 z-10 max-h-[62vh] w-[460px] overflow-y-auto rounded border border-[#425360] bg-[#121d26]/85 p-3 text-xs text-slate-300">
               <div className="mb-2 flex items-center gap-2 font-semibold text-slate-100">
                 <Search className="h-3.5 w-3.5 text-cyan-300" />
-                DWG predlosci iz tvojih crteza
+                CAD import i DWG predlosci
               </div>
               <div className="mb-2 border border-cyan-500/30 bg-cyan-500/10 px-2 py-1.5 text-[11px] leading-4 text-cyan-100">
                 {importStatus}
               </div>
+              {!CAD_CONVERTER_URL && (
+                <div className="mb-2 border border-amber-500/30 bg-amber-500/10 px-2 py-1.5 text-[11px] leading-4 text-amber-100">
+                  Pravi DWG import trazi poseban converter servis. Bez toga browser moze sigurno otvoriti DXF, a DWG predlosci samo postavljaju layere/layout-e.
+                </div>
+              )}
               <div className="grid grid-cols-1 gap-2">
                 {dwgTemplatePresets.map((template) => {
                   const plotStyle = template.layouts.find((layout) => layout.styleSheet)?.styleSheet || "bez CTB";
