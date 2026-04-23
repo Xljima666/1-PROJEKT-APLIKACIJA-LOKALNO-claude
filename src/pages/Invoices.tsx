@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type ChangeEvent, type MouseEvent, type ReactNode, type WheelEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type MouseEvent, type ReactNode } from "react";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import { cn } from "@/lib/utils";
 import { useCad } from "@/cad/store";
@@ -449,7 +449,7 @@ function renderShape(
   shape: Shape,
   layerColor: string,
   selected: boolean,
-  onSelect: (id: string) => void,
+  _onSelect: (id: string) => void,
 ) {
   const stroke = selected ? "#60a5fa" : layerColor;
   const common = {
@@ -457,12 +457,7 @@ function renderShape(
     strokeWidth: selected ? 3 : 1.6,
     fill: "none",
     vectorEffect: "non-scaling-stroke" as const,
-    pointerEvents: "stroke" as const,
-    cursor: "pointer",
-    onMouseDown: (event: MouseEvent) => {
-      event.stopPropagation();
-      onSelect(shape.id);
-    },
+    pointerEvents: "none" as const,
   };
 
   if (shape.type === "line") return <line key={shape.id} x1={shape.x1} y1={shape.y1} x2={shape.x2} y2={shape.y2} {...common} />;
@@ -488,10 +483,7 @@ function renderShape(
         y={shape.y}
         fill={selected ? "#60a5fa" : layerColor}
         fontSize={shape.size}
-        onMouseDown={(event) => {
-          event.stopPropagation();
-          onSelect(shape.id);
-        }}
+        pointerEvents="none"
       >
         {shape.text}
       </text>
@@ -507,7 +499,7 @@ function renderShape(
     const b = { x: shape.x2 + nx * shape.offset, y: shape.y2 + ny * shape.offset };
     const text = `${(len / 100).toFixed(2)} m`;
     return (
-      <g key={shape.id} onMouseDown={(event) => { event.stopPropagation(); onSelect(shape.id); }}>
+      <g key={shape.id} pointerEvents="none">
         <line x1={shape.x1} y1={shape.y1} x2={a.x} y2={a.y} {...common} strokeWidth={selected ? 2.4 : 1.1} />
         <line x1={shape.x2} y1={shape.y2} x2={b.x} y2={b.y} {...common} strokeWidth={selected ? 2.4 : 1.1} />
         <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} {...common} />
@@ -588,6 +580,8 @@ const Invoices = () => {
   const [mirrorAxis, setMirrorAxis] = useState<Point | null>(null);
   const [snapHit, setSnapHit] = useState<SnapHit | null>(null);
   const [viewBox, setViewBox] = useState<ViewBox>(DEFAULT_VIEW_BOX);
+  const [spaceDown, setSpaceDown] = useState(false);
+  const [panDrag, setPanDrag] = useState<{ clientX: number; clientY: number; viewBox: ViewBox } | null>(null);
   const [activeTemplateId, setActiveTemplateId] = useState(dwgTemplatePresets[0]?.id ?? "");
   const [activeLayoutName, setActiveLayoutName] = useState("Model");
 
@@ -704,10 +698,58 @@ const Invoices = () => {
     addLog(`PAN ${dx.toFixed(0)}, ${dy.toFixed(0)}`);
   };
 
-  const onCanvasWheel = (event: WheelEvent<SVGSVGElement>) => {
-    event.preventDefault();
-    zoomAt(event.deltaY < 0 ? 0.86 : 1.16, toWorld(event.clientX, event.clientY));
-  };
+  useEffect(() => {
+    const svg = canvasRef.current;
+    if (!svg) return;
+    const onWheel = (event: globalThis.WheelEvent) => {
+      event.preventDefault();
+      zoomAt(event.deltaY < 0 ? 0.86 : 1.16, toWorld(event.clientX, event.clientY));
+    };
+    svg.addEventListener("wheel", onWheel, { passive: false });
+    return () => svg.removeEventListener("wheel", onWheel);
+  }, [viewBox]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const tag = (event.target as HTMLElement | null)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      if (event.code === "Space") {
+        event.preventDefault();
+        setSpaceDown(true);
+      }
+      if (event.key === "Escape") {
+        setPending([]);
+        setMirrorAxis(null);
+        addLog("Naredba prekinuta.");
+      }
+      if (event.key === "Delete" || event.key === "Backspace") {
+        if (selectedIds.length) deleteShapes(selectedIds);
+      }
+      if (event.key === "Enter" && tool === "line") {
+        setPending([]);
+        addLog("LINE zavrsen.");
+      }
+      if (event.key === "Enter" && tool === "polyline") {
+        if (pending.length < 2) {
+          addLog("Polyline treba barem dvije tocke.");
+        } else {
+          const id = addShape({ type: "polyline", points: pending, closed: false } as any);
+          setSelection([id]);
+          setPending([]);
+          addLog(`Polyline dodan (${pending.length} tocaka).`);
+        }
+      }
+    };
+    const onKeyUp = (event: KeyboardEvent) => {
+      if (event.code === "Space") setSpaceDown(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
+    };
+  }, [selectedIds, tool, pending]);
 
   const selectLayout = (layoutName: string) => {
     const layout = layoutTabs.find((item) => item.name === layoutName) || MODEL_LAYOUT;
@@ -797,6 +839,16 @@ const Invoices = () => {
   };
 
   const onCanvasMouseDown = (event: MouseEvent<SVGSVGElement>) => {
+    canvasRef.current?.focus();
+
+    if (event.button === 1 || (event.button === 0 && spaceDown)) {
+      event.preventDefault();
+      setPanDrag({ clientX: event.clientX, clientY: event.clientY, viewBox });
+      addLog("PAN aktivan.");
+      return;
+    }
+
+    if (event.button !== 0) return;
     const p = applySnap(toWorld(event.clientX, event.clientY));
 
     if (tool === "select") {
@@ -985,6 +1037,14 @@ const Invoices = () => {
   };
 
   const onCanvasMove = (event: MouseEvent<SVGSVGElement>) => {
+    if (panDrag) {
+      const rect = canvasRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const dx = -((event.clientX - panDrag.clientX) / Math.max(1, rect.width)) * panDrag.viewBox.w;
+      const dy = -((event.clientY - panDrag.clientY) / Math.max(1, rect.height)) * panDrag.viewBox.h;
+      setConstrainedViewBox({ ...panDrag.viewBox, x: panDrag.viewBox.x + dx, y: panDrag.viewBox.y + dy });
+      return;
+    }
     const base = pending[0] || null;
     setCursor(applySnap(toWorld(event.clientX, event.clientY), base));
   };
@@ -1512,12 +1572,23 @@ const Invoices = () => {
 
             <svg
               ref={canvasRef}
-              className="absolute inset-0 h-full w-full cursor-crosshair"
+              className={cn("absolute inset-0 h-full w-full", spaceDown || panDrag ? "cursor-grab" : tool === "select" ? "cursor-default" : "cursor-crosshair")}
               viewBox={`${viewBox.x} ${viewBox.y} ${viewBox.w} ${viewBox.h}`}
               preserveAspectRatio="none"
+              style={{ touchAction: "none" }}
               onMouseDown={onCanvasMouseDown}
               onMouseMove={onCanvasMove}
-              onWheel={onCanvasWheel}
+              onMouseUp={() => setPanDrag(null)}
+              onMouseLeave={() => setPanDrag(null)}
+              onContextMenu={(event) => {
+                event.preventDefault();
+                if (tool === "polyline" && pending.length >= 2) {
+                  finishPolyline();
+                  return;
+                }
+                setPending([]);
+                setMirrorAxis(null);
+              }}
               onDoubleClick={() => {
                 if (tool === "polyline") finishPolyline();
                 if (tool === "line") {
