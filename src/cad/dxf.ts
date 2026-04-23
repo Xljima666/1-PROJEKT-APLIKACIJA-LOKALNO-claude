@@ -209,18 +209,50 @@ export function importDXF(text: string, existingLayers: Layer[]): { shapes: Shap
           // flipped Y: swap & negate
           startAngle: -end, endAngle: -start,
         });
-      } else if (type === "LWPOLYLINE" || type === "POLYLINE") {
-        const xs = (block[10] ?? []).map(Number);
-        const ys = (block[20] ?? []).map((v) => -Number(v));
-        const pts = xs.map((x, idx) => ({ x, y: ys[idx] ?? 0 }));
-        const flag = num(70);
-        if (pts.length >= 2) {
+    } else if (type === "LWPOLYLINE") {
+      const xs = (block[10] ?? []).map(Number);
+      const ys = (block[20] ?? []).map((v) => -Number(v));
+      const pts = xs.map((x, idx) => ({ x, y: ys[idx] ?? 0 }));
+      const flag = num(70);
+      if (pts.length >= 2) {
           shapes.push({
             id: uid(), layerId: layer.id, type: "polyline",
-            points: pts, closed: (flag & 1) === 1,
-          });
+          points: pts, closed: (flag & 1) === 1,
+        });
+      }
+    } else if (type === "POLYLINE") {
+      const layerForPolyline = layer;
+      const flag = num(70);
+      const pts: Array<{ x: number; y: number }> = [];
+      while (i < pairs.length) {
+        if (pairs[i].code !== 0) {
+          i++;
+          continue;
         }
-      } else if (type === "TEXT" || type === "MTEXT") {
+        const nestedType = pairs[i].value.toUpperCase();
+        if (nestedType === "SEQEND") {
+          i++;
+          break;
+        }
+        if (nestedType !== "VERTEX") break;
+        const vertexBlock: Record<number, string[]> = {};
+        i++;
+        while (i < pairs.length && pairs[i].code !== 0) {
+          const cp = pairs[i];
+          (vertexBlock[cp.code] ||= []).push(cp.value);
+          i++;
+        }
+        const x = Number(vertexBlock[10]?.[0] ?? "0");
+        const y = -Number(vertexBlock[20]?.[0] ?? "0");
+        if (Number.isFinite(x) && Number.isFinite(y)) pts.push({ x, y });
+      }
+      if (pts.length >= 2) {
+        shapes.push({
+          id: uid(), layerId: layerForPolyline.id, type: "polyline",
+          points: pts, closed: (flag & 1) === 1,
+        });
+      }
+    } else if (type === "TEXT" || type === "MTEXT") {
         shapes.push({
           id: uid(), layerId: layer.id, type: "text",
           x: num(10), y: -num(20),

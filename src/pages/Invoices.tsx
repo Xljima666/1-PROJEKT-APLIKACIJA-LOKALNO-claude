@@ -8,6 +8,7 @@ import { parseCoord } from "@/cad/coords";
 import { defaultOsnap, findOSnap, type SnapHit } from "@/cad/osnap";
 import { extendLine, mirrorShape, offsetShape, trimLine } from "@/cad/modify";
 import type { LineShape, Point, Shape } from "@/cad/types";
+import { toast } from "sonner";
 import {
   ArrowLeftRight,
   ChevronDown,
@@ -274,6 +275,52 @@ function shapeBounds(s: Shape) {
   if (s.type === "arc") return `arc c ${s.cx.toFixed(1)},${s.cy.toFixed(1)}, r ${s.r.toFixed(1)}`;
   if (s.type === "dim-linear") return `dim ${s.x1.toFixed(1)},${s.y1.toFixed(1)} -> ${s.x2.toFixed(1)},${s.y2.toFixed(1)}`;
   return "object";
+}
+
+function shapeBBox(s: Shape) {
+  if (s.type === "line" || s.type === "dim-linear") {
+    return {
+      minX: Math.min(s.x1, s.x2),
+      minY: Math.min(s.y1, s.y2),
+      maxX: Math.max(s.x1, s.x2),
+      maxY: Math.max(s.y1, s.y2),
+    };
+  }
+  if (s.type === "rect") return { minX: s.x, minY: s.y, maxX: s.x + s.w, maxY: s.y + s.h };
+  if (s.type === "circle" || s.type === "arc") {
+    return { minX: s.cx - s.r, minY: s.cy - s.r, maxX: s.cx + s.r, maxY: s.cy + s.r };
+  }
+  if (s.type === "polyline") {
+    if (!s.points.length) return null;
+    return s.points.reduce(
+      (box, point) => ({
+        minX: Math.min(box.minX, point.x),
+        minY: Math.min(box.minY, point.y),
+        maxX: Math.max(box.maxX, point.x),
+        maxY: Math.max(box.maxY, point.y),
+      }),
+      { minX: s.points[0].x, minY: s.points[0].y, maxX: s.points[0].x, maxY: s.points[0].y },
+    );
+  }
+  if (s.type === "text") {
+    const w = Math.max(40, s.text.length * s.size * 0.55);
+    return { minX: s.x, minY: s.y - s.size, maxX: s.x + w, maxY: s.y + s.size * 0.3 };
+  }
+  return null;
+}
+
+function shapesBBox(shapes: Shape[]) {
+  const boxes = shapes.map(shapeBBox).filter(Boolean) as Array<NonNullable<ReturnType<typeof shapeBBox>>>;
+  if (!boxes.length) return null;
+  return boxes.reduce(
+    (box, item) => ({
+      minX: Math.min(box.minX, item.minX),
+      minY: Math.min(box.minY, item.minY),
+      maxX: Math.max(box.maxX, item.maxX),
+      maxY: Math.max(box.maxY, item.maxY),
+    }),
+    boxes[0],
+  );
 }
 
 function hitTest(shape: Shape, p: Point, tol = 10) {
@@ -637,6 +684,19 @@ const Invoices = () => {
   const zoomFit = () => {
     setViewBox(DEFAULT_VIEW_BOX);
     addLog("ZOOM FIT - cijeli model.");
+  };
+
+  const zoomToShapes = (shapes: Shape[]) => {
+    const box = shapesBBox(shapes);
+    if (!box) return zoomFit();
+    const padding = Math.max(80, Math.max(box.maxX - box.minX, box.maxY - box.minY) * 0.08);
+    setViewBox({
+      x: box.minX - padding,
+      y: box.minY - padding,
+      w: Math.max(120, box.maxX - box.minX + padding * 2),
+      h: Math.max(90, box.maxY - box.minY + padding * 2),
+    });
+    addLog("ZOOM EXTENTS - uvezeni crtez je u fokusu.");
   };
 
   const panView = (dx: number, dy: number) => {
@@ -1061,19 +1121,44 @@ const Invoices = () => {
         (normalized.includes("skica") ? dwgTemplatePresets.find((template) => template.id.includes("skica")) : undefined) ||
         dwgTemplatePresets[0];
       applyDwgTemplate(match, true);
-      addLog(`DWG ${file.name}: binarni DWG ne citamo u browseru; ucitan najblizi predlozak ${match.title}. Za geometriju uvezi DXF.`);
+      const message = `DWG ${file.name}: ucitan predlozak ${match.title}. Za geometriju iz DWG-a treba backend DWG->DXF konverter.`;
+      addLog(message);
+      toast.info("DWG predlozak ucitan", { description: "Za stvarni DWG import trebamo konverter; DXF geometrija se ucitava direktno." });
       event.target.value = "";
       return;
     }
     const reader = new FileReader();
     reader.onload = () => {
       try {
-        const { layers, shapes } = importDXF(String(reader.result || ""), doc.layers);
+        const raw = String(reader.result || "");
+        if (!raw.trim()) {
+          addLog(`DXF import: ${file.name} je prazan ili nije tekstualni DXF.`);
+          toast.error("DXF nije ucitan", { description: "Datoteka je prazna ili nije tekstualni DXF." });
+          return;
+        }
+        const { layers, shapes } = importDXF(raw, doc.layers);
+        if (!shapes.length) {
+          addLog(`DXF import: ${file.name} nije dao objekte. Moguce je da je binarni DWG ili DXF s nepodrzanim entitetima.`);
+          toast.warning("DXF nije dao objekte", { description: "Probaj exportati kao AutoCAD 2000/LT2000 DXF ili mi posalji primjer." });
+          return;
+        }
         loadDoc({ ...doc, layers, shapes });
-        addLog(`DXF/DWG import: ${file.name}, ${shapes.length} objekata.`);
-      } catch {
-        addLog("DXF import nije uspio.");
+        setPending([]);
+        setSelection([]);
+        setSnapHit(null);
+        setActiveLayoutName("Model");
+        zoomToShapes(shapes);
+        addLog(`DXF import: ${file.name}, ${shapes.length} objekata, ${layers.length} layera.`);
+        toast.success("DXF ucitan", { description: `${shapes.length} objekata, ${layers.length} layera. Pogled je automatski fitan.` });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Nepoznata greska";
+        addLog(`DXF import nije uspio: ${message}`);
+        toast.error("DXF import nije uspio", { description: message });
       }
+    };
+    reader.onerror = () => {
+      addLog(`DXF import: ne mogu procitati ${file.name}.`);
+      toast.error("Ne mogu procitati datoteku", { description: file.name });
     };
     reader.readAsText(file);
     event.target.value = "";
