@@ -3862,8 +3862,8 @@ ${summaryText(data, "Backup projekta je spremljen.")}`,
           <div className="fixed inset-0 z-50">
             <StellanLearningPanel
               onClose={() => setDevMode(false)}
-              agentServerUrl={import.meta.env.VITE_AGENT_SERVER_URL || ""}
-              apiKey={import.meta.env.VITE_AGENT_API_KEY || ""}
+              agentServerUrl={import.meta.env.VITE_AGENT_SERVER_URL || "http://localhost:8432"}
+              apiKey={import.meta.env.VITE_AGENT_API_KEY || "stellan-agent-2026-v2-x7k9m2p"}
             />
           </div>
         )}

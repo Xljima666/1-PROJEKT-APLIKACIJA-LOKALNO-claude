@@ -94,24 +94,71 @@ function recordedStepsToSnippet(steps: FlowStep[]) {
 
 // ─── callAgent helper ─────────────────────────────────────────────────────────
 
+const DEFAULT_AGENT_API_KEY = "stellan-agent-2026-v2-x7k9m2p";
+const DEFAULT_AGENT_BASES = [
+  "http://localhost:8432",
+  "http://127.0.0.1:8432",
+  "http://localhost:8787",
+  "http://127.0.0.1:8787",
+];
+
+function normalizeAgentBase(value?: string) {
+  return String(value || "").trim().replace(/\/+$/, "");
+}
+
+function getAgentBaseCandidates(agentServerUrl: string) {
+  const envBase =
+    typeof import.meta !== "undefined"
+      ? normalizeAgentBase(import.meta.env.VITE_AGENT_SERVER_URL)
+      : "";
+  return [normalizeAgentBase(agentServerUrl), envBase, ...DEFAULT_AGENT_BASES].filter(
+    (base, index, arr) => !!base && arr.indexOf(base) === index
+  );
+}
+
+function getAgentKeyCandidates(apiKey: string) {
+  const envKey =
+    typeof import.meta !== "undefined"
+      ? String(import.meta.env.VITE_AGENT_API_KEY || "").trim()
+      : "";
+  return [String(apiKey || "").trim(), envKey, DEFAULT_AGENT_API_KEY].filter(
+    (key, index, arr) => !!key && arr.indexOf(key) === index
+  );
+}
+
 function makeCallAgent(agentServerUrl: string, apiKey: string) {
   return async (endpoint: string, body?: object) => {
-    const base = (agentServerUrl || "").replace(/\/+$/, "");
-    if (!base) throw new Error("VITE_AGENT_SERVER_URL nije postavljen");
-    const res = await fetch(`${base}/${endpoint}`, {
-      method: body !== undefined ? "POST" : "GET",
-      headers: {
-        "Content-Type": "application/json",
-        "X-API-Key": apiKey || "stellan-agent-2026-v2-x7k9m2p",
-        "ngrok-skip-browser-warning": "true",
-      },
-      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
-    });
-    if (!res.ok) {
-      const txt = await res.text().catch(() => "");
-      throw new Error(`${res.status} [${base}/${endpoint}] ${txt.slice(0, 120)}`);
+    const bases = getAgentBaseCandidates(agentServerUrl);
+    const keys = getAgentKeyCandidates(apiKey);
+    if (!bases.length) throw new Error("Agent server URL nije postavljen");
+
+    let lastError = "Agent server nije dostupan";
+
+    for (const base of bases) {
+      for (const key of keys) {
+        try {
+          const res = await fetch(`${base}/${endpoint}`, {
+            method: body !== undefined ? "POST" : "GET",
+            headers: {
+              ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
+              "X-API-Key": key,
+              "ngrok-skip-browser-warning": "true",
+            },
+            ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+          });
+          if (!res.ok) {
+            const txt = await res.text().catch(() => "");
+            lastError = `${res.status} [${base}/${endpoint}] ${txt.slice(0, 160)}`;
+            continue;
+          }
+          return res.json();
+        } catch (error: any) {
+          lastError = error?.message ? `${base}: ${error.message}` : `${base}: network error`;
+        }
+      }
     }
-    return res.json();
+
+    throw new Error(lastError);
   };
 }
 

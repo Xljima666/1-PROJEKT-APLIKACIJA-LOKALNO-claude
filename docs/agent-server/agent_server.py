@@ -29,6 +29,12 @@ from fastapi import FastAPI, HTTPException, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
+
 # ============ KONFIGURACIJA ============
 WORKSPACE_DIR = os.environ.get(
     "AGENT_WORKSPACE",
@@ -47,12 +53,14 @@ AGENT_SUBDIR = "2 AGENT"
 BACKUP_DIR_NAME = f"{AGENT_SUBDIR}/_agent_backups"
 LOG_DIR_NAME = f"{AGENT_SUBDIR}/_agent_logs"
 MAX_SEARCH_RESULTS = 500
-API_KEY = os.environ.get("AGENT_API_KEY", "")
+DEFAULT_AGENT_API_KEY = "stellan-agent-2026-v2-x7k9m2p"
+API_KEY = (os.environ.get("AGENT_API_KEY", "") or "").strip() or DEFAULT_AGENT_API_KEY
 VALID_API_KEYS = {
     key.strip()
     for key in [
         API_KEY,
         os.environ.get("AGENT_API_KEY", ""),
+        DEFAULT_AGENT_API_KEY,
     ]
     if key and key.strip()
 }
