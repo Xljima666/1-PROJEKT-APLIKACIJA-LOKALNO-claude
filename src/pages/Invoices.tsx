@@ -549,6 +549,31 @@ function layoutPaperWorld(layout: DwgTemplateLayout) {
   return { w: paper.w * 3.5, h: paper.h * 3.5 };
 }
 
+function normalizeFileMatch(value: string) {
+  return value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, " ");
+}
+
+function findDwgTemplateForFile(fileName: string) {
+  const normalized = normalizeFileMatch(fileName);
+  const exact = dwgTemplatePresets.find((template) => {
+    const source = normalizeFileMatch(template.sourceFile.replace(/\.dwg$/i, ""));
+    const title = normalizeFileMatch(template.title);
+    return normalized.includes(source) || normalized.includes(title);
+  });
+  if (exact) return exact;
+  if (normalized.includes("05 2") || normalized.includes("skica") || normalized.includes("izmjere")) {
+    return dwgTemplatePresets.find((template) => template.id.includes("skica")) || dwgTemplatePresets[0];
+  }
+  if (normalized.includes("08 4") || normalized.includes("kkp") || normalized.includes("zk") || normalized.includes("zemljis")) {
+    return dwgTemplatePresets.find((template) => template.id.includes("kkp")) || dwgTemplatePresets[1] || dwgTemplatePresets[0];
+  }
+  return dwgTemplatePresets[0];
+}
+
 const Invoices = () => {
   const dxfRef = useRef<HTMLInputElement | null>(null);
   const canvasRef = useRef<SVGSVGElement | null>(null);
@@ -572,6 +597,7 @@ const Invoices = () => {
   const [cursor, setCursor] = useState<Point | null>(null);
   const [command, setCommand] = useState("");
   const [log, setLog] = useState("LINE: klikni prvu i drugu tocku. RECT/CIRCLE rade s dvije tocke. DXF import/export je aktivan.");
+  const [importStatus, setImportStatus] = useState("Ucitaj DWG za template ili DXF za stvarnu geometriju crteza.");
   const [gridOn, setGridOn] = useState(true);
   const [osnapOn, setOsnapOn] = useState(true);
   const [orthoOn, setOrthoOn] = useState(false);
@@ -597,6 +623,8 @@ const Invoices = () => {
     () => dwgTemplatePresets.find((template) => template.id === activeTemplateId) || dwgTemplatePresets[0] || null,
     [activeTemplateId],
   );
+  const skicaTemplate = useMemo(() => dwgTemplatePresets.find((template) => template.id.includes("skica")) || null, []);
+  const kkpTemplate = useMemo(() => dwgTemplatePresets.find((template) => template.id.includes("kkp")) || null, []);
   const layoutTabs = useMemo(() => {
     const byName = new Map<string, DwgTemplateLayout>();
     byName.set(MODEL_LAYOUT.name, MODEL_LAYOUT);
@@ -1174,16 +1202,12 @@ const Invoices = () => {
     const file = event.target.files?.[0];
     if (!file) return;
     if (file.name.toLowerCase().endsWith(".dwg")) {
-      const normalized = file.name.toLowerCase();
-      const match =
-        dwgTemplatePresets.find((template) => normalized.includes(template.sourceFile.replace(".dwg", "").toLowerCase())) ||
-        ((normalized.includes("kkp") || normalized.includes("zk")) ? dwgTemplatePresets.find((template) => template.id.includes("kkp")) : undefined) ||
-        (normalized.includes("skica") ? dwgTemplatePresets.find((template) => template.id.includes("skica")) : undefined) ||
-        dwgTemplatePresets[0];
+      const match = findDwgTemplateForFile(file.name);
       applyDwgTemplate(match, true);
-      const message = `DWG ${file.name}: ucitan predlozak ${match.title}. Za geometriju iz DWG-a treba backend DWG->DXF konverter.`;
+      const message = `DWG ${file.name}: ucitan ${match.title} template (${match.layers.length} layera, ${match.layouts.length} layouta). Za geometriju spremi taj DWG kao DXF i ucitaj DXF.`;
       addLog(message);
-      toast.info("DWG predlozak ucitan", { description: "Za stvarni DWG import trebamo konverter; DXF geometrija se ucitava direktno." });
+      setImportStatus(message);
+      toast.info("DWG template ucitan", { description: "Layeri/layouti su spremni. Za linije/tocke/poligone ucitaj DXF verziju iste skice." });
       event.target.value = "";
       return;
     }
@@ -1193,12 +1217,14 @@ const Invoices = () => {
         const raw = String(reader.result || "");
         if (!raw.trim()) {
           addLog(`DXF import: ${file.name} je prazan ili nije tekstualni DXF.`);
+          setImportStatus(`DXF import: ${file.name} je prazan ili nije tekstualni DXF.`);
           toast.error("DXF nije ucitan", { description: "Datoteka je prazna ili nije tekstualni DXF." });
           return;
         }
         const { layers, shapes } = importDXF(raw, doc.layers);
         if (!shapes.length) {
           addLog(`DXF import: ${file.name} nije dao objekte. Moguce je da je binarni DWG ili DXF s nepodrzanim entitetima.`);
+          setImportStatus(`DXF ${file.name}: nisu pronadeni podrzani objekti. Exportaj kao AutoCAD 2000/LT2000 DXF.`);
           toast.warning("DXF nije dao objekte", { description: "Probaj exportati kao AutoCAD 2000/LT2000 DXF ili mi posalji primjer." });
           return;
         }
@@ -1208,16 +1234,20 @@ const Invoices = () => {
         setSnapHit(null);
         setActiveLayoutName("Model");
         zoomToShapes(shapes);
-        addLog(`DXF import: ${file.name}, ${shapes.length} objekata, ${layers.length} layera.`);
+        const message = `DXF import: ${file.name}, ${shapes.length} objekata, ${layers.length} layera.`;
+        addLog(message);
+        setImportStatus(message);
         toast.success("DXF ucitan", { description: `${shapes.length} objekata, ${layers.length} layera. Pogled je automatski fitan.` });
       } catch (error) {
         const message = error instanceof Error ? error.message : "Nepoznata greska";
         addLog(`DXF import nije uspio: ${message}`);
+        setImportStatus(`DXF import nije uspio: ${message}`);
         toast.error("DXF import nije uspio", { description: message });
       }
     };
     reader.onerror = () => {
       addLog(`DXF import: ne mogu procitati ${file.name}.`);
+      setImportStatus(`DXF import: ne mogu procitati ${file.name}.`);
       toast.error("Ne mogu procitati datoteku", { description: file.name });
     };
     reader.readAsText(file);
@@ -1225,7 +1255,7 @@ const Invoices = () => {
   };
 
   const applyDwgTemplate = (template: DwgTemplatePreset, keepShapes = false) => {
-    const nextDoc = makeCadDocFromDwgTemplate(template, keepShapes ? doc.shapes : []);
+    const nextDoc = makeCadDocFromDwgTemplate(template, keepShapes ? doc.shapes : [], doc.layers);
     loadDoc(nextDoc);
     setPending([]);
     setSelection([]);
@@ -1236,6 +1266,7 @@ const Invoices = () => {
     addLog(
       `${template.title}: ucitano ${template.layers.length} layera, ${template.layouts.length} layouta, ${template.blocks.length} blokova. Layouti: ${layoutNames}`,
     );
+    setImportStatus(`${template.title}: spremni layeri, layouti, linetype, debljine i plot stilovi. ${keepShapes ? "Postojeca geometrija je preslozena na iste nazive layera." : "Cekam DXF geometriju ili novo crtanje."}`);
   };
 
   const previewShape = () => {
@@ -1747,12 +1778,25 @@ const Invoices = () => {
                 Ucitaj DWG/DXF
                 <Upload className="h-3 w-3" />
               </button>
+              {skicaTemplate && (
+                <button onClick={() => applyDwgTemplate(skicaTemplate, true)} className="inline-flex h-7 items-center gap-1 border border-emerald-500/50 bg-emerald-700/65 px-2 text-[11px] font-semibold text-white hover:bg-emerald-600">
+                  Skica 500
+                </button>
+              )}
+              {kkpTemplate && (
+                <button onClick={() => applyDwgTemplate(kkpTemplate, true)} className="inline-flex h-7 items-center gap-1 border border-amber-500/50 bg-amber-700/65 px-2 text-[11px] font-semibold text-white hover:bg-amber-600">
+                  KKP ZK 500
+                </button>
+              )}
             </div>
 
             <div className="absolute left-4 top-24 z-10 max-h-[62vh] w-[460px] overflow-y-auto rounded border border-[#425360] bg-[#121d26]/85 p-3 text-xs text-slate-300">
               <div className="mb-2 flex items-center gap-2 font-semibold text-slate-100">
                 <Search className="h-3.5 w-3.5 text-cyan-300" />
                 DWG predlosci iz tvojih crteza
+              </div>
+              <div className="mb-2 border border-cyan-500/30 bg-cyan-500/10 px-2 py-1.5 text-[11px] leading-4 text-cyan-100">
+                {importStatus}
               </div>
               <div className="grid grid-cols-1 gap-2">
                 {dwgTemplatePresets.map((template) => {

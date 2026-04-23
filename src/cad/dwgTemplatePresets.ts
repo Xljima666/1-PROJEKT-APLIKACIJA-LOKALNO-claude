@@ -1817,7 +1817,7 @@ export const dwgTemplatePresets = [
   }
 ] satisfies DwgTemplatePreset[];
 
-export function makeCadDocFromDwgTemplate(template: DwgTemplatePreset, shapes: Shape[] = []): CadDoc {
+export function makeCadDocFromDwgTemplate(template: DwgTemplatePreset, shapes: Shape[] = [], sourceLayers: Layer[] = []): CadDoc {
   const layers: Layer[] = template.layers.map((layer, index) => ({
     id: `dwg-${template.id}-${index}`,
     name: layer.name,
@@ -1832,10 +1832,15 @@ export function makeCadDocFromDwgTemplate(template: DwgTemplatePreset, shapes: S
     plotStyleName: layer.plotStyleName,
   }));
   const activeLayerId = layers.find((layer) => layer.name !== "0" && !layer.locked)?.id || layers[0]?.id || "0";
+  const nextLayerByName = new Map(layers.map((layer) => [layer.name.toUpperCase(), layer.id]));
+  const sourceLayerById = new Map(sourceLayers.map((layer) => [layer.id, layer.name.toUpperCase()]));
   return {
     version: 1,
     layers,
     activeLayerId,
-    shapes: shapes.map((shape) => ({ ...shape, layerId: activeLayerId })),
+    shapes: shapes.map((shape) => {
+      const sourceName = sourceLayerById.get(shape.layerId);
+      return { ...shape, layerId: (sourceName && nextLayerByName.get(sourceName)) || activeLayerId };
+    }),
   };
 }
