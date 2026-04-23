@@ -410,6 +410,8 @@ function renderShape(
     strokeWidth: selected ? 3 : 1.6,
     fill: "none",
     vectorEffect: "non-scaling-stroke" as const,
+    pointerEvents: "stroke" as const,
+    cursor: "pointer",
     onMouseDown: (event: MouseEvent) => {
       event.stopPropagation();
       onSelect(shape.id);
@@ -495,6 +497,19 @@ function renderSnapMarker(hit: SnapHit) {
   return <circle cx={p.x} cy={p.y} r={s * 0.7} {...common} />;
 }
 
+function layoutPaperSize(layout: DwgTemplateLayout) {
+  const media = layout.media.toUpperCase();
+  if (media.includes("A3")) return { w: 420, h: 297 };
+  if (media.includes("A4")) return { w: 297, h: 210 };
+  if (media.includes("LETTER")) return { w: 279, h: 216 };
+  return { w: 297, h: 210 };
+}
+
+function layoutPaperWorld(layout: DwgTemplateLayout) {
+  const paper = layoutPaperSize(layout);
+  return { w: paper.w * 3.5, h: paper.h * 3.5 };
+}
+
 const Invoices = () => {
   const dxfRef = useRef<HTMLInputElement | null>(null);
   const canvasRef = useRef<SVGSVGElement | null>(null);
@@ -548,12 +563,22 @@ const Invoices = () => {
     return Array.from(byName.values());
   }, [activeTemplate]);
   const activeLayout = layoutTabs.find((layout) => layout.name === activeLayoutName) || layoutTabs[0] || MODEL_LAYOUT;
+  const activePaper = activeLayout.name === "Model" ? null : layoutPaperWorld(activeLayout);
   const zoomPercent = Math.round((CANVAS_W / viewBox.w) * 100);
   const snapTolerance = Math.max(4, (18 * viewBox.w) / CANVAS_W);
 
   const toWorld = (clientX: number, clientY: number): Point => {
-    const rect = canvasRef.current?.getBoundingClientRect();
-    if (!rect) return { x: 0, y: 0 };
+    const svg = canvasRef.current;
+    if (!svg) return { x: 0, y: 0 };
+    const matrix = svg.getScreenCTM();
+    if (matrix) {
+      const point = svg.createSVGPoint();
+      point.x = clientX;
+      point.y = clientY;
+      const world = point.matrixTransform(matrix.inverse());
+      return { x: world.x, y: world.y };
+    }
+    const rect = svg.getBoundingClientRect();
     return {
       x: viewBox.x + ((clientX - rect.left) / rect.width) * viewBox.w,
       y: viewBox.y + ((clientY - rect.top) / rect.height) * viewBox.h,
@@ -627,6 +652,12 @@ const Invoices = () => {
   const selectLayout = (layoutName: string) => {
     const layout = layoutTabs.find((item) => item.name === layoutName) || MODEL_LAYOUT;
     setActiveLayoutName(layout.name);
+    if (layout.name === "Model") {
+      setViewBox(DEFAULT_VIEW_BOX);
+    } else {
+      const paper = layoutPaperWorld(layout);
+      setViewBox({ x: -80, y: -80, w: paper.w + 160, h: paper.h + 160 });
+    }
     addLog(
       layout.name === "Model"
         ? "Layout Model aktivan."
@@ -674,7 +705,7 @@ const Invoices = () => {
   };
 
   const pickShapeAt = (p: Point) =>
-    [...visibleShapes].reverse().find((shape) => layerMap.get(shape.layerId)?.locked !== true && hitTest(shape, p, 12));
+    [...visibleShapes].reverse().find((shape) => layerMap.get(shape.layerId)?.locked !== true && hitTest(shape, p, Math.max(10, snapTolerance)));
 
   const applyModifyTool = (modifyTool: CadTool, base: Point, target: Point) => {
     const ids = selectedIds;
@@ -1350,6 +1381,7 @@ const Invoices = () => {
               <span>[WCS]</span>
               <span>[{activeLayout.name}]</span>
               <span>[{zoomPercent}%]</span>
+              {activePaper && <span>[{activeLayout.media || "paper"} / {activeLayout.styleSheet || "no CTB"}]</span>}
             </div>
 
             <div className="absolute right-5 top-5 z-10 w-[286px] rounded-sm border border-[#4c5d69] bg-[#202d38]/95 p-3 shadow-2xl">
@@ -1397,6 +1429,7 @@ const Invoices = () => {
               ref={canvasRef}
               className="absolute inset-0 h-full w-full cursor-crosshair"
               viewBox={`${viewBox.x} ${viewBox.y} ${viewBox.w} ${viewBox.h}`}
+              preserveAspectRatio="none"
               onMouseDown={onCanvasMouseDown}
               onMouseMove={onCanvasMove}
               onWheel={onCanvasWheel}
@@ -1429,6 +1462,15 @@ const Invoices = () => {
               </defs>
               {gridOn && <rect x={viewBox.x} y={viewBox.y} width={viewBox.w} height={viewBox.h} fill="url(#cad-grid)" />}
               <g>
+                {activePaper && (
+                  <g pointerEvents="none">
+                    <rect x={0} y={0} width={activePaper.w} height={activePaper.h} fill="rgba(15,23,42,0.35)" stroke="#cbd5e1" strokeWidth={1.2} vectorEffect="non-scaling-stroke" />
+                    <rect x={35} y={35} width={Math.max(10, activePaper.w - 70)} height={Math.max(10, activePaper.h - 70)} fill="none" stroke="#60a5fa" strokeWidth={1} strokeDasharray="10 8" vectorEffect="non-scaling-stroke" />
+                    <text x={42} y={28} fill="#cbd5e1" fontSize={18} stroke="none">
+                      {activeLayout.name} · {activeLayout.media || "paper"} · {activeLayout.styleSheet || "bez CTB"}
+                    </text>
+                  </g>
+                )}
                 {visibleShapes.map((shape) =>
                   renderShape(
                     shape,
@@ -1544,6 +1586,10 @@ const Invoices = () => {
               <button onClick={exportCurrentDxf} className="inline-flex h-7 items-center gap-1 border border-[#607181] bg-[#26333f] px-2 text-[11px] hover:bg-[#40515f]">
                 DXF/DWG
                 <Download className="h-3 w-3" />
+              </button>
+              <button onClick={() => dxfRef.current?.click()} className="inline-flex h-7 items-center gap-1 border border-blue-500/60 bg-blue-600/70 px-2 text-[11px] font-semibold text-white hover:bg-blue-500">
+                Ucitaj DWG/DXF
+                <Upload className="h-3 w-3" />
               </button>
             </div>
 
