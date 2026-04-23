@@ -67,7 +67,7 @@ type CadTool =
 const CANVAS_W = 1800;
 const CANVAS_H = 980;
 const GRID = 20;
-const CAD_CONVERTER_URL = String(import.meta.env.VITE_CAD_CONVERTER_URL || "").replace(/\/+$/, "");
+const CAD_CONVERTER_URL = String(import.meta.env.VITE_CAD_CONVERTER_URL || "http://localhost:8791").replace(/\/+$/, "");
 
 type ViewBox = { x: number; y: number; w: number; h: number };
 type CadConverterResponse = {

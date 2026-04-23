@@ -45,6 +45,7 @@ _agent_backups/
 # local project runtime outputs
 /1 PROJEKTI/
 /analysis/
+/tools/cad-converter/vendor/
 /script_*.py
 /screenshot*.png
 /oss_search*.png

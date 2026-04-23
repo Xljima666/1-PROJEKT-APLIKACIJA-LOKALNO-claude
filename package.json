@@ -10,6 +10,8 @@
     "build:dev": "vite build --mode development",
     "build:vercel": "vite build",
     "preview": "vite preview",
+    "cad:converter": "node tools/cad-converter/server.mjs",
+    "cad:converter:install": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/cad-converter/install-libredwg.ps1",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.node.json",
     "check": "npm run typecheck && npm run lint",

@@ -1,10 +1,43 @@
 # CAD DWG import
 
-Stellan CAD moze direktno ucitati tekstualni DXF u browseru. Za pravi DWG import treba vanjski converter servis, jer je DWG binarni/proprietary CAD format i nije pouzdano citljiv samo frontend JavaScriptom.
+Stellan CAD moze direktno ucitati tekstualni DXF u browseru. Za pravi DWG import koristi lokalni converter servis, jer je DWG binarni/proprietary CAD format i nije pouzdano citljiv samo frontend JavaScriptom.
+
+## Lokalni converter
+
+Jednokratno instaliraj LibreDWG command-line alat:
+
+```powershell
+npm run cad:converter:install
+```
+
+Zatim pokreni lokalni converter:
+
+```powershell
+npm run cad:converter
+```
+
+Servis slusa na:
+
+```text
+http://localhost:8791
+```
+
+Aplikacija defaultno koristi taj URL. Ako zelis drugi server, postavi:
+
+```text
+VITE_CAD_CONVERTER_URL=http://localhost:8791
+```
+
+Converter prvo koristi lokalni `dwg2dxf.exe` iz LibreDWG-a. Ako taj put ne uspije, proba Windows COM fallback preko ZWCAD-a. Ako zelis promijeniti COM fallback:
+
+```powershell
+$env:CAD_CONVERTER_PROGIDS="ZWCAD.Application,AutoCAD.Application"
+npm run cad:converter
+```
 
 Podrzani put u aplikaciji:
 
-1. Postavi `VITE_CAD_CONVERTER_URL`, npr. `http://localhost:8791`.
+1. Pokreni `npm run cad:converter`.
 2. U CAD-u klikni `Ucitaj CAD` i odaberi `.dwg`.
 3. Frontend salje `multipart/form-data` POST na `${VITE_CAD_CONVERTER_URL}/convert`.
 4. Converter vraca jedan od ova dva odgovora:
