@@ -3407,6 +3407,8 @@ def analyze_shadow_session(name: str, start_url: str, steps: list[dict], context
     )
     confidence = calculate_shadow_confidence(historical_count + 1, avg_steps)
     learning_state = shadow_learning_state(confidence)
+    warnings = build_shadow_warning_rules(normalized_steps, historical_candidates)
+    auto_playbook_ready = confidence >= 60 and len(normalized_steps) >= 5 and (historical_count + 1) >= 2
 
     suggested_name = normalize_flow_name(name or f"{portal}_{flow_type}_{datetime.now().strftime('%Y%m%d_%H%M')}")
     summary = (
@@ -3435,6 +3437,8 @@ def analyze_shadow_session(name: str, start_url: str, steps: list[dict], context
         },
         "confidence": confidence,
         "learning_state": learning_state,
+        "warnings": warnings,
+        "auto_playbook_ready": auto_playbook_ready,
         "steps": normalized_steps,
         "context": context,
         "start_url": start_url,
@@ -3579,6 +3583,65 @@ def pick_shadow_session_candidates(portal: str, flow_type: str, context: str = "
     return (strong + medium + weak)[:limit]
 
 
+def canonical_shadow_step_signature(step: dict) -> str:
+    stype = str(step.get("type") or step.get("action") or "click").strip().lower() or "click"
+    target = str(step.get("target") or step.get("selector") or "").strip().lower()
+    url = str(step.get("url") or "").strip().lower()
+    value = str(step.get("value") or "").strip().lower()
+
+    if stype == "navigate" and url:
+        return f"navigate::{url.split('?')[0]}"
+    if target:
+        return f"{stype}::{target}"
+    if stype in {"submit", "wait"}:
+        return stype
+    if value:
+        return f"{stype}::value::{value[:40]}"
+    return stype
+
+
+def describe_shadow_signature(signature: str) -> str:
+    stype, _, detail = signature.partition("::")
+    if not detail:
+        return stype or "korak"
+    if detail.startswith("value::"):
+        return f"{stype} ({detail.replace('value::', '', 1)})"
+    return f"{stype} ({detail})"
+
+
+def build_shadow_warning_rules(current_steps: list[dict], candidates: list[dict]) -> list[str]:
+    if len(current_steps) < 2 or len(candidates) < 2:
+        return []
+
+    current_signatures = {
+        canonical_shadow_step_signature(step)
+        for step in current_steps
+        if canonical_shadow_step_signature(step)
+    }
+    recurring_counts: dict[str, int] = {}
+
+    for session in candidates:
+        session_signatures = {
+            canonical_shadow_step_signature(step)
+            for step in (session.get("steps") or [])
+            if canonical_shadow_step_signature(step)
+        }
+        for signature in session_signatures:
+            recurring_counts[signature] = recurring_counts.get(signature, 0) + 1
+
+    threshold = max(2, int(round(len(candidates) * 0.6)))
+    warnings: list[str] = []
+    for signature, count in sorted(recurring_counts.items(), key=lambda item: item[1], reverse=True):
+        if count < threshold or signature in current_signatures:
+            continue
+        warnings.append(
+            f"Ovaj korak obicno radis u slicnim sesijama, a sada ga nema: {describe_shadow_signature(signature)}."
+        )
+        if len(warnings) >= 4:
+            break
+    return warnings
+
+
 def build_shadow_playbook(name: str, start_url: str, steps: list[dict], context: str = "", portal: str = "", flow_type: str = "") -> dict:
     current = analyze_shadow_session(name, start_url, steps, context)
     detected_portal = portal or current.get("portal") or guess_portal_from_url(start_url)
@@ -3638,6 +3701,7 @@ def build_shadow_playbook(name: str, start_url: str, steps: list[dict], context:
     avg_steps = round(sum(len((s.get("steps") or [])) for s in sessions_used) / max(len(sessions_used), 1), 1)
     confidence = calculate_shadow_confidence(len(sessions_used), avg_steps)
     learning_state = shadow_learning_state(confidence)
+    warnings = build_shadow_warning_rules(current.get("steps") or [], candidates)
 
     draft = {
         "name": canonical_name,
@@ -3653,6 +3717,7 @@ def build_shadow_playbook(name: str, start_url: str, steps: list[dict], context:
         "phases": phases,
         "checklist": checklist,
         "risks": risks,
+        "warnings": warnings,
         "tags": tags,
         "steps": exemplar_steps,
         "based_on_sessions": [

@@ -74,6 +74,7 @@ interface ShadowInsight {
   checklist: string[];
   risks: string[];
   tags: string[];
+  warnings?: string[];
   stats?: {
     step_count?: number;
     page_count?: number;
@@ -82,6 +83,7 @@ interface ShadowInsight {
   };
   confidence?: number;
   learning_state?: string;
+  auto_playbook_ready?: boolean;
 }
 
 interface ShadowPlaybookDraft {
@@ -95,6 +97,7 @@ interface ShadowPlaybookDraft {
   phases: string[];
   checklist: string[];
   risks: string[];
+  warnings?: string[];
   tags: string[];
   steps: FlowStep[];
   based_on_sessions: Array<{
@@ -666,21 +669,30 @@ function RecordTab({ callAgent, editFlow, onSaved }: {
         auto_save: true,
       });
       if (r?.analysis) {
-        setShadowInsight(r.analysis);
+        const analysis = r.analysis as ShadowInsight;
+        setShadowInsight(analysis);
         setShadowSavedPath(r?.saved?.path || "");
         setShadowPlaybook(null);
         await loadShadowSummary();
-        addLog(`🧠 Shadow analiza: ${r.analysis.portal} / ${r.analysis.flow_type}`);
-        addLog(`🧾 Checklist: ${(r.analysis.checklist || []).length} stavki`);
+        addLog(`🧠 Shadow analiza: ${analysis.portal} / ${analysis.flow_type}`);
+        addLog(`🧾 Checklist: ${(analysis.checklist || []).length} stavki`);
+        if ((analysis.warnings || []).length > 0) {
+          addLog(`⚠ Upozorenja: ${(analysis.warnings || []).length}`);
+        }
+        if (analysis.auto_playbook_ready) {
+          addLog("🚀 Dovoljno znanja za automatski draft — radim playbook.");
+          await buildShadowPlaybook(recorded, analysis);
+        }
       }
     } catch (e: any) {
         addLog(`Shadow analiza nije uspjela: ${e.message}`);
     }
   };
 
-  const buildShadowPlaybook = async () => {
-    const sourceSteps = lastRecordedSteps.length > 0 ? lastRecordedSteps : safe;
-    if (!shadowInsight || sourceSteps.length === 0) {
+  const buildShadowPlaybook = async (overrideSteps?: FlowStep[], overrideInsight?: ShadowInsight | null) => {
+    const activeInsight = overrideInsight || shadowInsight;
+    const sourceSteps = overrideSteps?.length ? overrideSteps : (lastRecordedSteps.length > 0 ? lastRecordedSteps : safe);
+    if (!activeInsight || sourceSteps.length === 0) {
       addLog("Shadow playbook treba barem jednu analiziranu sesiju.");
       return;
     }
@@ -690,8 +702,8 @@ function RecordTab({ callAgent, editFlow, onSaved }: {
         name,
         url,
         context: learningContext,
-        portal: shadowInsight.portal,
-        flow_type: shadowInsight.flow_type,
+        portal: activeInsight.portal,
+        flow_type: activeInsight.flow_type,
         steps: sourceSteps,
       });
       if (!r?.draft) throw new Error("Draft nije vracen.");
@@ -1385,10 +1397,23 @@ ${codeToPolish}`;
                       </div>
                     </div>
                   )}
+                  {!!shadowInsight.warnings?.length && (
+                    <div>
+                      <div className="text-[9px] uppercase tracking-wider text-muted-foreground/60">Upozorenja</div>
+                      <div className="mt-1 space-y-1">
+                        {shadowInsight.warnings.slice(0, 3).map(item => <div key={item} className="text-[10px] text-orange-300">• {item}</div>)}
+                      </div>
+                    </div>
+                  )}
                   <div className="text-[9px] text-muted-foreground/60">Predloženi naziv: <span className="font-mono text-foreground">{shadowInsight.suggested_name}</span></div>
+                  {shadowInsight.auto_playbook_ready && (
+                    <div className="rounded border border-primary/30 bg-primary/10 px-1.5 py-1 text-[9px] text-primary">
+                      Prag je dosegnut: ova grupa je spremna za automatski draft playbooka.
+                    </div>
+                  )}
                   <button
                     disabled={buildingPlaybook}
-                    onClick={buildShadowPlaybook}
+                    onClick={() => buildShadowPlaybook()}
                     className="flex w-full items-center justify-center gap-1 rounded-lg border border-emerald-500/30 bg-emerald-500/10 py-1.5 text-[10px] font-medium text-emerald-300 hover:bg-emerald-500/20 disabled:opacity-40"
                   >
                     {buildingPlaybook ? <Loader2 className="h-3 w-3 animate-spin" /> : <Workflow className="h-3 w-3" />}
@@ -1418,6 +1443,18 @@ ${codeToPolish}`;
                         {group.session_count} sesija · prosjek {group.avg_steps} koraka
                       </div>
                       <div className="text-[9px] text-muted-foreground/60">{shadowStateLabel(group.learning_state)}</div>
+                      {!!group.latest_name && (
+                        <div className="truncate text-[9px] text-muted-foreground/50">Zadnje: {group.latest_name}</div>
+                      )}
+                      {!!group.tags?.length && (
+                        <div className="flex flex-wrap gap-1">
+                          {group.tags.slice(0, 3).map(tag => (
+                            <span key={tag} className="rounded border border-border px-1 py-0.5 text-[8px] text-muted-foreground/70">
+                              {tag}
+                            </span>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -1443,6 +1480,14 @@ ${codeToPolish}`;
                   <div className="text-[9px] text-muted-foreground/60">
                     Koraci: {shadowPlaybook.steps.length} • Faze: {shadowPlaybook.phases.length}
                   </div>
+                  {!!shadowPlaybook.warnings?.length && (
+                    <div>
+                      <div className="text-[9px] uppercase tracking-wider text-muted-foreground/60">Upozorenja za draft</div>
+                      <div className="mt-1 space-y-1">
+                        {shadowPlaybook.warnings.slice(0, 3).map(item => <div key={item} className="text-[10px] text-orange-300">• {item}</div>)}
+                      </div>
+                    </div>
+                  )}
                   {!!shadowPlaybook.saved?.path && (
                     <div className="text-[9px] text-muted-foreground/50 break-all">{shadowPlaybook.saved.path}</div>
                   )}
