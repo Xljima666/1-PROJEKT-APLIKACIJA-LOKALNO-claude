@@ -1422,6 +1422,551 @@ ${codeToPolish}`;
 
   const rawCurrentCode = (codeEdited && editedCode.trim()) ? editedCode : (savedCode.trim() ? savedCode : liveCode);
   const resolvedRawCode = rawCurrentCode;
+  const recentGroups = shadowGroups.slice(0, 4);
+  const recentLogs = logs.slice(-12).reverse();
+  const recentSteps = safe.slice(-12);
+  const memorySessions = shadowInsight?.stats?.related_sessions || shadowPlaybook?.stats?.session_count || 0;
+  const memoryAverage = shadowInsight?.stats?.avg_steps || shadowPlaybook?.stats?.avg_steps || 0;
+
+  return (
+    <div className="h-full overflow-y-auto px-5 py-5 stellan-scroll">
+      <div className="space-y-4">
+        <div className="rounded-2xl border border-border bg-card p-5">
+          <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+            <div className="space-y-3">
+              <span className="inline-flex items-center gap-1 rounded border border-primary/30 bg-primary/10 px-2 py-0.5 text-[11px] text-primary">
+                <Sparkles className="h-3 w-3" /> Shadow learning cockpit
+              </span>
+              <div>
+                <h1 className="text-xl font-bold text-foreground">
+                  {isEditing ? "Doradi" : "Pokreni"} <span className="text-gradient">ucenje</span>
+                </h1>
+                <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
+                  {isEditing
+                    ? `Otvorili smo "${editFlow!.name}". Sada ga mozemo nastaviti uciti, procistiti rezultat i iz njega sloziti bolji playbook.`
+                    : "Ovdje radis stvarno ucenje: otvori portal, pokreni shadow sesiju, radi normalno i pusti Stellana da izvuce faze, checklistu, warninge i draft postupka."}
+                </p>
+              </div>
+            </div>
+
+            <div className="grid gap-2 sm:grid-cols-2 xl:w-[430px]">
+              {[
+                { label: "Browser", value: browserOnline ? "Spreman" : "Nije otvoren", cls: browserOnline ? "text-green-400" : "text-muted-foreground" },
+                { label: "Sesija", value: recording ? "Snima se" : safe.length > 0 ? "Pripremljena" : "Ceka start", cls: recording ? "text-destructive" : "text-foreground" },
+                { label: "Memorija", value: `${shadowGroups.length} grupa`, cls: "text-foreground" },
+                { label: "Confidence", value: `${activeLearningConfidence}%`, cls: activeLearningConfidence >= 60 ? "text-primary" : "text-foreground" },
+              ].map((item) => (
+                <div key={item.label} className="rounded-xl border border-border bg-background/40 px-3 py-2">
+                  <div className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">{item.label}</div>
+                  <div className={cn("mt-1 text-sm font-semibold", item.cls)}>{item.value}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            <button onClick={goBack} title="Unazad"
+              className="flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-background/50 text-muted-foreground transition-colors hover:bg-accent">
+              <ArrowLeft className="h-4 w-4" />
+            </button>
+            <button onClick={() => callAgent("browser/forward", {}).catch(() => {})} title="Naprijed"
+              className="flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-background/50 text-muted-foreground transition-colors hover:bg-accent">
+              <ArrowRight className="h-4 w-4" />
+            </button>
+            <div className="flex h-9 min-w-[260px] flex-1 items-center gap-2 rounded-xl border border-border bg-background/40 px-3">
+              <span className={cn("h-2.5 w-2.5 rounded-full", browserOnline ? "bg-green-500" : "bg-red-500/60")} />
+              <input
+                value={url}
+                onChange={e => setUrl(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === "Enter") {
+                    browserOnline ? callAgent("browser/navigate", { url }).catch(() => {}) : openBrowser();
+                  }
+                }}
+                className="flex-1 bg-transparent text-xs font-mono outline-none"
+                placeholder="https://... (Enter za navigaciju)"
+              />
+              <button
+                onClick={browserOnline ? () => callAgent("browser/navigate", { url }).catch(() => {}) : openBrowser}
+                className={cn(
+                  "rounded-lg px-2 py-1 text-[10px] font-medium transition-colors",
+                  browserOnline ? "text-primary hover:bg-primary/10" : "text-green-400 hover:bg-green-500/10"
+                )}
+              >
+                {browserOnline ? "Idi" : "Otvori"}
+              </button>
+            </div>
+            {!recording && safe.length > 0 && (
+              <button
+                onClick={() => toggleRec("append")}
+                disabled={!browserOnline}
+                className="flex h-9 items-center gap-1.5 rounded-xl border border-primary/30 bg-primary/10 px-3 text-xs font-medium text-primary hover:bg-primary/20 disabled:opacity-40"
+              >
+                <Redo2 className="h-3.5 w-3.5" /> Nastavi
+              </button>
+            )}
+            <button
+              onClick={() => toggleRec(recording ? recordMode : "shadow")}
+              disabled={!browserOnline && !recording}
+              className={cn(
+                "flex h-9 items-center gap-1.5 rounded-xl px-3 text-xs font-medium transition-all",
+                recording
+                  ? "bg-destructive text-destructive-foreground animate-pulse"
+                  : "gradient-primary text-white hover:opacity-90 disabled:opacity-40"
+              )}
+            >
+              {recording ? <><Square className="h-3.5 w-3.5" /> Zaustavi shadow</> : <><Sparkles className="h-3.5 w-3.5" /> Pokreni shadow</>}
+            </button>
+          </div>
+        </div>
+
+        <div className="grid gap-4 xl:grid-cols-[0.95fr_1.15fr_0.95fr]">
+          <div className="space-y-4">
+            <div className="rounded-2xl border border-border bg-card p-4">
+              <div className="mb-3">
+                <div className="text-[11px] uppercase tracking-[0.18em] text-primary/80">Postavke sesije</div>
+                <h3 className="mt-1 text-sm font-semibold text-foreground">Sto tocno ucimo</h3>
+              </div>
+
+              <div className="space-y-3">
+                <label className="block">
+                  <span className="text-[11px] text-muted-foreground">Naziv sesije / playbooka</span>
+                  <input
+                    value={name}
+                    onChange={e => setName(e.target.value)}
+                    className="mt-1 w-full rounded-xl border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary"
+                    placeholder="npr. OSS parcelacija - predaja"
+                  />
+                </label>
+
+                <label className="block">
+                  <span className="text-[11px] text-muted-foreground">Kontekst ucenja</span>
+                  <textarea
+                    value={learningContext}
+                    onChange={e => setLearningContext(e.target.value)}
+                    rows={5}
+                    className="mt-1 w-full resize-none rounded-xl border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary"
+                    placeholder="Napr. parcelacija, predaja elaborata, provjera priloga, kontrola PDF-a, ispravak zahtjeva..."
+                  />
+                </label>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="rounded-xl border border-border bg-background/50 p-3">
+                    <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Warnings</div>
+                    <div className="mt-1 text-lg font-semibold text-orange-300">{shadowWarningCount}</div>
+                  </div>
+                  <div className="rounded-xl border border-border bg-background/50 p-3">
+                    <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Stanje</div>
+                    <div className="mt-1 text-sm font-semibold text-foreground">{shadowStateLabel(activeLearningState)}</div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    disabled={saving}
+                    onClick={() => save("raw")}
+                    className="flex items-center justify-center gap-1.5 rounded-xl border border-border bg-background py-2 text-xs font-medium hover:bg-accent disabled:opacity-40"
+                  >
+                    <Save className="h-3.5 w-3.5" /> Spremi draft
+                  </button>
+                  <button
+                    disabled={saving}
+                    onClick={() => save("polished", true)}
+                    className="flex items-center justify-center gap-1.5 rounded-xl border border-primary/40 bg-primary/10 py-2 text-xs font-medium text-primary hover:bg-primary/20 disabled:opacity-40"
+                  >
+                    <CheckCircle2 className="h-3.5 w-3.5" /> Spremi i zatvori
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-border bg-card p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-[11px] uppercase tracking-[0.18em] text-primary/80">Memorija ucenja</div>
+                  <h3 className="mt-1 text-sm font-semibold text-foreground">Koliko smo vec naucili</h3>
+                </div>
+                <span className={cn("rounded-lg border px-2 py-1 text-[10px]", shadowStateClass(activeLearningState))}>
+                  {activeLearningConfidence}% · {shadowStateLabel(activeLearningState)}
+                </span>
+              </div>
+              <div className="mt-3 grid grid-cols-3 gap-2">
+                <div className="rounded-xl border border-border bg-background/50 p-3">
+                  <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Sesije</div>
+                  <div className="mt-1 text-lg font-semibold text-foreground">{memorySessions}</div>
+                </div>
+                <div className="rounded-xl border border-border bg-background/50 p-3">
+                  <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Prosjek</div>
+                  <div className="mt-1 text-lg font-semibold text-foreground">{memoryAverage}</div>
+                </div>
+                <div className="rounded-xl border border-border bg-background/50 p-3">
+                  <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Ready</div>
+                  <div className="mt-1 text-lg font-semibold text-foreground">{shadowInsight?.auto_playbook_ready ? "DA" : "NE"}</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            <div className="rounded-2xl border border-border bg-card p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-[11px] uppercase tracking-[0.18em] text-primary/80">Aktivna sesija</div>
+                  <h3 className="mt-1 text-sm font-semibold text-foreground">Sto se upravo dogadalo</h3>
+                </div>
+                <span className={cn("rounded-lg border px-2 py-1 text-[10px]", recording ? "border-destructive/30 bg-destructive/10 text-destructive" : "border-border bg-background/40 text-muted-foreground")}>
+                  {recording ? "REC" : `${safe.length} koraka`}
+                </span>
+              </div>
+
+              <div className="mt-3 space-y-2">
+                {recentSteps.length === 0 ? (
+                  <div className="rounded-xl border border-dashed border-border bg-background/30 px-4 py-8 text-center text-sm text-muted-foreground">
+                    Pokreni shadow i radi normalno po portalu. Ovdje cemo slagati tok sesije korak po korak.
+                  </div>
+                ) : recentSteps.map((step, index) => {
+                  const Icon = STEP_ICONS[step.type] || Circle;
+                  const stepNumber = safe.length - recentSteps.length + index + 1;
+                  return (
+                    <div key={step.id || index} className="group flex items-start gap-3 rounded-xl border border-border bg-background/40 p-3 transition-colors hover:border-primary/30">
+                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                        <Icon className="h-3.5 w-3.5" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{stepNumber}. {step.type}</div>
+                        <div className="mt-1 truncate font-mono text-xs text-foreground">{step.url || step.target || "bez mete"}</div>
+                        {step.value && <div className="mt-1 truncate text-xs text-primary/80">→ {step.value}</div>}
+                      </div>
+                      <button
+                        onClick={() => setSteps(safe.filter((_, idx) => idx !== stepNumber - 1))}
+                        className="opacity-0 transition-opacity group-hover:opacity-100 rounded p-1 text-muted-foreground hover:text-destructive"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-border bg-card p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-[11px] uppercase tracking-[0.18em] text-primary/80">Operativni log</div>
+                  <h3 className="mt-1 text-sm font-semibold text-foreground">Sto smo zadnje napravili</h3>
+                </div>
+                <span className="rounded-lg border border-border bg-background/40 px-2 py-1 text-[10px] text-muted-foreground">
+                  {logs.length} stavki
+                </span>
+              </div>
+              <div className="mt-3 space-y-2">
+                {recentLogs.length === 0 ? (
+                  <div className="rounded-xl border border-dashed border-border bg-background/30 px-4 py-6 text-center text-sm text-muted-foreground">
+                    Kad krenemo raditi, ovdje ce se slagati log sesije.
+                  </div>
+                ) : recentLogs.map((entry, index) => (
+                  <div key={`${entry}-${index}`} className="rounded-lg border border-border bg-background/40 px-3 py-2 font-mono text-xs text-muted-foreground break-all">
+                    {entry}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            <div className="rounded-2xl border border-border bg-card p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-[11px] uppercase tracking-[0.18em] text-emerald-400">Rezultat ucenja</div>
+                  <h3 className="mt-1 text-sm font-semibold text-foreground">Sto je Stellan izvukao</h3>
+                </div>
+                <span className={cn("rounded-lg border px-2 py-1 text-[10px]", shadowStateClass(activeLearningState))}>
+                  {activeLearningConfidence}% · {shadowStateLabel(activeLearningState)}
+                </span>
+              </div>
+
+              {shadowInsight ? (
+                <div className="mt-3 space-y-3">
+                  <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3">
+                    <div className="text-sm font-semibold text-foreground">{shadowInsight.summary}</div>
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      <span className="rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground">{shadowInsight.portal}</span>
+                      <span className="rounded border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-400">{shadowInsight.flow_type}</span>
+                      <span className="rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground">{shadowInsight.stats?.step_count || 0} koraka</span>
+                      <span className="rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground">{formatShadowDuration(shadowInsight.stats?.duration_ms)}</span>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div>
+                      <div className="text-[11px] uppercase tracking-wider text-muted-foreground">Faze</div>
+                      <div className="mt-2 space-y-1.5">
+                        {shadowInsight.phases.slice(0, 5).map(phase => (
+                          <div key={phase} className="rounded-lg border border-border bg-background/40 px-3 py-2 text-xs text-muted-foreground">{phase}</div>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-[11px] uppercase tracking-wider text-muted-foreground">Checklist</div>
+                      <div className="mt-2 space-y-1.5">
+                        {shadowInsight.checklist.slice(0, 5).map(item => (
+                          <div key={item} className="rounded-lg border border-border bg-background/40 px-3 py-2 text-xs text-muted-foreground">{item}</div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {!!shadowInsight.risks?.length && (
+                    <div>
+                      <div className="text-[11px] uppercase tracking-wider text-muted-foreground">Rizici</div>
+                      <div className="mt-2 space-y-1.5">
+                        {shadowInsight.risks.slice(0, 3).map(item => (
+                          <div key={item} className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-xs text-amber-300">{item}</div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {!!shadowInsight.warnings?.length && (
+                    <div>
+                      <div className="text-[11px] uppercase tracking-wider text-muted-foreground">Upozorenja</div>
+                      <div className="mt-2 space-y-1.5">
+                        {shadowInsight.warnings.slice(0, 3).map(item => (
+                          <div key={item} className="rounded-lg border border-orange-500/20 bg-orange-500/5 px-3 py-2 text-xs text-orange-300">{item}</div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="rounded-xl border border-border bg-background/40 px-3 py-2 text-xs text-muted-foreground">
+                    Predlozeni naziv: <span className="font-mono text-foreground">{shadowInsight.suggested_name}</span>
+                  </div>
+
+                  <button
+                    disabled={buildingPlaybook}
+                    onClick={() => buildShadowPlaybook()}
+                    className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 py-2 text-xs font-medium text-emerald-300 hover:bg-emerald-500/20 disabled:opacity-40"
+                  >
+                    {buildingPlaybook ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Workflow className="h-3.5 w-3.5" />}
+                    Napravi playbook iz ove sesije
+                  </button>
+                  {shadowSavedPath && <div className="text-[11px] text-muted-foreground/60 break-all">{shadowSavedPath}</div>}
+                </div>
+              ) : (
+                <div className="mt-3 rounded-xl border border-dashed border-border bg-background/30 px-4 py-10 text-center text-sm text-muted-foreground">
+                  Jos nemamo analizu. Pokreni shadow sesiju, odradi postupak i kad stanes ovdje ce se pojaviti faze, checklista i warningi.
+                </div>
+              )}
+            </div>
+
+            {!!recentGroups.length && (
+              <div className="rounded-2xl border border-border bg-card p-4">
+                <div className="text-[11px] uppercase tracking-[0.18em] text-primary/80">Naucene grupe</div>
+                <h3 className="mt-1 text-sm font-semibold text-foreground">Najblize sto vec imamo</h3>
+                <div className="mt-3 space-y-2">
+                  {recentGroups.map(group => (
+                    <div key={`${group.portal}-${group.flow_type}`} className="rounded-xl border border-border bg-background/40 p-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-medium text-foreground">{group.portal}</div>
+                          <div className="text-xs text-muted-foreground">{group.flow_type}</div>
+                        </div>
+                        <span className={cn("rounded-lg border px-2 py-1 text-[10px]", shadowStateClass(group.learning_state))}>
+                          {group.confidence}%
+                        </span>
+                      </div>
+                      <div className="mt-2 text-[11px] text-muted-foreground">
+                        {group.session_count} sesija · prosjek {group.avg_steps} koraka
+                      </div>
+                      {!!group.latest_name && (
+                        <div className="mt-1 truncate text-[11px] text-muted-foreground/70">Zadnje: {group.latest_name}</div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {shadowPlaybook && (
+              <div className="rounded-2xl border border-primary/20 bg-card p-4">
+                <div className="text-[11px] uppercase tracking-[0.18em] text-primary">Playbook draft</div>
+                <h3 className="mt-1 text-sm font-semibold text-foreground">{shadowPlaybook.display_name}</h3>
+                <p className="mt-2 text-sm text-muted-foreground">{shadowPlaybook.summary}</p>
+                <div className="mt-3 flex flex-wrap gap-1">
+                  <span className="rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground">{shadowPlaybook.portal}</span>
+                  <span className="rounded border border-primary/30 bg-primary/10 px-1.5 py-0.5 text-[10px] text-primary">{shadowPlaybook.flow_type}</span>
+                  <span className="rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground">{shadowPlaybook.steps.length} koraka</span>
+                </div>
+                {!!shadowPlaybook.warnings?.length && (
+                  <div className="mt-3 space-y-1.5">
+                    {shadowPlaybook.warnings.slice(0, 3).map(item => (
+                      <div key={item} className="rounded-lg border border-orange-500/20 bg-orange-500/5 px-3 py-2 text-xs text-orange-300">{item}</div>
+                    ))}
+                  </div>
+                )}
+                {!!shadowPlaybook.saved?.path && (
+                  <div className="mt-3 text-[11px] text-muted-foreground/60 break-all">{shadowPlaybook.saved.path}</div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <details className="rounded-2xl border border-border bg-card" open={!!isEditing}>
+          <summary className="cursor-pointer list-none px-4 py-3 text-sm font-semibold text-foreground">
+            Napredna radionica koda
+          </summary>
+          <div className="border-t border-border px-4 py-4">
+            <div className="mb-3 text-sm text-muted-foreground">
+              Stari editor nismo bacili, samo smo ga pomaknuli dolje. Ovdje i dalje mozes testirati, peglati i spremati sirovi i AI kod kad ti to stvarno treba.
+            </div>
+
+            <div className="grid gap-3 xl:grid-cols-2">
+              <div className="flex min-h-[420px] flex-col overflow-hidden rounded-xl border border-border bg-background/30">
+                <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Sirovi kod</span>
+                    <span className="text-[10px] text-muted-foreground/60">{codeEdited ? "rucno uredjen" : "auto"}</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    {codeEdited && (
+                      <>
+                        <button onClick={() => save("raw")} className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-green-400 hover:bg-green-500/10">
+                          <Save className="h-3 w-3" /> Spremi
+                        </button>
+                        <button onClick={() => { setCodeEdited(false); setEditedCode(""); setSavedCode(""); }} className="rounded px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-accent">
+                          Reset
+                        </button>
+                      </>
+                    )}
+                    {lastRecordedSnippet && (
+                      <>
+                        <button onClick={() => applyRecordedBlock("raw", "insert")} className="rounded px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-accent">Ubaci</button>
+                        <button onClick={() => applyRecordedBlock("raw", "replace")} className="rounded px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-accent">Zamijeni</button>
+                      </>
+                    )}
+                    <button
+                      disabled={testing || !browserOnline}
+                      onClick={() => runCode(rawCurrentCode, "Sirovi", setTesting)}
+                      className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-primary hover:bg-primary/10 disabled:opacity-40"
+                    >
+                      {testing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />} Test
+                    </button>
+                  </div>
+                </div>
+                <div className="relative flex-1 overflow-hidden">
+                  <textarea
+                    ref={rawEditorRef}
+                    value={rawCurrentCode}
+                    onChange={e => { setEditedCode(e.target.value); setCodeEdited(true); rememberSelection("raw", e.currentTarget); }}
+                    onClick={e => rememberSelection("raw", e.currentTarget)}
+                    onSelect={e => rememberSelection("raw", e.currentTarget)}
+                    onFocus={e => rememberSelection("raw", e.currentTarget)}
+                    onKeyDown={e => {
+                      if (e.key === "Tab") {
+                        e.preventDefault();
+                        const t = e.currentTarget;
+                        const s = t.selectionStart;
+                        const v = rawCurrentCode;
+                        const nv = v.slice(0, s) + "    " + v.slice(t.selectionEnd);
+                        setEditedCode(nv);
+                        setCodeEdited(true);
+                        requestAnimationFrame(() => {
+                          t.selectionStart = t.selectionEnd = s + 4;
+                          rememberSelection("raw", t);
+                        });
+                      }
+                      if ((e.ctrlKey || e.metaKey) && e.key === "s") {
+                        e.preventDefault();
+                        save("raw");
+                      }
+                    }}
+                    spellCheck={false}
+                    className="absolute inset-0 h-full w-full resize-none bg-transparent p-3 font-mono text-[11px] leading-relaxed text-muted-foreground outline-none stellan-scroll"
+                    style={{ fontFamily: "ui-monospace,'Cascadia Code',monospace" }}
+                    placeholder="# Sirovi kod - auto-generiran iz koraka"
+                  />
+                </div>
+              </div>
+
+              <div className="flex min-h-[420px] flex-col overflow-hidden rounded-xl border border-primary/20 bg-background/30">
+                <div className="flex items-center justify-between gap-2 border-b border-primary/20 bg-primary/5 px-3 py-2">
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="h-3.5 w-3.5 text-primary" />
+                    <span className="text-[10px] uppercase tracking-wider text-primary/80 font-semibold">AI kod</span>
+                    {aiCode && <span className="text-[10px] text-muted-foreground/60">{aiCode.split("\n").length}L</span>}
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <button disabled={polishing} onClick={polish} className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-primary hover:bg-primary/10 disabled:opacity-40">
+                      {polishing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />} Ulasti
+                    </button>
+                    {aiCode && aiCode !== aiCodeSaved && (
+                      <button onClick={saveAiCode} className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-green-400 hover:bg-green-500/10">
+                        <Save className="h-3 w-3" /> Spremi
+                      </button>
+                    )}
+                    {lastRecordedSnippet && (
+                      <>
+                        <button onClick={() => applyRecordedBlock("ai", "insert")} className="rounded px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-accent">Ubaci</button>
+                        <button onClick={() => applyRecordedBlock("ai", "replace")} className="rounded px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-accent">Zamijeni</button>
+                      </>
+                    )}
+                    {aiCode && (
+                      <button
+                        disabled={testingAi || !browserOnline}
+                        onClick={() => runCode(aiCode, "AI", setTestingAi)}
+                        className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-green-400 hover:bg-green-500/10 disabled:opacity-40"
+                      >
+                        {testingAi ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />} Test
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <div className="relative flex-1 overflow-hidden">
+                  {aiCode ? (
+                    <textarea
+                      ref={aiEditorRef}
+                      value={aiCode}
+                      onChange={e => { setAiCode(e.target.value); rememberSelection("ai", e.currentTarget); }}
+                      onClick={e => rememberSelection("ai", e.currentTarget)}
+                      onSelect={e => rememberSelection("ai", e.currentTarget)}
+                      onFocus={e => rememberSelection("ai", e.currentTarget)}
+                      onKeyDown={e => {
+                        if (e.key === "Tab") {
+                          e.preventDefault();
+                          const t = e.currentTarget;
+                          const s = t.selectionStart;
+                          const nv = aiCode.slice(0, s) + "    " + aiCode.slice(t.selectionEnd);
+                          setAiCode(nv);
+                          requestAnimationFrame(() => {
+                            t.selectionStart = t.selectionEnd = s + 4;
+                            rememberSelection("ai", t);
+                          });
+                        }
+                        if ((e.ctrlKey || e.metaKey) && e.key === "s") {
+                          e.preventDefault();
+                          saveAiCode();
+                        }
+                      }}
+                      spellCheck={false}
+                      className="absolute inset-0 h-full w-full resize-none bg-transparent p-3 font-mono text-[11px] leading-relaxed text-muted-foreground outline-none stellan-scroll"
+                      style={{ fontFamily: "ui-monospace,'Cascadia Code',monospace" }}
+                      placeholder="# AI usavrsen kod"
+                    />
+                  ) : (
+                    <div className="flex h-full flex-col items-center justify-center gap-2 p-4 text-center">
+                      <Sparkles className="h-6 w-6 text-primary/20" />
+                      <p className="text-sm text-muted-foreground/50">Klikni "Ulasti" kad zelis da AI ispegla sirovi kod.</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        </details>
+      </div>
+    </div>
+  );
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden px-4 py-4 gap-3">
