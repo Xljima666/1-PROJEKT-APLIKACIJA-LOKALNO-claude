@@ -2545,6 +2545,62 @@ async def record_shadow_summary(_: str = Depends(verify_api_key)):
         "count": len(groups),
     }
 
+
+@app.post("/record/shadow_group_detail")
+async def record_shadow_group_detail(req: dict = {}, _: str = Depends(verify_api_key)):
+    portal = str((req or {}).get("portal") or "").strip()
+    flow_type = str((req or {}).get("flow_type") or "").strip()
+    limit = int((req or {}).get("limit") or 12)
+    sessions: list[dict] = []
+
+    for session in load_shadow_sessions():
+        session_portal = str(session.get("portal") or "").strip()
+        session_flow_type = str(session.get("flow_type") or "").strip()
+        if portal and session_portal.lower() != portal.lower():
+            continue
+        if flow_type and session_flow_type.lower() != flow_type.lower():
+            continue
+        stats = session.get("stats") or {}
+        sessions.append({
+            "session_id": session.get("session_id") or "",
+            "name": session.get("name") or session.get("suggested_name") or "shadow_session",
+            "portal": session_portal or "Web portal",
+            "flow_type": session_flow_type or "sdge_postupak",
+            "summary": session.get("summary") or "",
+            "captured_at": session.get("captured_at") or session.get("saved_at") or "",
+            "saved_at": session.get("saved_at") or "",
+            "confidence": int(session.get("confidence") or 0),
+            "learning_state": session.get("learning_state") or "premalo_podataka",
+            "tags": list(session.get("tags") or []),
+            "checklist": list(session.get("checklist") or []),
+            "risks": list(session.get("risks") or []),
+            "warnings": list(session.get("warnings") or []),
+            "context": session.get("context") or "",
+            "suggested_name": session.get("suggested_name") or "",
+            "step_count": int(stats.get("step_count") or len(session.get("steps") or [])),
+            "page_count": int(stats.get("page_count") or len(stats.get("pages") or [])),
+            "duration_ms": int(stats.get("duration_ms") or 0),
+            "path": session.get("_path") or "",
+        })
+
+    sessions.sort(
+        key=lambda item: (
+            str(item.get("captured_at") or item.get("saved_at") or ""),
+            int(item.get("confidence") or 0),
+            int(item.get("step_count") or 0),
+        ),
+        reverse=True,
+    )
+    sessions = sessions[: max(1, limit)]
+
+    return {
+        "success": True,
+        "portal": portal,
+        "flow_type": flow_type,
+        "sessions": sessions,
+        "count": len(sessions),
+    }
+
 @app.post("/record/run")
 async def record_run(req: dict, _: str = Depends(verify_api_key)):
     """

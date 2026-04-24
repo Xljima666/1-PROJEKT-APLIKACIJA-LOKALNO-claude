@@ -134,6 +134,28 @@ interface ShadowGroupSummary {
   tags?: string[];
 }
 
+interface ShadowSessionDetail {
+  session_id: string;
+  name: string;
+  portal: string;
+  flow_type: string;
+  summary: string;
+  captured_at?: string;
+  saved_at?: string;
+  confidence: number;
+  learning_state: string;
+  tags?: string[];
+  checklist?: string[];
+  risks?: string[];
+  warnings?: string[];
+  context?: string;
+  suggested_name?: string;
+  step_count: number;
+  page_count: number;
+  duration_ms: number;
+  path?: string;
+}
+
 interface Props {
   onClose: () => void;
   agentServerUrl: string;
@@ -347,6 +369,8 @@ function FlowsTab({ callAgent, onEdit, onNavigate }: {
 }) {
   const [flows, setFlows] = useState<SavedFlow[]>([]);
   const [shadowGroups, setShadowGroups] = useState<ShadowGroupSummary[]>([]);
+  const [groupSessions, setGroupSessions] = useState<ShadowSessionDetail[]>([]);
+  const [groupSessionsLoading, setGroupSessionsLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [menuFor, setMenuFor] = useState<string | null>(null);
   const [selectedGroupKey, setSelectedGroupKey] = useState<string>("");
@@ -416,6 +440,26 @@ function FlowsTab({ callAgent, onEdit, onNavigate }: {
       })
     : [];
 
+  const loadGroupSessions = useCallback(async (group: ShadowGroupSummary | null) => {
+    if (!group) {
+      setGroupSessions([]);
+      return;
+    }
+    setGroupSessionsLoading(true);
+    try {
+      const response = await callAgent("record/shadow_group_detail", {
+        portal: group.portal,
+        flow_type: group.flow_type,
+        limit: 8,
+      });
+      setGroupSessions(Array.isArray(response?.sessions) ? response.sessions : []);
+    } catch {
+      setGroupSessions([]);
+    } finally {
+      setGroupSessionsLoading(false);
+    }
+  }, [callAgent]);
+
   useEffect(() => {
     if (!shadowGroups.length) {
       if (selectedGroupKey) setSelectedGroupKey("");
@@ -424,6 +468,10 @@ function FlowsTab({ callAgent, onEdit, onNavigate }: {
     const exists = shadowGroups.some(group => groupKey(group) === selectedGroupKey);
     if (!exists) setSelectedGroupKey(groupKey(shadowGroups[0]));
   }, [shadowGroups, selectedGroupKey]);
+
+  useEffect(() => {
+    loadGroupSessions(selectedGroup);
+  }, [selectedGroup, loadGroupSessions]);
 
   return (
     <div className="h-full overflow-y-auto px-5 py-5">
@@ -522,7 +570,7 @@ function FlowsTab({ callAgent, onEdit, onNavigate }: {
       </div>
 
       {selectedGroup && (
-        <div className="mb-4 grid gap-3 xl:grid-cols-[1.1fr_0.9fr]">
+        <div className="mb-4 grid gap-3 xl:grid-cols-[1.05fr_0.95fr]">
           <div className="rounded-xl border border-border bg-card p-4">
             <div className="flex items-start justify-between gap-3">
               <div>
@@ -575,15 +623,73 @@ function FlowsTab({ callAgent, onEdit, onNavigate }: {
           <div className="rounded-xl border border-border bg-card p-4">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <div className="text-[11px] uppercase tracking-[0.18em] text-primary/80">Povezani playbookovi</div>
-                <h3 className="mt-1 text-sm font-semibold text-foreground">Sto vec imamo za ovaj obrazac</h3>
+                <div className="text-[11px] uppercase tracking-[0.18em] text-primary/80">Sesije i playbookovi</div>
+                <h3 className="mt-1 text-sm font-semibold text-foreground">Od cega Stellan uci za ovu grupu</h3>
               </div>
               <span className="rounded-lg border border-border bg-background/60 px-2 py-1 text-[10px] text-muted-foreground">
-                {selectedGroupFlows.length}
+                {groupSessions.length} sesija
               </span>
             </div>
             <div className="mt-3 space-y-2">
-              {selectedGroupFlows.length > 0 ? selectedGroupFlows.slice(0, 4).map(flow => {
+              {groupSessionsLoading ? (
+                <div className="flex items-center justify-center rounded-lg border border-border bg-background/30 p-6">
+                  <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                </div>
+              ) : groupSessions.length > 0 ? (
+                <>
+                  {groupSessions.map(session => (
+                    <div
+                      key={session.session_id}
+                      className="rounded-lg border border-border bg-background/40 p-3"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-medium text-foreground">{session.name}</div>
+                          <div className="mt-1 text-[10px] text-muted-foreground">
+                            {session.step_count} koraka · {session.page_count} stranica · {formatRelativeTime(session.captured_at ? Date.parse(session.captured_at) : undefined)}
+                          </div>
+                        </div>
+                        <span className={cn("inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px]", shadowStateClass(session.learning_state))}>
+                          {session.confidence}% 
+                        </span>
+                      </div>
+                      <div className="mt-2 text-[11px] text-muted-foreground">{session.summary}</div>
+                      {!!session.tags?.length && (
+                        <div className="mt-2 flex flex-wrap gap-1">
+                          {session.tags.slice(0, 4).map(tag => (
+                            <span key={tag} className="rounded border border-border bg-background/60 px-1.5 py-0.5 text-[9px] text-muted-foreground">
+                              {tag}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      {!!session.warnings?.length && (
+                        <div className="mt-2 text-[10px] text-amber-300">
+                          Warning: {session.warnings[0]}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </>
+              ) : (
+                <div className="rounded-lg border border-dashed border-border bg-background/30 p-4 text-sm text-muted-foreground">
+                  Jos nema stvarnih shadow sesija za ovu grupu ili agent server jos nije vratio detalje.
+                </div>
+              )}
+            </div>
+
+            <div className="mt-4 border-t border-border pt-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-[11px] uppercase tracking-[0.18em] text-primary/80">Povezani playbookovi</div>
+                  <h3 className="mt-1 text-sm font-semibold text-foreground">Sto vec imamo za ovaj obrazac</h3>
+                </div>
+                <span className="rounded-lg border border-border bg-background/60 px-2 py-1 text-[10px] text-muted-foreground">
+                  {selectedGroupFlows.length}
+                </span>
+              </div>
+              <div className="mt-3 space-y-2">
+                {selectedGroupFlows.length > 0 ? selectedGroupFlows.slice(0, 4).map(flow => {
                 const s = statusCfg[flow.status as keyof typeof statusCfg] ?? statusCfg.raw;
                 return (
                   <button
@@ -602,11 +708,12 @@ function FlowsTab({ callAgent, onEdit, onNavigate }: {
                     </div>
                   </button>
                 );
-              }) : (
-                <div className="rounded-lg border border-dashed border-border bg-background/30 p-4 text-sm text-muted-foreground">
-                  Jos nema jasno povezanih playbookova za ovu grupu. To je dobar kandidat za novu shadow sesiju ili novu doradu drafta.
-                </div>
-              )}
+                }) : (
+                  <div className="rounded-lg border border-dashed border-border bg-background/30 p-4 text-sm text-muted-foreground">
+                    Jos nema jasno povezanih playbookova za ovu grupu. To je dobar kandidat za novu shadow sesiju ili novu doradu drafta.
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>
