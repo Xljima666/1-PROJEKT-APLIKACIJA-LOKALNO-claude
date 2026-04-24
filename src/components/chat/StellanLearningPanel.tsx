@@ -65,13 +65,30 @@ export interface SavedFlow {
   lastRun?: number;
 }
 
+interface ShadowInsight {
+  summary: string;
+  portal: string;
+  flow_type: string;
+  suggested_name: string;
+  phases: string[];
+  checklist: string[];
+  risks: string[];
+  tags: string[];
+  stats?: {
+    step_count?: number;
+    page_count?: number;
+    duration_ms?: number;
+    counts?: Record<string, number>;
+  };
+}
+
 interface Props {
   onClose: () => void;
   agentServerUrl: string;
   apiKey: string;
 }
 
-type RecordingMode = "replace" | "append";
+type RecordingMode = "replace" | "append" | "shadow";
 type CodeEditorKind = "raw" | "ai";
 
 function pyQuote(value?: string) {
@@ -413,6 +430,9 @@ function RecordTab({ callAgent, editFlow, onSaved }: {
   const [recordMode, setRecordMode] = useState<RecordingMode>(isEditing ? "append" : "replace");
   const [recording, setRec]   = useState(false);
   const [browserOnline, setBo] = useState(false);
+  const [learningContext, setLearningContext] = useState("");
+  const [shadowInsight, setShadowInsight] = useState<ShadowInsight | null>(null);
+  const [shadowSavedPath, setShadowSavedPath] = useState("");
   const [polishing, setPol]   = useState(false);
   const [testing, setTesting] = useState(false);
   const [testingAi, setTestingAi] = useState(false);
@@ -441,6 +461,13 @@ function RecordTab({ callAgent, editFlow, onSaved }: {
   const safe = Array.isArray(steps) ? steps : [];
   const lastRecordedSnippet = useMemo(() => recordedStepsToSnippet(lastRecordedSteps), [lastRecordedSteps]);
   const addLog = (m: string) => setLogs(p => [...p.slice(-50), m]);
+  const formatShadowDuration = (durationMs?: number) => {
+    if (!durationMs || durationMs < 1000) return "kratka sesija";
+    const totalSeconds = Math.floor(durationMs / 1000);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return minutes > 0 ? `${minutes} min ${seconds}s` : `${seconds}s`;
+  };
 
   // Status browsera pri otvaranju
   useEffect(() => {
@@ -550,20 +577,43 @@ function RecordTab({ callAgent, editFlow, onSaved }: {
     } catch {}
   };
 
+  const analyzeShadowSession = async (recorded: FlowStep[]) => {
+    try {
+      const r = await callAgent("record/analyze", {
+        name,
+        url,
+        context: learningContext,
+        steps: recorded,
+        auto_save: true,
+      });
+      if (r?.analysis) {
+        setShadowInsight(r.analysis);
+        setShadowSavedPath(r?.saved?.path || "");
+        addLog(`🧠 Shadow analiza: ${r.analysis.portal} / ${r.analysis.flow_type}`);
+        addLog(`🧾 Checklist: ${(r.analysis.checklist || []).length} stavki`);
+      }
+    } catch (e: any) {
+        addLog(`Shadow analiza nije uspjela: ${e.message}`);
+    }
+  };
+
   const toggleRec = async (mode: RecordingMode = recordMode) => {
     if (recording) {
       try {
         const r = await callAgent("record/stop", {});
         const arr: FlowStep[] = Array.isArray(r?.steps) ? r.steps : [];
-        const cleanArr = mode === "append" && arr[0]?.type === "navigate" ? arr.slice(1) : arr;
+        const cleanArr = (mode === "append" || mode === "shadow") && arr[0]?.type === "navigate" ? arr.slice(1) : arr;
         const mergedSteps = mode === "append" ? [...recordBaseStepsRef.current, ...cleanArr] : cleanArr;
         setLastRecordedSteps(cleanArr);
         setSteps(mergedSteps);
         addLog(`⏹ Zaustavljeno — ${arr.length} koraka`);
         if (!codeEdited) setSavedCode("");
         addLog(`Zaustavljeno: ${cleanArr.length} novih koraka`);
+        if (mode === "shadow") {
+          await analyzeShadowSession(cleanArr);
+        }
         // Auto-save
-        if (mergedSteps.length > 0) {
+        if (mode !== "shadow" && mergedSteps.length > 0) {
           const saveId = isEditing ? editFlow!.id : name.replace(/\s+/g, "_").toLowerCase();
           try {
             await callAgent("record/save", { name: saveId, display_name: name, url, steps: mergedSteps, status: "raw" });
@@ -576,11 +626,16 @@ function RecordTab({ callAgent, editFlow, onSaved }: {
       try {
         recordBaseStepsRef.current = mode === "append" ? safe : [];
         setRecordMode(mode);
-        if (mode === "replace") setSteps([]);
+        if (mode !== "append") setSteps([]);
         setLastRecordedSteps([]);
+        if (mode === "shadow") {
+          setShadowInsight(null);
+          setShadowSavedPath("");
+        }
         await callAgent("record/start", { name, url });
         setRec(true);
         if (mode === "append") addLog(`Nastavak snimanja: ${url}`);
+        if (mode === "shadow") addLog(`🧠 Shadow učenje: ${url}`);
         addLog(`▶ Snimanje: ${url}`);
         if (!browserOnline) setBo(true);
       } catch (e: any) { addLog(`✗ ${e.message}`); }
@@ -889,6 +944,13 @@ ${codeToPolish}`;
             <Redo2 className="h-3 w-3" /> Nastavi
           </button>
         )}
+        {!recording && (
+          <button onClick={() => toggleRec("shadow")} disabled={!browserOnline}
+            title="Pasivno ucenje: snimi tvoje korake i napravi playbook i checklistu"
+            className="flex items-center gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 h-8 text-xs font-medium text-emerald-400 hover:bg-emerald-500/20 disabled:opacity-40 shrink-0">
+            <Sparkles className="h-3 w-3" /> Shadow
+          </button>
+        )}
         <button onClick={() => toggleRec(recording ? recordMode : "replace")} disabled={!browserOnline && !recording}
           title={recording ? "Zaustavi snimanje" : "Počni snimati klikove u browseru"}
           className={cn(
@@ -1130,6 +1192,16 @@ ${codeToPolish}`;
           </div>
           <div className="flex-1 overflow-y-auto p-2.5 space-y-1.5 stellan-scroll">
             <div className="grid grid-cols-1 gap-1.5">
+              <div className="rounded-lg border border-border bg-background/40 p-2">
+                <label className="text-[9px] uppercase tracking-wider text-muted-foreground">Kontekst učenja</label>
+                <textarea
+                  value={learningContext}
+                  onChange={e => setLearningContext(e.target.value)}
+                  rows={3}
+                  className="mt-1 w-full resize-none rounded border border-border bg-background px-2 py-1.5 text-[11px] outline-none focus:border-primary"
+                  placeholder="npr. parcelacija, upis, predaja priloga, kontrola PDF-a..."
+                />
+              </div>
               <button disabled={saving} onClick={() => save("raw")}
                 className="flex items-center justify-center gap-1 rounded-lg border border-border bg-card py-2 text-xs hover:bg-accent disabled:opacity-40">
                 <Save className="h-3 w-3" /> Spremi
@@ -1139,6 +1211,42 @@ ${codeToPolish}`;
                 <Save className="h-3 w-3" /> Spremi i zatvori
               </button>
             </div>
+            {shadowInsight && (
+              <div className="border-t border-border/60 pt-1.5 space-y-1.5">
+                <p className="text-[9px] uppercase tracking-wider text-emerald-400">Shadow učenje</p>
+                <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-2 space-y-1.5">
+                  <div className="text-[10px] font-semibold text-foreground">{shadowInsight.summary}</div>
+                  <div className="flex flex-wrap gap-1">
+                    <span className="rounded border border-border px-1.5 py-0.5 text-[9px] text-muted-foreground">{shadowInsight.portal}</span>
+                    <span className="rounded border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 text-[9px] text-emerald-400">{shadowInsight.flow_type}</span>
+                    <span className="rounded border border-border px-1.5 py-0.5 text-[9px] text-muted-foreground">{shadowInsight.stats?.step_count || 0} koraka</span>
+                  </div>
+                  <div>
+                    <div className="text-[9px] uppercase tracking-wider text-muted-foreground/60">Faze</div>
+                    <div className="mt-1 space-y-1">
+                      {shadowInsight.phases.slice(0, 4).map(phase => <div key={phase} className="text-[10px] text-muted-foreground">• {phase}</div>)}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-[9px] uppercase tracking-wider text-muted-foreground/60">Checklist</div>
+                    <div className="mt-1 space-y-1">
+                      {shadowInsight.checklist.slice(0, 5).map(item => <div key={item} className="text-[10px] text-muted-foreground">• {item}</div>)}
+                    </div>
+                  </div>
+                  {!!shadowInsight.risks?.length && (
+                    <div>
+                      <div className="text-[9px] uppercase tracking-wider text-muted-foreground/60">Rizici</div>
+                      <div className="mt-1 space-y-1">
+                        {shadowInsight.risks.slice(0, 3).map(item => <div key={item} className="text-[10px] text-amber-300">• {item}</div>)}
+                      </div>
+                    </div>
+                  )}
+                  <div className="text-[9px] text-muted-foreground/60">Predloženi naziv: <span className="font-mono text-foreground">{shadowInsight.suggested_name}</span></div>
+                  {shadowSavedPath && <div className="text-[9px] text-muted-foreground/50 break-all">{shadowSavedPath}</div>}
+                  <div className="text-[9px] text-muted-foreground/50">Trajanje: {formatShadowDuration(shadowInsight.stats?.duration_ms)}</div>
+                </div>
+              </div>
+            )}
             <div className="border-t border-border/60 pt-1.5 space-y-1">
               <p className="text-[9px] uppercase tracking-wider text-muted-foreground/50">Savjeti</p>
               {["← briše zadnji korak", "Enter = navigiraj URL", "Snimaj = snima klikove", "Tab = indent u editoru", "Ctrl+S = spremi kod"]

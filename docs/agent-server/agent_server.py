@@ -2499,6 +2499,24 @@ async def record_list(_: str = Depends(verify_api_key)):
             scripts.append({"name": name, "file": f, "size": size, "portal": meta.get("portal", "Ostalo"), "tags": meta.get("tags", []), "params": flow_param_keys(meta), "description": meta.get("description", ""), "version_count": len(list_flow_versions(name))})
     return {"success": True, "actions": scripts}
 
+
+@app.post("/record/analyze")
+async def record_analyze(req: dict = {}, _: str = Depends(verify_api_key)):
+    name = (req.get("name") if req else None) or _recorded_action_name or "shadow_session"
+    start_url = (req.get("url") if req else None) or ""
+    context = (req.get("context") if req else None) or ""
+    auto_save = bool(req.get("auto_save", True)) if req else True
+    req_steps = req.get("steps") if req else None
+    source_steps = req_steps if isinstance(req_steps, list) and req_steps else _recorded_steps
+    analysis = analyze_shadow_session(name, start_url, source_steps or [], context)
+    saved = save_shadow_session(analysis) if auto_save else None
+    return {
+        "success": True,
+        "analysis": analysis,
+        "saved": saved,
+        "message": f"Shadow analiza gotova ({analysis['stats']['step_count']} koraka)",
+    }
+
 @app.post("/record/run")
 async def record_run(req: dict, _: str = Depends(verify_api_key)):
     """
@@ -3003,11 +3021,13 @@ async def record_merge_into_code(req: MergeRecordingRequest, _: str = Depends(ve
 
 FLOW_META_DIR = Path(WORKSPACE_DIR) / "2 AGENT" / "_flow_meta"
 FLOW_VERSIONS_DIR = Path(WORKSPACE_DIR) / "2 AGENT" / "_flow_versions"
+SHADOW_SESSION_DIR = Path(WORKSPACE_DIR) / "2 AGENT" / "_shadow_sessions"
 
 def ensure_flow_dirs():
     ensure_workspace()
     FLOW_META_DIR.mkdir(parents=True, exist_ok=True)
     FLOW_VERSIONS_DIR.mkdir(parents=True, exist_ok=True)
+    SHADOW_SESSION_DIR.mkdir(parents=True, exist_ok=True)
 
 def normalize_flow_name(name: str) -> str:
     return (name or "").strip().replace(" ", "_").lower()
@@ -3215,6 +3235,176 @@ def list_flow_versions(name: str) -> list[dict]:
                 "source": "unknown",
             })
     return items
+
+
+def guess_portal_from_url(url: str) -> str:
+    u = (url or "").lower()
+    if "oss.uredjenazemlja.hr" in u:
+        return "OSS Uredena Zemlja"
+    if "sdge" in u:
+        return "SDGE"
+    if "katastar" in u:
+        return "Katastar"
+    if "zemljisna-knjiga" in u or "zk" in u:
+        return "Zemljisna knjiga"
+    return "Web portal"
+
+
+def infer_flow_type(text_blob: str) -> str:
+    t = (text_blob or "").lower()
+    if "parcel" in t:
+        return "parcelacija"
+    if "upis" in t:
+        return "upis"
+    if "uskla" in t:
+        return "uskladjenje"
+    if "iskol" in t:
+        return "iskolcenje"
+    if "situacij" in t:
+        return "situacija"
+    if "prilog" in t or "upload" in t:
+        return "predaja_priloga"
+    if "predaj" in t or "submit" in t:
+        return "predaja_elaborata"
+    return "sdge_postupak"
+
+
+def detect_shadow_phases(steps: list[dict], context_text: str = "") -> list[str]:
+    phases: list[str] = []
+    keywords = " ".join(
+        filter(None, [context_text] + [str(s.get("target") or s.get("url") or s.get("value") or "") for s in steps])
+    ).lower()
+
+    if any((s.get("type") or s.get("action")) == "navigate" for s in steps):
+        phases.append("Otvaranje portala / predmeta")
+    if any((s.get("type") or s.get("action")) in {"type", "fill"} for s in steps):
+        phases.append("Unos podataka / pretraga")
+    if any("prilog" in str(s.get("target") or "").lower() or "upload" in str(s.get("target") or "").lower() for s in steps):
+        phases.append("Dodavanje priloga")
+    if any("pdf" in str(s.get("target") or "").lower() or "download" in str(s.get("target") or "").lower() for s in steps):
+        phases.append("Pregled ili preuzimanje PDF-a")
+    if any("predaj" in keywords or "submit" == (s.get("type") or s.get("action")) for s in steps):
+        phases.append("Predaja / potvrda")
+    if not phases:
+        phases.append("Rucni rad u portalu")
+    return phases
+
+
+def build_shadow_checklist(flow_type: str, steps: list[dict], context_text: str = "") -> list[str]:
+    items: list[str] = [
+        "Provjeri predmet, stranku i cesticu prije unosa.",
+        "Provjeri da su svi obavezni podaci spremljeni prije iduce faze.",
+    ]
+    joined = " ".join(
+        filter(None, [context_text] + [str(s.get("target") or s.get("value") or s.get("url") or "") for s in steps])
+    ).lower()
+    if any((s.get("type") or s.get("action")) in {"type", "fill"} for s in steps):
+        items.append("Usporedi upisana polja s elaboratom i radnim biljeskama.")
+    if "prilog" in joined or "upload" in joined:
+        items.append("Provjeri da su svi prilozi ucitani u pravoj verziji i formatu.")
+    if "pdf" in joined or "download" in joined:
+        items.append("Otvori PDF i provjeri naziv, mjerilo, oznake i priloge prije slanja.")
+    if "predaj" in joined or any((s.get("type") or s.get("action")) == "submit" for s in steps):
+        items.append("Prije predaje potvrdi da nema validacijskih gresaka i da je status predmeta ispravan.")
+    if flow_type == "parcelacija":
+        items.append("Kod parcelacije provjeri nove oznake cestica, povrsine i uskladjenost skice.")
+    if flow_type == "upis":
+        items.append("Kod upisa provjeri uskladjenost vlasnika, adrese i identifikatora predmeta.")
+    return items[:6]
+
+
+def build_shadow_risks(steps: list[dict], context_text: str = "") -> list[str]:
+    risks: list[str] = []
+    if len(steps) < 3:
+        risks.append("Sesija ima malo koraka pa je moguce da playbook nije potpun.")
+    wait_count = sum(1 for s in steps if (s.get("type") or s.get("action")) == "wait")
+    if wait_count >= 3:
+        risks.append("Ima vise cekanja; portal vjerojatno kasni pa treba dodati checkpoint provjere.")
+    if not any((s.get("type") or s.get("action")) in {"submit", "click"} for s in steps):
+        risks.append("Nema jasnog zavrsnog koraka; provjeri je li sesija stala prije potvrde ili spremanja.")
+    joined = " ".join(filter(None, [context_text] + [str(s.get("target") or s.get("url") or "") for s in steps])).lower()
+    if "pdf" not in joined:
+        risks.append("Nije vidljiv pregled PDF-a; dodaj provjeru izlaznog dokumenta prije predaje.")
+    return risks[:4]
+
+
+def analyze_shadow_session(name: str, start_url: str, steps: list[dict], context: str = "") -> dict:
+    ensure_flow_dirs()
+    normalized_steps: list[dict] = []
+    pages: list[str] = []
+    counts: dict[str, int] = {}
+
+    for i, step in enumerate(steps or []):
+        stype = str(step.get("type") or step.get("action") or "click").strip() or "click"
+        target = str(step.get("target") or step.get("selector") or "").strip()
+        value = str(step.get("value") or "").strip()
+        url = str(step.get("url") or "").strip()
+        ts = step.get("timestamp") or step.get("ts") or 0
+        normalized = {
+            "id": step.get("id") or str(i),
+            "type": stype,
+            "target": target,
+            "value": value,
+            "url": url,
+            "timestamp": ts,
+        }
+        normalized_steps.append(normalized)
+        counts[stype] = counts.get(stype, 0) + 1
+        if url and url not in pages:
+            pages.append(url)
+
+    text_blob = " ".join(
+        filter(None, [name, start_url, context] + [f"{s['type']} {s['target']} {s['value']} {s['url']}" for s in normalized_steps])
+    )
+    portal = guess_portal_from_url(start_url or (pages[0] if pages else ""))
+    flow_type = infer_flow_type(text_blob)
+    phases = detect_shadow_phases(normalized_steps, context)
+    checklist = build_shadow_checklist(flow_type, normalized_steps, context)
+    risks = build_shadow_risks(normalized_steps, context)
+    duration_ms = 0
+    timestamps = [int(s["timestamp"]) for s in normalized_steps if str(s.get("timestamp", "")).isdigit()]
+    if len(timestamps) >= 2:
+        duration_ms = max(timestamps) - min(timestamps)
+
+    suggested_name = normalize_flow_name(name or f"{portal}_{flow_type}_{datetime.now().strftime('%Y%m%d_%H%M')}")
+    summary = (
+        f"Shadow session za {portal}: {len(normalized_steps)} koraka kroz faze "
+        f"{', '.join(phases[:3])}. Predlozeni tip postupka: {flow_type}."
+    )
+
+    return {
+        "name": name,
+        "suggested_name": suggested_name,
+        "portal": portal,
+        "flow_type": flow_type,
+        "summary": summary,
+        "phases": phases,
+        "checklist": checklist,
+        "risks": risks,
+        "tags": [portal.lower().replace(" ", "_"), flow_type, "shadow_learning"],
+        "stats": {
+            "step_count": len(normalized_steps),
+            "pages": pages,
+            "page_count": len(pages),
+            "counts": counts,
+            "duration_ms": duration_ms,
+        },
+        "steps": normalized_steps,
+        "context": context,
+        "start_url": start_url,
+        "captured_at": datetime.now().isoformat(),
+    }
+
+
+def save_shadow_session(payload: dict) -> dict:
+    ensure_flow_dirs()
+    session_id = f"{normalize_flow_name(payload.get('suggested_name') or payload.get('name') or 'shadow')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    path = SHADOW_SESSION_DIR / f"{session_id}.json"
+    document = dict(payload)
+    document["session_id"] = session_id
+    document["saved_at"] = datetime.now().isoformat()
+    path.write_text(json.dumps(document, ensure_ascii=False, indent=2), encoding="utf-8")
+    return {"session_id": session_id, "path": str(path)}
 
 class FlowNameRequest(BaseModel):
     name: str
