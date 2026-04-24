@@ -1,4 +1,4 @@
-import { memo, useState, useCallback } from "react";
+import { memo, useState, useCallback, type MouseEvent } from "react";
 import { Copy, Check, Code2, Sparkles, ThumbsUp, ThumbsDown, FileText, FileCode2, FileArchive, FileImage, FileSpreadsheet, File, ChevronDown, ChevronRight, Download } from "lucide-react";
 import { cn } from "@/lib/utils";
 import ReactMarkdown from "react-markdown";
@@ -158,13 +158,36 @@ function CodeFileCard({ filename, size, language, code }: { filename: string; si
 
 // ─── Download card for generated files ───────────────────────
 function DownloadCard({ filename, url, size }: { filename: string; url: string; size?: string }) {
+  const [isDownloading, setIsDownloading] = useState(false);
   const ft = getFileType(filename);
   const Icon = ft.icon;
+  const handleDownload = useCallback(async (event: MouseEvent<HTMLAnchorElement>) => {
+    event.preventDefault();
+    if (isDownloading) return;
+    setIsDownloading(true);
+    try {
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`Download failed: ${response.status}`);
+      const blob = await response.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = objectUrl;
+      anchor.download = filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(objectUrl);
+    } catch (error) {
+      console.error("File download error:", error);
+      window.open(url, "_blank", "noopener,noreferrer");
+    } finally {
+      setIsDownloading(false);
+    }
+  }, [filename, isDownloading, url]);
   return (
     <a
       href={url}
       download={filename}
-      target="_blank"
       rel="noopener noreferrer"
       style={{
         display: "inline-flex", flexDirection: "column", gap: "8px", textDecoration: "none",
@@ -172,6 +195,7 @@ function DownloadCard({ filename, url, size }: { filename: string; url: string; 
         borderRadius: "14px", padding: "14px 16px", minWidth: "180px", maxWidth: "280px",
         cursor: "pointer", transition: "all 0.15s",
       }}
+      onClick={handleDownload}
       onMouseEnter={e => { e.currentTarget.style.background = "rgba(29,233,139,0.12)"; e.currentTarget.style.borderColor = "rgba(29,233,139,0.35)"; }}
       onMouseLeave={e => { e.currentTarget.style.background = "rgba(29,233,139,0.06)"; e.currentTarget.style.borderColor = "rgba(29,233,139,0.2)"; }}
     >
@@ -196,7 +220,7 @@ function DownloadCard({ filename, url, size }: { filename: string; url: string; 
           background: "rgba(29,233,139,0.15)", color: "#1de98b",
         }}>
           <Download style={{ width: "12px", height: "12px" }} />
-          Preuzmi
+          {isDownloading ? "Skidam..." : "Preuzmi"}
         </div>
         <span style={{
           fontSize: "10px", fontWeight: 700, letterSpacing: "0.05em",

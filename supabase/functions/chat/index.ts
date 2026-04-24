@@ -9,6 +9,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { zipSync, strToU8 } from "https://esm.sh/fflate@0.8.2";
+import { PDFDocument, StandardFonts, rgb } from "https://esm.sh/pdf-lib@1.17.1";
  
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -36,6 +37,161 @@ const OPENAI_DEFAULT = "fast";
 const OPENAI_API_URL = "https://api.openai.com/v1/responses";
 const OPENAI_MAX_OUTPUT_TOKENS = 12000;
 const XAI_DEFAULT_MODEL = "grok-4-1-fast";
+
+function looksLikeHtmlDocument(value: string, contentType?: string): boolean {
+  const sample = String(value || "").trim().slice(0, 400).toLowerCase();
+  return (
+    contentType?.toLowerCase().includes("text/html") === true ||
+    sample.startsWith("<!doctype html") ||
+    sample.startsWith("<html") ||
+    sample.includes("<head") ||
+    sample.includes("<body")
+  );
+}
+
+function decodeHtmlEntities(input: string): string {
+  return input
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&euro;/gi, "EUR")
+    .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)));
+}
+
+function htmlToPlainText(html: string): string {
+  return decodeHtmlEntities(
+    html
+      .replace(/<script[\s\S]*?<\/script>/gi, "")
+      .replace(/<style[\s\S]*?<\/style>/gi, "")
+      .replace(/<(br|br\/)\s*>/gi, "\n")
+      .replace(/<\/(p|div|section|article|header|footer|h1|h2|h3|h4|h5|h6|tr|table)>/gi, "\n")
+      .replace(/<li[^>]*>/gi, "• ")
+      .replace(/<\/li>/gi, "\n")
+      .replace(/<\/t[dh]>\s*<t[dh][^>]*>/gi, " | ")
+      .replace(/<[^>]+>/g, " ")
+      .replace(/\r\n/g, "\n")
+      .replace(/[ \t]+\n/g, "\n")
+      .replace(/\n{3,}/g, "\n\n")
+      .replace(/[ \t]{2,}/g, " ")
+      .trim(),
+  );
+}
+
+function wrapPdfText(text: string, font: any, fontSize: number, maxWidth: number): string[] {
+  const lines: string[] = [];
+  for (const rawParagraph of text.split("\n")) {
+    const paragraph = rawParagraph.trimEnd();
+    if (!paragraph) {
+      lines.push("");
+      continue;
+    }
+    const words = paragraph.split(/\s+/);
+    let currentLine = "";
+    for (const word of words) {
+      const candidate = currentLine ? `${currentLine} ${word}` : word;
+      const candidateWidth = font.widthOfTextAtSize(candidate, fontSize);
+      if (candidateWidth <= maxWidth || !currentLine) {
+        currentLine = candidate;
+      } else {
+        lines.push(currentLine);
+        currentLine = word;
+      }
+    }
+    if (currentLine) lines.push(currentLine);
+  }
+  return lines;
+}
+
+async function createSimplePdfFromHtml(filename: string, html: string): Promise<Uint8Array> {
+  const pdfDoc = await PDFDocument.create();
+  const regularFont = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+  const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+  const title = decodeHtmlEntities(
+    titleMatch?.[1]?.trim() ||
+      filename.replace(/\.[^.]+$/i, "").replace(/[_-]+/g, " "),
+  );
+  const bodyText = htmlToPlainText(html);
+  const pageSize: [number, number] = [595.28, 841.89];
+  const margin = 48;
+  const fontSize = 11;
+  const lineHeight = 15;
+  const maxWidth = pageSize[0] - margin * 2;
+  const lines = wrapPdfText(bodyText, regularFont, fontSize, maxWidth);
+
+  let page = pdfDoc.addPage(pageSize);
+  let cursorY = pageSize[1] - margin;
+
+  const drawHeader = () => {
+    page.drawText(title, {
+      x: margin,
+      y: cursorY,
+      size: 18,
+      font: boldFont,
+      color: rgb(0.1, 0.16, 0.28),
+    });
+    cursorY -= 28;
+  };
+
+  drawHeader();
+
+  for (const line of lines) {
+    if (cursorY < margin) {
+      page = pdfDoc.addPage(pageSize);
+      cursorY = pageSize[1] - margin;
+      drawHeader();
+    }
+    if (!line) {
+      cursorY -= lineHeight * 0.75;
+      continue;
+    }
+    page.drawText(line, {
+      x: margin,
+      y: cursorY,
+      size: fontSize,
+      font: regularFont,
+      color: rgb(0.15, 0.15, 0.18),
+      maxWidth,
+      lineHeight,
+    });
+    cursorY -= lineHeight;
+  }
+
+  return await pdfDoc.save();
+}
+
+function shouldAutoConvertHtmlToPdf(filename: string, content: string, contentType?: string): boolean {
+  if (!looksLikeHtmlDocument(content, contentType)) return false;
+  const lowerFilename = filename.toLowerCase();
+  const lowerContent = content.toLowerCase();
+  if (lowerFilename.endsWith(".pdf")) return true;
+
+  const businessHints = [
+    "ponuda",
+    "račun",
+    "racun",
+    "radni-nalog",
+    "radni_nalog",
+    "nalog",
+    "invoice",
+    "quote",
+    "work order",
+    "work_order",
+    "dopis",
+    "zahtjev",
+    "geoterra",
+    "naručitelj",
+    "narucitelj",
+    "oib",
+  ];
+
+  return businessHints.some((hint) =>
+    lowerFilename.includes(hint) || lowerContent.includes(hint),
+  );
+}
 
 // ─── Helper funkcije (identične) ─────────────────────────────
 
@@ -1825,21 +1981,31 @@ async function generateFile(supabaseAdmin: any, userId: string, args: any): Prom
       filename.endsWith(".txt") ? "text/plain" :
       "application/octet-stream"
     );
-    const path = `files/${userId}/${Date.now()}_${filename}`;
+    const wantsPdfFromHtml = shouldAutoConvertHtmlToPdf(filename, content, mime);
+    const finalFilename = wantsPdfFromHtml
+      ? filename.replace(/\.(html?|xhtml)$/i, ".pdf").replace(/\.pdf$/i, ".pdf")
+      : filename;
+    const path = `files/${userId}/${Date.now()}_${finalFilename}`;
     const encoder = new TextEncoder();
-    const bytes = encoder.encode(content);
+    const bytes = wantsPdfFromHtml
+      ? await createSimplePdfFromHtml(finalFilename, content)
+      : encoder.encode(content);
+    const finalMime = wantsPdfFromHtml ? "application/pdf" : mime;
     const { data, error } = await supabaseAdmin.storage
       .from("screenshots")
-      .upload(path, bytes, { contentType: mime, upsert: true });
+      .upload(path, bytes, { contentType: finalMime, upsert: true });
     if (error) return JSON.stringify({ success: false, error: error.message });
     const { data: urlData } = supabaseAdmin.storage.from("screenshots").getPublicUrl(path);
     const url = urlData?.publicUrl || "";
     return JSON.stringify({
       success: true,
-      filename,
+      filename: finalFilename,
       url,
       size: bytes.length,
-      message: `Datoteka '${filename}' spremljena (${(bytes.length / 1024).toFixed(1)} KB).`,
+      message: wantsPdfFromHtml
+        ? `HTML dokument '${filename}' pretvoren je u PDF '${finalFilename}' (${(bytes.length / 1024).toFixed(1)} KB).`
+        : `Datoteka '${finalFilename}' spremljena (${(bytes.length / 1024).toFixed(1)} KB).`,
+      generated_from_html: wantsPdfFromHtml || undefined,
       _instruction: "Download gumb je automatski prikazan korisniku. NE piši link ni URL u odgovoru.",
     });
   } catch (e) {
