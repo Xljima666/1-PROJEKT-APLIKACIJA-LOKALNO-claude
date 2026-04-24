@@ -2517,6 +2517,24 @@ async def record_analyze(req: dict = {}, _: str = Depends(verify_api_key)):
         "message": f"Shadow analiza gotova ({analysis['stats']['step_count']} koraka)",
     }
 
+
+@app.post("/record/build_playbook")
+async def record_build_playbook(req: dict = {}, _: str = Depends(verify_api_key)):
+    name = (req.get("name") if req else None) or _recorded_action_name or "shadow_playbook"
+    start_url = (req.get("url") if req else None) or ""
+    context = (req.get("context") if req else None) or ""
+    portal = (req.get("portal") if req else None) or ""
+    flow_type = (req.get("flow_type") if req else None) or ""
+    req_steps = req.get("steps") if req else None
+    source_steps = req_steps if isinstance(req_steps, list) and req_steps else _recorded_steps
+    draft = build_shadow_playbook(name, start_url, source_steps or [], context, portal, flow_type)
+    return {
+        "success": True,
+        "draft": draft,
+        "saved": draft.get("saved"),
+        "message": f"Playbook draft slozen ({draft['stats']['session_count']} sesija)",
+    }
+
 @app.post("/record/run")
 async def record_run(req: dict, _: str = Depends(verify_api_key)):
     """
@@ -3022,12 +3040,14 @@ async def record_merge_into_code(req: MergeRecordingRequest, _: str = Depends(ve
 FLOW_META_DIR = Path(WORKSPACE_DIR) / "2 AGENT" / "_flow_meta"
 FLOW_VERSIONS_DIR = Path(WORKSPACE_DIR) / "2 AGENT" / "_flow_versions"
 SHADOW_SESSION_DIR = Path(WORKSPACE_DIR) / "2 AGENT" / "_shadow_sessions"
+SHADOW_PLAYBOOK_DIR = Path(WORKSPACE_DIR) / "2 AGENT" / "_shadow_playbooks"
 
 def ensure_flow_dirs():
     ensure_workspace()
     FLOW_META_DIR.mkdir(parents=True, exist_ok=True)
     FLOW_VERSIONS_DIR.mkdir(parents=True, exist_ok=True)
     SHADOW_SESSION_DIR.mkdir(parents=True, exist_ok=True)
+    SHADOW_PLAYBOOK_DIR.mkdir(parents=True, exist_ok=True)
 
 def normalize_flow_name(name: str) -> str:
     return (name or "").strip().replace(" ", "_").lower()
@@ -3405,6 +3425,182 @@ def save_shadow_session(payload: dict) -> dict:
     document["saved_at"] = datetime.now().isoformat()
     path.write_text(json.dumps(document, ensure_ascii=False, indent=2), encoding="utf-8")
     return {"session_id": session_id, "path": str(path)}
+
+
+def merge_unique_text(items: list[str], limit: int | None = None) -> list[str]:
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in items or []:
+        value = str(item or "").strip()
+        if not value:
+            continue
+        key = value.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(value)
+        if limit and len(out) >= limit:
+            break
+    return out
+
+
+def load_shadow_sessions() -> list[dict]:
+    ensure_flow_dirs()
+    sessions: list[dict] = []
+    for path in sorted(SHADOW_SESSION_DIR.glob("*.json"), reverse=True):
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            payload["_path"] = str(path)
+            sessions.append(payload)
+        except Exception:
+            continue
+    return sessions
+
+
+def pick_shadow_session_candidates(portal: str, flow_type: str, context: str = "", limit: int = 5) -> list[dict]:
+    sessions = load_shadow_sessions()
+    strong: list[dict] = []
+    medium: list[dict] = []
+    weak: list[dict] = []
+    context_text = (context or "").lower()
+
+    for session in sessions:
+        same_portal = str(session.get("portal") or "").strip().lower() == portal.lower()
+        same_type = str(session.get("flow_type") or "").strip().lower() == flow_type.lower()
+        session_text = " ".join(
+            filter(
+                None,
+                [
+                    str(session.get("name") or ""),
+                    str(session.get("summary") or ""),
+                    str(session.get("context") or ""),
+                    " ".join(str(t or "") for t in session.get("tags", []) or []),
+                ],
+            )
+        ).lower()
+        context_match = bool(context_text and any(token in session_text for token in context_text.split() if len(token) > 3))
+
+        if same_portal and same_type:
+            strong.append(session)
+        elif same_type and context_match:
+            medium.append(session)
+        elif same_type or same_portal:
+            weak.append(session)
+
+    return (strong + medium + weak)[:limit]
+
+
+def build_shadow_playbook(name: str, start_url: str, steps: list[dict], context: str = "", portal: str = "", flow_type: str = "") -> dict:
+    current = analyze_shadow_session(name, start_url, steps, context)
+    detected_portal = portal or current.get("portal") or guess_portal_from_url(start_url)
+    detected_type = flow_type or current.get("flow_type") or infer_flow_type(context)
+
+    candidates = pick_shadow_session_candidates(detected_portal, detected_type, context, limit=5)
+    session_ids: set[str] = set()
+    sessions_used: list[dict] = []
+
+    if current.get("steps"):
+        current["session_id"] = current.get("session_id") or "current_session"
+        sessions_used.append(current)
+        session_ids.add("current_session")
+
+    for session in candidates:
+        session_id = str(session.get("session_id") or session.get("_path") or "")
+        if not session_id or session_id in session_ids:
+            continue
+        sessions_used.append(session)
+        session_ids.add(session_id)
+
+    exemplar = max(
+        sessions_used,
+        key=lambda s: len(s.get("steps") or []),
+        default=current,
+    )
+    exemplar_steps = exemplar.get("steps") or current.get("steps") or []
+
+    all_phases: list[str] = []
+    all_checklist: list[str] = []
+    all_risks: list[str] = []
+    all_tags: list[str] = []
+    all_pages: list[str] = []
+
+    for session in sessions_used:
+        all_phases.extend(session.get("phases") or [])
+        all_checklist.extend(session.get("checklist") or [])
+        all_risks.extend(session.get("risks") or [])
+        all_tags.extend(session.get("tags") or [])
+        all_pages.extend((session.get("stats") or {}).get("pages") or [])
+
+    canonical_name = normalize_flow_name(
+        name if name and name.lower() != "novi flow" else f"{detected_type}_{detected_portal}_draft"
+    )
+    display_name = " ".join(
+        part for part in [
+            detected_portal,
+            detected_type.replace("_", " ").title(),
+            "draft",
+        ] if part
+    ).strip()
+    checklist = merge_unique_text(all_checklist, limit=8)
+    risks = merge_unique_text(all_risks, limit=5)
+    phases = merge_unique_text(all_phases, limit=6)
+    tags = merge_unique_text(all_tags + ["shadow_playbook", detected_type, detected_portal.lower().replace(" ", "_")], limit=8)
+    page_list = merge_unique_text(all_pages, limit=8)
+
+    draft = {
+        "name": canonical_name,
+        "display_name": display_name or canonical_name,
+        "start_url": start_url or exemplar.get("start_url") or (page_list[0] if page_list else ""),
+        "portal": detected_portal,
+        "flow_type": detected_type,
+        "summary": f"Draft playbook slozen iz {len(sessions_used)} shadow sesija za {detected_portal} ({detected_type}).",
+        "description": (
+            f"Automatski draft flow za {detected_type.replace('_', ' ')} na portalu {detected_portal}. "
+            f"Temeljen na {len(sessions_used)} shadow sesija; koristi kao pocetni nacrt i doradi selektore/checkpointove po potrebi."
+        ),
+        "phases": phases,
+        "checklist": checklist,
+        "risks": risks,
+        "tags": tags,
+        "steps": exemplar_steps,
+        "based_on_sessions": [
+            {
+                "session_id": s.get("session_id") or s.get("_path") or "current_session",
+                "name": s.get("name") or s.get("suggested_name") or "shadow",
+                "step_count": len(s.get("steps") or []),
+            }
+            for s in sessions_used
+        ],
+        "stats": {
+            "step_count": len(exemplar_steps),
+            "session_count": len(sessions_used),
+            "page_count": len(page_list),
+            "pages": page_list,
+        },
+        "metadata": {
+            "name": display_name or canonical_name,
+            "display_name": display_name or canonical_name,
+            "portal": detected_portal,
+            "description": (
+                f"Shadow playbook draft ({len(sessions_used)} sesija) za {detected_type.replace('_', ' ')}."
+            ),
+            "tags": tags,
+            "phases": phases,
+            "checklist": checklist,
+            "risks": risks,
+            "shadow_session_count": len(sessions_used),
+            "shadow_based_on": [s.get("session_id") or s.get("_path") or "current_session" for s in sessions_used],
+            "start_url": start_url or exemplar.get("start_url") or "",
+            "steps": exemplar_steps,
+            "status": "raw",
+        },
+    }
+
+    playbook_id = f"{canonical_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    path = SHADOW_PLAYBOOK_DIR / f"{playbook_id}.json"
+    path.write_text(json.dumps(draft, ensure_ascii=False, indent=2), encoding="utf-8")
+    draft["saved"] = {"playbook_id": playbook_id, "path": str(path)}
+    return draft
 
 class FlowNameRequest(BaseModel):
     name: str

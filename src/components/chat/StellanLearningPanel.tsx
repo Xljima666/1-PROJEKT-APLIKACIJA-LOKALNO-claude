@@ -82,6 +82,36 @@ interface ShadowInsight {
   };
 }
 
+interface ShadowPlaybookDraft {
+  name: string;
+  display_name: string;
+  start_url: string;
+  portal: string;
+  flow_type: string;
+  summary: string;
+  description: string;
+  phases: string[];
+  checklist: string[];
+  risks: string[];
+  tags: string[];
+  steps: FlowStep[];
+  based_on_sessions: Array<{
+    session_id: string;
+    name: string;
+    step_count: number;
+  }>;
+  stats?: {
+    step_count?: number;
+    session_count?: number;
+    page_count?: number;
+  };
+  metadata?: Record<string, unknown>;
+  saved?: {
+    playbook_id?: string;
+    path?: string;
+  };
+}
+
 interface Props {
   onClose: () => void;
   agentServerUrl: string;
@@ -433,6 +463,8 @@ function RecordTab({ callAgent, editFlow, onSaved }: {
   const [learningContext, setLearningContext] = useState("");
   const [shadowInsight, setShadowInsight] = useState<ShadowInsight | null>(null);
   const [shadowSavedPath, setShadowSavedPath] = useState("");
+  const [shadowPlaybook, setShadowPlaybook] = useState<ShadowPlaybookDraft | null>(null);
+  const [buildingPlaybook, setBuildingPlaybook] = useState(false);
   const [polishing, setPol]   = useState(false);
   const [testing, setTesting] = useState(false);
   const [testingAi, setTestingAi] = useState(false);
@@ -589,11 +621,70 @@ function RecordTab({ callAgent, editFlow, onSaved }: {
       if (r?.analysis) {
         setShadowInsight(r.analysis);
         setShadowSavedPath(r?.saved?.path || "");
+        setShadowPlaybook(null);
         addLog(`🧠 Shadow analiza: ${r.analysis.portal} / ${r.analysis.flow_type}`);
         addLog(`🧾 Checklist: ${(r.analysis.checklist || []).length} stavki`);
       }
     } catch (e: any) {
         addLog(`Shadow analiza nije uspjela: ${e.message}`);
+    }
+  };
+
+  const buildShadowPlaybook = async () => {
+    const sourceSteps = lastRecordedSteps.length > 0 ? lastRecordedSteps : safe;
+    if (!shadowInsight || sourceSteps.length === 0) {
+      addLog("Shadow playbook treba barem jednu analiziranu sesiju.");
+      return;
+    }
+    setBuildingPlaybook(true);
+    try {
+      const r = await callAgent("record/build_playbook", {
+        name,
+        url,
+        context: learningContext,
+        portal: shadowInsight.portal,
+        flow_type: shadowInsight.flow_type,
+        steps: sourceSteps,
+      });
+      if (!r?.draft) throw new Error("Draft nije vracen.");
+
+      const draft = r.draft as ShadowPlaybookDraft;
+      setShadowPlaybook(draft);
+
+      await callAgent("record/save", {
+        name: draft.name,
+        display_name: draft.display_name,
+        url: draft.start_url || url,
+        steps: draft.steps,
+        status: "raw",
+        temporary: false,
+      });
+
+      await callAgent("flow/metadata/write", {
+        name: draft.name,
+        content: "",
+        create_version: false,
+        metadata: draft.metadata || {
+          name: draft.display_name,
+          display_name: draft.display_name,
+          description: draft.description,
+          portal: draft.portal,
+          tags: draft.tags,
+          phases: draft.phases,
+          checklist: draft.checklist,
+          risks: draft.risks,
+          start_url: draft.start_url || url,
+          steps: draft.steps,
+        },
+      });
+
+      addLog(`🛠 Playbook draft spremljen: ${draft.name}`);
+      addLog(`📚 Sesije ukljucene: ${draft.stats?.session_count || draft.based_on_sessions.length}`);
+      onSaved();
+    } catch (e: any) {
+      addLog(`Playbook builder nije uspio: ${e.message}`);
+    } finally {
+      setBuildingPlaybook(false);
     }
   };
 
@@ -631,6 +722,7 @@ function RecordTab({ callAgent, editFlow, onSaved }: {
         if (mode === "shadow") {
           setShadowInsight(null);
           setShadowSavedPath("");
+          setShadowPlaybook(null);
         }
         await callAgent("record/start", { name, url });
         setRec(true);
@@ -1242,8 +1334,39 @@ ${codeToPolish}`;
                     </div>
                   )}
                   <div className="text-[9px] text-muted-foreground/60">Predloženi naziv: <span className="font-mono text-foreground">{shadowInsight.suggested_name}</span></div>
+                  <button
+                    disabled={buildingPlaybook}
+                    onClick={buildShadowPlaybook}
+                    className="flex w-full items-center justify-center gap-1 rounded-lg border border-emerald-500/30 bg-emerald-500/10 py-1.5 text-[10px] font-medium text-emerald-300 hover:bg-emerald-500/20 disabled:opacity-40"
+                  >
+                    {buildingPlaybook ? <Loader2 className="h-3 w-3 animate-spin" /> : <Workflow className="h-3 w-3" />}
+                    Napravi playbook
+                  </button>
                   {shadowSavedPath && <div className="text-[9px] text-muted-foreground/50 break-all">{shadowSavedPath}</div>}
                   <div className="text-[9px] text-muted-foreground/50">Trajanje: {formatShadowDuration(shadowInsight.stats?.duration_ms)}</div>
+                </div>
+              </div>
+            )}
+            {shadowPlaybook && (
+              <div className="border-t border-border/60 pt-1.5 space-y-1.5">
+                <p className="text-[9px] uppercase tracking-wider text-primary">Playbook draft</p>
+                <div className="rounded-lg border border-primary/20 bg-primary/5 p-2 space-y-1.5">
+                  <div className="text-[10px] font-semibold text-foreground">{shadowPlaybook.display_name}</div>
+                  <div className="text-[10px] text-muted-foreground">{shadowPlaybook.summary}</div>
+                  <div className="flex flex-wrap gap-1">
+                    <span className="rounded border border-border px-1.5 py-0.5 text-[9px] text-muted-foreground">{shadowPlaybook.portal}</span>
+                    <span className="rounded border border-primary/30 bg-primary/10 px-1.5 py-0.5 text-[9px] text-primary">{shadowPlaybook.flow_type}</span>
+                    <span className="rounded border border-border px-1.5 py-0.5 text-[9px] text-muted-foreground">{shadowPlaybook.stats?.session_count || shadowPlaybook.based_on_sessions.length} sesija</span>
+                  </div>
+                  <div className="text-[9px] text-muted-foreground/60">
+                    Flow draft: <span className="font-mono text-foreground">{shadowPlaybook.name}</span>
+                  </div>
+                  <div className="text-[9px] text-muted-foreground/60">
+                    Koraci: {shadowPlaybook.steps.length} • Faze: {shadowPlaybook.phases.length}
+                  </div>
+                  {!!shadowPlaybook.saved?.path && (
+                    <div className="text-[9px] text-muted-foreground/50 break-all">{shadowPlaybook.saved.path}</div>
+                  )}
                 </div>
               </div>
             )}
