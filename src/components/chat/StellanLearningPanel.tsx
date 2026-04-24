@@ -1,5 +1,5 @@
-/**
- * StellanLearningPanel.tsx — v3 clean rewrite
+﻿/**
+ * StellanLearningPanel.tsx â€” v3 clean rewrite
  * Tabovi: Flowovi | Snimanje | Pokretanje | CAD
  * Koristi Stellanov dizajn sustav (bg-card, border-border, text-foreground, gradient-primary)
  */
@@ -37,7 +37,7 @@ import {
   Waypoints, Workflow, X, ZoomIn,
 } from "lucide-react";
 
-// ─── Tipovi ───────────────────────────────────────────────────────────────────
+// â”€â”€â”€ Tipovi â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 type PanelTab = "flows" | "record" | "run" | "cad";
 
@@ -123,6 +123,13 @@ interface ShadowPlaybookDraft {
   };
 }
 
+interface ShadowReviewState {
+  phases: string[];
+  checklist: string[];
+  risks: string[];
+  warnings: string[];
+}
+
 interface ShadowGroupSummary {
   portal: string;
   flow_type: string;
@@ -198,9 +205,9 @@ function shadowStateLabel(state?: string) {
       return "Spreman za automatiku";
     case "spreman_za_draft":
       return "Spreman za draft";
-    case "učenje_u_tijeku":
     case "uÄŤenje_u_tijeku":
-      return "Učenje u tijeku";
+    case "uĂ„Ĺ¤enje_u_tijeku":
+      return "UÄŤenje u tijeku";
     default:
       return "Premalo podataka";
   }
@@ -212,15 +219,29 @@ function shadowStateClass(state?: string) {
       return "text-green-400 border-green-500/30 bg-green-500/10";
     case "spreman_za_draft":
       return "text-primary border-primary/30 bg-primary/10";
-    case "učenje_u_tijeku":
     case "uÄŤenje_u_tijeku":
+    case "uĂ„Ĺ¤enje_u_tijeku":
       return "text-amber-300 border-amber-500/30 bg-amber-500/10";
     default:
       return "text-muted-foreground border-border bg-background/40";
   }
 }
 
-// ─── callAgent helper ─────────────────────────────────────────────────────────
+function uniqueReviewItems(items?: string[]) {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const item of items || []) {
+    const value = String(item || "").trim();
+    if (!value) continue;
+    const key = value.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(value);
+  }
+  return out;
+}
+
+// â”€â”€â”€ callAgent helper â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const DEFAULT_AGENT_API_KEY = "stellan-agent-2026-v2-x7k9m2p";
 const DEFAULT_AGENT_BASES = [
@@ -290,7 +311,7 @@ function makeCallAgent(agentServerUrl: string, apiKey: string) {
   };
 }
 
-// ─── Glavni panel ─────────────────────────────────────────────────────────────
+// â”€â”€â”€ Glavni panel â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export default function StellanLearningPanel({ onClose, agentServerUrl, apiKey }: Props) {
   const [activeTab, setActiveTab] = useState<PanelTab>("record");
@@ -312,7 +333,7 @@ export default function StellanLearningPanel({ onClose, agentServerUrl, apiKey }
   };
 
   const tabs = [
-    { id: "record" as PanelTab, label: "Učenje",     icon: <Circle   className="w-3.5 h-3.5" /> },
+    { id: "record" as PanelTab, label: "UÄŤenje",     icon: <Circle   className="w-3.5 h-3.5" /> },
     { id: "flows" as PanelTab,  label: "Memorija",   icon: <Workflow className="w-3.5 h-3.5" /> },
     { id: "run" as PanelTab,    label: "Pokretanje", icon: <Play     className="w-3.5 h-3.5" /> },
     { id: "cad" as PanelTab,    label: "CAD",        icon: <Slash    className="w-3.5 h-3.5" /> },
@@ -327,8 +348,8 @@ export default function StellanLearningPanel({ onClose, agentServerUrl, apiKey }
         </button>
         <div className="h-4 w-px bg-border" />
         <div className="hidden min-w-0 shrink-0 md:block">
-          <div className="text-sm font-semibold text-foreground">Stellan učenje</div>
-          <div className="text-[10px] text-muted-foreground">Shadow sesije, naučene grupe i playbookovi</div>
+          <div className="text-sm font-semibold text-foreground">Stellan uÄŤenje</div>
+          <div className="text-[10px] text-muted-foreground">Shadow sesije, nauÄŤene grupe i playbookovi</div>
         </div>
         <nav className="flex items-center gap-1 flex-1">
           {tabs.map(tab => (
@@ -360,7 +381,7 @@ export default function StellanLearningPanel({ onClose, agentServerUrl, apiKey }
   );
 }
 
-// ─── FLOWOVI TAB ──────────────────────────────────────────────────────────────
+// â”€â”€â”€ FLOWOVI TAB â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function FlowsTab({ callAgent, onEdit, onNavigate }: {
   callAgent: ReturnType<typeof makeCallAgent>;
@@ -434,7 +455,7 @@ function FlowsTab({ callAgent, onEdit, onNavigate }: {
   const selectedGroupFlows = selectedGroup
     ? flows.filter(flow => {
         const haystack = `${flow.name} ${flow.startUrl || ""}`.toLowerCase();
-        const flowTypeWords = selectedGroup.flow_type.toLowerCase().split(/[^a-z0-9čćžšđ]+/i).filter(Boolean);
+        const flowTypeWords = selectedGroup.flow_type.toLowerCase().split(/[^a-z0-9ÄŤÄ‡ĹľĹˇÄ‘]+/i).filter(Boolean);
         return haystack.includes(selectedGroup.portal.toLowerCase())
           || flowTypeWords.some(word => word.length > 3 && haystack.includes(word));
       })
@@ -579,7 +600,7 @@ function FlowsTab({ callAgent, onEdit, onNavigate }: {
                 <div className="mt-1 text-sm text-muted-foreground">{selectedGroup.portal}</div>
               </div>
               <span className={cn("rounded border px-2 py-1 text-[10px]", shadowStateClass(selectedGroup.learning_state))}>
-                {selectedGroup.confidence}% · {shadowStateLabel(selectedGroup.learning_state)}
+                {selectedGroup.confidence}% Â· {shadowStateLabel(selectedGroup.learning_state)}
               </span>
             </div>
 
@@ -646,7 +667,7 @@ function FlowsTab({ callAgent, onEdit, onNavigate }: {
                         <div className="min-w-0">
                           <div className="truncate text-sm font-medium text-foreground">{session.name}</div>
                           <div className="mt-1 text-[10px] text-muted-foreground">
-                            {session.step_count} koraka · {session.page_count} stranica · {formatRelativeTime(session.captured_at ? Date.parse(session.captured_at) : undefined)}
+                            {session.step_count} koraka Â· {session.page_count} stranica Â· {formatRelativeTime(session.captured_at ? Date.parse(session.captured_at) : undefined)}
                           </div>
                         </div>
                         <span className={cn("inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px]", shadowStateClass(session.learning_state))}>
@@ -835,7 +856,7 @@ function FlowsTab({ callAgent, onEdit, onNavigate }: {
   );
 }
 
-// ─── SNIMANJE TAB ─────────────────────────────────────────────────────────────
+// â”€â”€â”€ SNIMANJE TAB â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const STEP_ICONS: Record<string, any> = {
   navigate: MousePointer2, click: MousePointer2, type: Keyboard,
@@ -858,6 +879,8 @@ function RecordTab({ callAgent, editFlow, onSaved }: {
   const [shadowInsight, setShadowInsight] = useState<ShadowInsight | null>(null);
   const [shadowSavedPath, setShadowSavedPath] = useState("");
   const [shadowPlaybook, setShadowPlaybook] = useState<ShadowPlaybookDraft | null>(null);
+  const [reviewState, setReviewState] = useState<ShadowReviewState>({ phases: [], checklist: [], risks: [], warnings: [] });
+  const [reviewDirty, setReviewDirty] = useState(false);
   const [buildingPlaybook, setBuildingPlaybook] = useState(false);
   const [shadowGroups, setShadowGroups] = useState<ShadowGroupSummary[]>([]);
   const [polishing, setPol]   = useState(false);
@@ -882,7 +905,7 @@ function RecordTab({ callAgent, editFlow, onSaved }: {
     ai: { start: 0, end: 0 },
   });
   const [logs, setLogs]       = useState<string[]>(
-    isEditing ? [`📂 Učitan: "${editFlow!.name}" (${editFlow!.steps?.length ?? 0} koraka)`] : []
+    isEditing ? [`đź“‚ UÄŤitan: "${editFlow!.name}" (${editFlow!.steps?.length ?? 0} koraka)`] : []
   );
 
   const safe = Array.isArray(steps) ? steps : [];
@@ -903,7 +926,7 @@ function RecordTab({ callAgent, editFlow, onSaved }: {
     switch (state) {
       case "spreman_za_automatiku": return "Spreman za automatiku";
       case "spreman_za_draft": return "Spreman za draft";
-      case "učenje_u_tijeku": return "Učenje u tijeku";
+      case "uÄŤenje_u_tijeku": return "UÄŤenje u tijeku";
       default: return "Premalo podataka";
     }
   };
@@ -911,10 +934,30 @@ function RecordTab({ callAgent, editFlow, onSaved }: {
     switch (state) {
       case "spreman_za_automatiku": return "text-green-400 border-green-500/30 bg-green-500/10";
       case "spreman_za_draft": return "text-primary border-primary/30 bg-primary/10";
-      case "učenje_u_tijeku": return "text-amber-300 border-amber-500/30 bg-amber-500/10";
+      case "uÄŤenje_u_tijeku": return "text-amber-300 border-amber-500/30 bg-amber-500/10";
       default: return "text-muted-foreground border-border bg-background/40";
     }
   };
+  const resetReviewState = useCallback((insight?: ShadowInsight | null) => {
+    setReviewState({
+      phases: uniqueReviewItems(insight?.phases),
+      checklist: uniqueReviewItems(insight?.checklist),
+      risks: uniqueReviewItems(insight?.risks),
+      warnings: uniqueReviewItems(insight?.warnings),
+    });
+    setReviewDirty(false);
+  }, []);
+  const toggleReviewItem = useCallback((section: keyof ShadowReviewState, item: string) => {
+    setReviewState(prev => {
+      const current = prev[section] || [];
+      const exists = current.includes(item);
+      return {
+        ...prev,
+        [section]: exists ? current.filter(entry => entry !== item) : [...current, item],
+      };
+    });
+    setReviewDirty(true);
+  }, []);
 
   const loadShadowSummary = useCallback(async () => {
     try {
@@ -933,10 +976,14 @@ function RecordTab({ callAgent, editFlow, onSaved }: {
   }, [callAgent]);
 
   useEffect(() => {
+    resetReviewState(shadowInsight);
+  }, [shadowInsight, resetReviewState]);
+
+  useEffect(() => {
     loadShadowSummary();
   }, [loadShadowSummary]);
 
-  // Učitaj korake I .py kod iz agenta pri edit modu
+  // UÄŤitaj korake I .py kod iz agenta pri edit modu
   useEffect(() => {
     if (!editFlow) return;
     callAgent("record/read", { name: editFlow.id }).then(r => {
@@ -944,19 +991,19 @@ function RecordTab({ callAgent, editFlow, onSaved }: {
         const loaded = Array.isArray(r.metadata?.steps) ? r.metadata.steps
           : Array.isArray(editFlow.steps) ? editFlow.steps : [];
         setSteps(loaded);
-        addLog(`✓ Učitano ${loaded.length} koraka`);
-        // Učitaj .py kod u editor
+        addLog(`âś“ UÄŤitano ${loaded.length} koraka`);
+        // UÄŤitaj .py kod u editor
         if (typeof r.content === "string" && r.content.trim()) {
           setEditedCode(r.content);
           setSavedCode(r.content);
           setCodeEdited(true);
-          addLog(`📝 Učitan kod (${r.content.length} znakova)`);
+          addLog(`đź“ť UÄŤitan kod (${r.content.length} znakova)`);
         }
       } else {
-        // Ako nema .py, bar učitaj korake iz editFlow
+        // Ako nema .py, bar uÄŤitaj korake iz editFlow
         const loaded = Array.isArray(editFlow.steps) ? editFlow.steps : [];
         setSteps(loaded);
-        if (loaded.length) addLog(`✓ Učitano ${loaded.length} koraka (iz cache-a)`);
+        if (loaded.length) addLog(`âś“ UÄŤitano ${loaded.length} koraka (iz cache-a)`);
       }
     }).catch(() => {
       // Fallback
@@ -1019,12 +1066,12 @@ function RecordTab({ callAgent, editFlow, onSaved }: {
   }, [recording, callAgent]);
 
   const openBrowser = async () => {
-    addLog(`🌐 Otvaranje: ${url}`);
+    addLog(`đźŚ Otvaranje: ${url}`);
     try {
       const r = await callAgent("browser/reset", { url });
-      if (r?.success) { setBo(true); addLog(`✓ Browser otvoren: ${r.url}`); }
-      else addLog(`✗ ${r?.error}`);
-    } catch (e: any) { addLog(`✗ ${e.message}`); }
+      if (r?.success) { setBo(true); addLog(`âś“ Browser otvoren: ${r.url}`); }
+      else addLog(`âś— ${r?.error}`);
+    } catch (e: any) { addLog(`âś— ${e.message}`); }
   };
 
   const goBack = async () => {
@@ -1032,7 +1079,7 @@ function RecordTab({ callAgent, editFlow, onSaved }: {
       await callAgent("browser/back", {});
       if (recording && safe.length > 0) {
         setSteps(prev => (Array.isArray(prev) ? prev : []).slice(0, -1));
-        addLog("← Unazad — zadnji korak uklonjen");
+        addLog("â† Unazad â€” zadnji korak uklonjen");
       }
     } catch {}
   };
@@ -1052,14 +1099,13 @@ function RecordTab({ callAgent, editFlow, onSaved }: {
         setShadowSavedPath(r?.saved?.path || "");
         setShadowPlaybook(null);
         await loadShadowSummary();
-        addLog(`🧠 Shadow analiza: ${analysis.portal} / ${analysis.flow_type}`);
-        addLog(`🧾 Checklist: ${(analysis.checklist || []).length} stavki`);
+        addLog(`đź§  Shadow analiza: ${analysis.portal} / ${analysis.flow_type}`);
+        addLog(`đź§ľ Checklist: ${(analysis.checklist || []).length} stavki`);
         if ((analysis.warnings || []).length > 0) {
-          addLog(`⚠ Upozorenja: ${(analysis.warnings || []).length}`);
+          addLog(`âš  Upozorenja: ${(analysis.warnings || []).length}`);
         }
         if (analysis.auto_playbook_ready) {
-          addLog("🚀 Dovoljno znanja za automatski draft — radim playbook.");
-          await buildShadowPlaybook(recorded, analysis);
+          addLog("Dovoljno znanja za draft. Pregledaj rezultat i klikni Napravi playbook kad si zadovoljan.");
         }
       }
     } catch (e: any) {
@@ -1083,6 +1129,10 @@ function RecordTab({ callAgent, editFlow, onSaved }: {
         portal: activeInsight.portal,
         flow_type: activeInsight.flow_type,
         steps: sourceSteps,
+        phase_overrides: uniqueReviewItems(reviewState.phases),
+        checklist_overrides: uniqueReviewItems(reviewState.checklist),
+        risk_overrides: uniqueReviewItems(reviewState.risks),
+        warning_overrides: uniqueReviewItems(reviewState.warnings),
       });
       if (!r?.draft) throw new Error("Draft nije vracen.");
 
@@ -1116,10 +1166,10 @@ function RecordTab({ callAgent, editFlow, onSaved }: {
         },
       });
 
-      addLog(`🛠 Playbook draft spremljen: ${draft.name}`);
-      addLog(`📚 Sesije ukljucene: ${draft.stats?.session_count || draft.based_on_sessions.length}`);
+      addLog(`đź›  Playbook draft spremljen: ${draft.name}`);
+      addLog(`đź“š Sesije ukljucene: ${draft.stats?.session_count || draft.based_on_sessions.length}`);
       await loadShadowSummary();
-      addLog("✅ Draft je spremljen u flowove; možeš ga odmah dalje doraditi ili prijeći na Flowove.");
+      addLog("âś… Draft je spremljen u flowove; moĹľeĹˇ ga odmah dalje doraditi ili prijeÄ‡i na Flowove.");
     } catch (e: any) {
       addLog(`Playbook builder nije uspio: ${e.message}`);
     } finally {
@@ -1136,7 +1186,7 @@ function RecordTab({ callAgent, editFlow, onSaved }: {
         const mergedSteps = mode === "append" ? [...recordBaseStepsRef.current, ...cleanArr] : cleanArr;
         setLastRecordedSteps(cleanArr);
         setSteps(mergedSteps);
-        addLog(`⏹ Zaustavljeno — ${arr.length} koraka`);
+        addLog(`âŹą Zaustavljeno â€” ${arr.length} koraka`);
         if (!codeEdited) setSavedCode("");
         addLog(`Zaustavljeno: ${cleanArr.length} novih koraka`);
         if (mode === "shadow") {
@@ -1147,10 +1197,10 @@ function RecordTab({ callAgent, editFlow, onSaved }: {
           const saveId = isEditing ? editFlow!.id : name.replace(/\s+/g, "_").toLowerCase();
           try {
             await callAgent("record/save", { name: saveId, display_name: name, url, steps: mergedSteps, status: "raw" });
-            addLog(`💾 Auto-spremljeno: "${saveId}"`);
-          } catch (e: any) { addLog(`⚠ Auto-save: ${e.message}`); }
+            addLog(`đź’ľ Auto-spremljeno: "${saveId}"`);
+          } catch (e: any) { addLog(`âš  Auto-save: ${e.message}`); }
         }
-      } catch (e: any) { addLog(`✗ ${e.message}`); }
+      } catch (e: any) { addLog(`âś— ${e.message}`); }
       setRec(false);
     } else {
       try {
@@ -1166,47 +1216,47 @@ function RecordTab({ callAgent, editFlow, onSaved }: {
         await callAgent("record/start", { name, url });
         setRec(true);
         if (mode === "append") addLog(`Nastavak snimanja: ${url}`);
-        if (mode === "shadow") addLog(`🧠 Shadow učenje: ${url}`);
-        addLog(`▶ Snimanje: ${url}`);
+        if (mode === "shadow") addLog(`đź§  Shadow uÄŤenje: ${url}`);
+        addLog(`â–¶ Snimanje: ${url}`);
         if (!browserOnline) setBo(true);
-      } catch (e: any) { addLog(`✗ ${e.message}`); }
+      } catch (e: any) { addLog(`âś— ${e.message}`); }
     }
   };
 
   const polish = async () => {
     const codeToPolish = rawCurrentCode;
-    if (!codeToPolish.trim() || codeToPolish.startsWith("# Koraci")) return addLog("Nema koda za ulašti.");
+    if (!codeToPolish.trim() || codeToPolish.startsWith("# Koraci")) return addLog("Nema koda za ulaĹˇti.");
     setPol(true);
-    addLog("🤖 AI usavršava kod...");
+    addLog("đź¤– AI usavrĹˇava kod...");
     try {
       const { data: { session } } = await supabase.auth.getSession();
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 
-      // Izvuci sve stvarne selektore — moraju ostati nepromijenjeni
+      // Izvuci sve stvarne selektore â€” moraju ostati nepromijenjeni
       const existingSelectors = codeToPolish.split("\n")
         .filter(l => /page\.(click|fill|press|hover|wait_for_selector)\(/.test(l))
         .map(l => l.trim());
 
-      const prompt = `Ti si Playwright Python expert. Usavrši ovaj kod za automatizaciju web portala.
+      const prompt = `Ti si Playwright Python expert. UsavrĹˇi ovaj kod za automatizaciju web portala.
 
-NAJVAŽNIJE PRAVILO: SELEKTORI SE NE SMIJU MIJENJATI.
-Ovi selektori su snimljeni sa stvarnog portala i MORAJU ostati točno isti znak po znak:
+NAJVAĹ˝NIJE PRAVILO: SELEKTORI SE NE SMIJU MIJENJATI.
+Ovi selektori su snimljeni sa stvarnog portala i MORAJU ostati toÄŤno isti znak po znak:
 ${existingSelectors.map(l => `  ${l}`).join("\n")}
 
 SMIJE SE SAMO:
 1. Dodati await page.wait_for_timeout(1500) nakon page.click() gdje portal treba vremena
-2. Dodati await page.wait_for_selector("...", state="visible") ISPRED click/fill — koristiti ISTE selektore
+2. Dodati await page.wait_for_selector("...", state="visible") ISPRED click/fill â€” koristiti ISTE selektore
 3. Zamijeniti hardkodirane lozinke s os.environ.get("OSS_USERNAME") i os.environ.get("OSS_PASSWORD")
-4. Dodati "import os" na vrh ako koristiš os.environ
+4. Dodati "import os" na vrh ako koristiĹˇ os.environ
 5. Dodati wait_until="domcontentloaded" u page.goto() ako nema
 
 NE SMIJE:
 - Promijeniti IKOJI selektor (makar i jedan znak)
 - Dodati try/except
 - Promijeniti redoslijed koraka
-- Dodati ništa drugo
+- Dodati niĹˇta drugo
 
-Vrati SAMO čisti Python kod, bez markdown backtickova, bez objašnjenja.
+Vrati SAMO ÄŤisti Python kod, bez markdown backtickova, bez objaĹˇnjenja.
 
 KOD:
 ${codeToPolish}`;
@@ -1244,58 +1294,58 @@ ${codeToPolish}`;
       if (fdMatch) { try { const m = JSON.parse(fdMatch[1]); if (m.url) { const fr = await fetch(m.url); if (fr.ok) fullText = await fr.text(); } } catch {} }
       let result = fullText.trim().replace(/^```python\s*/i, "").replace(/^```\s*/i, "").replace(/```\s*$/i, "").trim();
       if (!result || !result.includes("await")) {
-        addLog(`⚠ AI nije vratio validan Python (${fullText.length} znakova)`); return;
+        addLog(`âš  AI nije vratio validan Python (${fullText.length} znakova)`); return;
       }
 
-      // Provjeri jesu li selektori sačuvani
+      // Provjeri jesu li selektori saÄŤuvani
       const broken: string[] = [];
       for (const line of existingSelectors) {
         const m = line.match(/\(["']([^"']+)["']/);
         if (m && !result.includes(m[1])) broken.push(m[1].slice(0, 50));
       }
       if (broken.length > 0) {
-        addLog(`⚠ AI promijenio ${broken.length} selektor(a) — odbacujem rezultat!`);
-        broken.forEach(s => addLog(`  ✗ ${s}`));
+        addLog(`âš  AI promijenio ${broken.length} selektor(a) â€” odbacujem rezultat!`);
+        broken.forEach(s => addLog(`  âś— ${s}`));
         return;
       }
 
       setAiCode(result);
       setAiCodeOriginal(result);
       setAiCodeSaved(result);
-      addLog(`✨ AI kod spreman (${result.split("\n").length} linija) — svi selektori sačuvani ✓`);
+      addLog(`âś¨ AI kod spreman (${result.split("\n").length} linija) â€” svi selektori saÄŤuvani âś“`);
 
       // Spremi kao polished verziju na disk
       const saveId = isEditing ? editFlow!.id : name.replace(/\s+/g, "_").toLowerCase();
       if (saveId) {
         try {
           await callAgent("record/save", { name: saveId, display_name: name, url, steps: safe, code: result, status: "polished" });
-          addLog(`💾 AI verzija spremljena`);
+          addLog(`đź’ľ AI verzija spremljena`);
         } catch {}
       }
-    } catch (e: any) { addLog(`✗ AI: ${e.message}`); }
+    } catch (e: any) { addLog(`âś— AI: ${e.message}`); }
     finally { setPol(false); }
   };
 
-  // Spremi AI kod (kad ga korisnik ručno edita)
+  // Spremi AI kod (kad ga korisnik ruÄŤno edita)
   const saveAiCode = async () => {
     if (!aiCode.trim()) return;
     const saveId = isEditing ? editFlow!.id : name.replace(/\s+/g, "_").toLowerCase();
-    if (!saveId) { addLog("⚠ Nema ID-a"); return; }
+    if (!saveId) { addLog("âš  Nema ID-a"); return; }
     try {
       await callAgent("record/save", { name: saveId, display_name: name, url, steps: safe, code: aiCode, status: "polished" });
       setAiCodeSaved(aiCode);
-      addLog(`💾 AI kod spremljen (${aiCode.split("\n").length} linija)`);
-    } catch (e: any) { addLog(`✗ Save AI: ${e.message}`); }
+      addLog(`đź’ľ AI kod spremljen (${aiCode.split("\n").length} linija)`);
+    } catch (e: any) { addLog(`âś— Save AI: ${e.message}`); }
   };
 
 
   const runCode = async (code: string, label: string, setRunning: (v: boolean) => void) => {
     const saveId = isEditing ? editFlow!.id : name.replace(/\s+/g, "_").toLowerCase();
-    if (!saveId) { addLog("⚠ Spremi flow prvo"); return; }
+    if (!saveId) { addLog("âš  Spremi flow prvo"); return; }
     const tempName = `${saveId}_test_${label === "Sirovi" ? "raw" : "ai"}`;
-    if (!browserOnline) { addLog("⚠ Otvori Chromium prvo"); return; }
+    if (!browserOnline) { addLog("âš  Otvori Chromium prvo"); return; }
     setRunning(true);
-    addLog(`🧪 Testiram ${label}...`);
+    addLog(`đź§Ş Testiram ${label}...`);
     try {
       await callAgent("record/save", {
         name: tempName,
@@ -1308,13 +1358,13 @@ ${codeToPolish}`;
       });
       const r = await callAgent("record/run", { name: tempName, stop_on_error: false });
       if (r?.success) {
-        const failed = (r.results || []).filter((x: string) => x.startsWith("✗")).length;
-        const passed = (r.results || []).filter((x: string) => x.startsWith("✓")).length;
-        addLog(failed === 0 ? `✅ ${label}: svi ${passed} koraci OK` : `⚠ ${label}: ${passed} OK, ${failed} FAILED`);
+        const failed = (r.results || []).filter((x: string) => x.startsWith("âś—")).length;
+        const passed = (r.results || []).filter((x: string) => x.startsWith("âś“")).length;
+        addLog(failed === 0 ? `âś… ${label}: svi ${passed} koraci OK` : `âš  ${label}: ${passed} OK, ${failed} FAILED`);
         (r.results || []).forEach((x: string) => addLog(`  ${x}`));
-        if (r.url) addLog(`📍 ${r.url}`);
-      } else { addLog(`✗ ${r?.error}`); }
-    } catch (e: any) { addLog(`✗ ${e.message}`); }
+        if (r.url) addLog(`đź“Ť ${r.url}`);
+      } else { addLog(`âś— ${r?.error}`); }
+    } catch (e: any) { addLog(`âś— ${e.message}`); }
     finally {
       try { await callAgent(`flows/delete/${tempName}`, {}); } catch {}
       setRunning(false);
@@ -1323,14 +1373,14 @@ ${codeToPolish}`;
 
   const save = async (status: "raw" | "polished", closeAfter = false) => {
     if (!safe.length && !rawCurrentCode.trim() && !(status === "polished" && aiCode.trim())) {
-      addLog("⚠ Nema što spremiti"); return;
+      addLog("âš  Nema Ĺˇto spremiti"); return;
     }
     setSav(true);
     try {
       const saveId = isEditing ? editFlow!.id : name.replace(/\s+/g, "_").toLowerCase();
-      if (!saveId) { addLog("⚠ Postavi ime flowa"); return; }
+      if (!saveId) { addLog("âš  Postavi ime flowa"); return; }
       const payload: any = { name: saveId, display_name: name, url, steps: safe, status };
-      // Ako je korisnik editirao kod ručno, spremi i to
+      // Ako je korisnik editirao kod ruÄŤno, spremi i to
       if (status === "polished" && aiCode.trim()) payload.code = aiCode;
       else if (rawCurrentCode.trim()) payload.code = rawCurrentCode;
       const r = await callAgent("record/save", payload);
@@ -1341,12 +1391,12 @@ ${codeToPolish}`;
         } else if (rawCurrentCode.trim()) {
           setSavedCode(rawCurrentCode);
         }
-        addLog(`✅ Spremljeno — ${safe.length} koraka (${status})`);
+        addLog(`âś… Spremljeno â€” ${safe.length} koraka (${status})`);
         if (closeAfter) onSaved();
       } else {
-        addLog(`✗ ${r?.error || "greška pri spremi"}`);
+        addLog(`âś— ${r?.error || "greĹˇka pri spremi"}`);
       }
-    } catch (e: any) { addLog(`✗ ${e.message}`); }
+    } catch (e: any) { addLog(`âś— ${e.message}`); }
     finally { setSav(false); }
   };
 
@@ -1369,7 +1419,7 @@ ${codeToPolish}`;
     } : selectionRef.current[kind];
     const currentValue = kind === "raw" ? resolvedRawCode : aiCode;
     if (mode === "replace" && currentSelection.start === currentSelection.end) {
-      addLog("Označi dio koda koji želiš zamijeniti.");
+      addLog("OznaÄŤi dio koda koji ĹľeliĹˇ zamijeniti.");
       return;
     }
     const nextValue = `${currentValue.slice(0, currentSelection.start)}${lastRecordedSnippet}${currentValue.slice(currentSelection.end)}`;
@@ -1392,7 +1442,7 @@ ${codeToPolish}`;
 
   // Live kod generacija
   const liveCode = useMemo(() => {
-    if (!safe.length) return "# Koraci će se prikazati ovdje...\n# Snimaj klikove, AI ih pretvori u čist kod.";
+    if (!safe.length) return "# Koraci Ä‡e se prikazati ovdje...\n# Snimaj klikove, AI ih pretvori u ÄŤist kod.";
     const fn = name.toLowerCase().replace(/\s+/g, "_") || "flow";
     const lines = [
       "import asyncio",
@@ -1427,6 +1477,56 @@ ${codeToPolish}`;
   const recentSteps = safe.slice(-12);
   const memorySessions = shadowInsight?.stats?.related_sessions || shadowPlaybook?.stats?.session_count || 0;
   const memoryAverage = shadowInsight?.stats?.avg_steps || shadowPlaybook?.stats?.avg_steps || 0;
+  const renderReviewSection = (
+    section: keyof ShadowReviewState,
+    title: string,
+    items: string[],
+    tone: "default" | "risk" | "warning" = "default",
+  ) => {
+    if (!items.length) return null;
+    const selected = reviewState[section] || [];
+    const toneClass =
+      tone === "risk"
+        ? "border-amber-500/20 bg-amber-500/5"
+        : tone === "warning"
+          ? "border-orange-500/20 bg-orange-500/5"
+          : "border-border bg-background/40";
+    return (
+      <div>
+        <div className="mb-2 flex items-center justify-between gap-3">
+          <div className="text-[11px] uppercase tracking-wider text-muted-foreground">{title}</div>
+          <div className="text-[10px] text-muted-foreground">{selected.length}/{items.length} ukljuceno</div>
+        </div>
+        <div className="space-y-1.5">
+          {items.map(item => {
+            const active = selected.includes(item);
+            return (
+              <button
+                key={`${section}-${item}`}
+                type="button"
+                onClick={() => toggleReviewItem(section, item)}
+                className={cn(
+                  "flex w-full items-start justify-between gap-3 rounded-lg border px-3 py-2 text-left text-xs transition-colors",
+                  toneClass,
+                  active ? "border-primary/40 ring-1 ring-primary/20" : "opacity-65",
+                )}
+              >
+                <span className={cn("flex-1", tone === "risk" ? "text-amber-200" : tone === "warning" ? "text-orange-200" : "text-muted-foreground")}>
+                  {item}
+                </span>
+                <span className={cn(
+                  "shrink-0 rounded-md border px-2 py-0.5 text-[10px]",
+                  active ? "border-green-500/30 bg-green-500/10 text-green-400" : "border-border bg-background/70 text-muted-foreground",
+                )}>
+                  {active ? "Pamti" : "Ignoriraj"}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div className="h-full overflow-y-auto px-5 py-5 stellan-scroll">
@@ -1587,7 +1687,7 @@ ${codeToPolish}`;
                   <h3 className="mt-1 text-sm font-semibold text-foreground">Koliko smo vec naucili</h3>
                 </div>
                 <span className={cn("rounded-lg border px-2 py-1 text-[10px]", shadowStateClass(activeLearningState))}>
-                  {activeLearningConfidence}% · {shadowStateLabel(activeLearningState)}
+                  {activeLearningConfidence}% Â· {shadowStateLabel(activeLearningState)}
                 </span>
               </div>
               <div className="mt-3 grid grid-cols-3 gap-2">
@@ -1635,7 +1735,7 @@ ${codeToPolish}`;
                       <div className="min-w-0 flex-1">
                         <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{stepNumber}. {step.type}</div>
                         <div className="mt-1 truncate font-mono text-xs text-foreground">{step.url || step.target || "bez mete"}</div>
-                        {step.value && <div className="mt-1 truncate text-xs text-primary/80">→ {step.value}</div>}
+                        {step.value && <div className="mt-1 truncate text-xs text-primary/80">â†’ {step.value}</div>}
                       </div>
                       <button
                         onClick={() => setSteps(safe.filter((_, idx) => idx !== stepNumber - 1))}
@@ -1681,7 +1781,7 @@ ${codeToPolish}`;
                   <h3 className="mt-1 text-sm font-semibold text-foreground">Sto je Stellan izvukao</h3>
                 </div>
                 <span className={cn("rounded-lg border px-2 py-1 text-[10px]", shadowStateClass(activeLearningState))}>
-                  {activeLearningConfidence}% · {shadowStateLabel(activeLearningState)}
+                  {activeLearningConfidence}% Â· {shadowStateLabel(activeLearningState)}
                 </span>
               </div>
 
@@ -1697,50 +1797,36 @@ ${codeToPolish}`;
                     </div>
                   </div>
 
-                  <div className="grid gap-3 md:grid-cols-2">
-                    <div>
-                      <div className="text-[11px] uppercase tracking-wider text-muted-foreground">Faze</div>
-                      <div className="mt-2 space-y-1.5">
-                        {shadowInsight.phases.slice(0, 5).map(phase => (
-                          <div key={phase} className="rounded-lg border border-border bg-background/40 px-3 py-2 text-xs text-muted-foreground">{phase}</div>
-                        ))}
-                      </div>
+                  <div className="flex items-center justify-between gap-3 rounded-xl border border-border bg-background/30 px-3 py-2">
+                    <div className="text-[11px] text-muted-foreground">
+                      Procisti rezultat prije spremanja. Ono sto ostane ukljuceno ulazi u playbook.
                     </div>
-                    <div>
-                      <div className="text-[11px] uppercase tracking-wider text-muted-foreground">Checklist</div>
-                      <div className="mt-2 space-y-1.5">
-                        {shadowInsight.checklist.slice(0, 5).map(item => (
-                          <div key={item} className="rounded-lg border border-border bg-background/40 px-3 py-2 text-xs text-muted-foreground">{item}</div>
-                        ))}
-                      </div>
-                    </div>
+                    <button
+                      type="button"
+                      onClick={() => resetReviewState(shadowInsight)}
+                      className="shrink-0 rounded-lg border border-border bg-background px-2 py-1 text-[10px] text-muted-foreground hover:bg-accent"
+                    >
+                      Resetiraj odabir
+                    </button>
                   </div>
 
-                  {!!shadowInsight.risks?.length && (
-                    <div>
-                      <div className="text-[11px] uppercase tracking-wider text-muted-foreground">Rizici</div>
-                      <div className="mt-2 space-y-1.5">
-                        {shadowInsight.risks.slice(0, 3).map(item => (
-                          <div key={item} className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-xs text-amber-300">{item}</div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
+                  <div className="grid gap-3 md:grid-cols-2">
+                    {renderReviewSection("phases", "Faze", shadowInsight.phases.slice(0, 6))}
+                    {renderReviewSection("checklist", "Checklist", shadowInsight.checklist.slice(0, 8))}
+                  </div>
 
-                  {!!shadowInsight.warnings?.length && (
-                    <div>
-                      <div className="text-[11px] uppercase tracking-wider text-muted-foreground">Upozorenja</div>
-                      <div className="mt-2 space-y-1.5">
-                        {shadowInsight.warnings.slice(0, 3).map(item => (
-                          <div key={item} className="rounded-lg border border-orange-500/20 bg-orange-500/5 px-3 py-2 text-xs text-orange-300">{item}</div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
+                  {renderReviewSection("risks", "Rizici", (shadowInsight.risks || []).slice(0, 5), "risk")}
+                  {renderReviewSection("warnings", "Upozorenja", (shadowInsight.warnings || []).slice(0, 5), "warning")}
 
                   <div className="rounded-xl border border-border bg-background/40 px-3 py-2 text-xs text-muted-foreground">
                     Predlozeni naziv: <span className="font-mono text-foreground">{shadowInsight.suggested_name}</span>
                   </div>
+
+                  {reviewDirty && (
+                    <div className="rounded-xl border border-primary/20 bg-primary/5 px-3 py-2 text-[11px] text-primary">
+                      Koristimo rucno prociscenu verziju analize za draft playbooka.
+                    </div>
+                  )}
 
                   <button
                     disabled={buildingPlaybook}
@@ -1776,7 +1862,7 @@ ${codeToPolish}`;
                         </span>
                       </div>
                       <div className="mt-2 text-[11px] text-muted-foreground">
-                        {group.session_count} sesija · prosjek {group.avg_steps} koraka
+                        {group.session_count} sesija Â· prosjek {group.avg_steps} koraka
                       </div>
                       {!!group.latest_name && (
                         <div className="mt-1 truncate text-[11px] text-muted-foreground/70">Zadnje: {group.latest_name}</div>
@@ -1974,14 +2060,14 @@ ${codeToPolish}`;
       <div className="flex items-start justify-between shrink-0">
         <div>
           <h1 className="text-lg font-bold">
-            {isEditing ? "Doradi" : "Pokreni"} <span className="text-gradient">učenje</span>
+            {isEditing ? "Doradi" : "Pokreni"} <span className="text-gradient">uÄŤenje</span>
           </h1>
           <p className="text-xs text-muted-foreground">
-            {isEditing ? `"${editFlow!.name}" · nastavi sesiju, pročisti kod ili izgradi playbook.` : `Radi po portalu normalno, a Stellan paralelno uči faze, checklistu i upozorenja.`}
+            {isEditing ? `"${editFlow!.name}" Â· nastavi sesiju, proÄŤisti kod ili izgradi playbook.` : `Radi po portalu normalno, a Stellan paralelno uÄŤi faze, checklistu i upozorenja.`}
           </p>
         </div>
         {isEditing && (
-          <span className="rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-[10px] text-primary">✏️ Uređivanje</span>
+          <span className="rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-[10px] text-primary">âśŹď¸Ź UreÄ‘ivanje</span>
         )}
       </div>
 
@@ -1995,7 +2081,7 @@ ${codeToPolish}`;
           className="flex h-8 w-8 items-center justify-center rounded-lg border border-border bg-card text-muted-foreground hover:bg-accent transition-colors shrink-0">
           <ArrowRight className="h-3.5 w-3.5" />
         </button>
-        {/* URL bar — Enter ili klik zelene tipke za navigaciju */}
+        {/* URL bar â€” Enter ili klik zelene tipke za navigaciju */}
         <div className="flex flex-1 items-center gap-2 rounded-lg border border-border bg-card px-2.5 py-1.5 h-8">
           <span className={cn("h-2 w-2 rounded-full shrink-0", browserOnline ? "bg-green-500" : "bg-red-500/60")} />
           <input value={url} onChange={e => setUrl(e.target.value)}
@@ -2003,7 +2089,7 @@ ${codeToPolish}`;
             className="flex-1 bg-transparent text-xs font-mono outline-none"
             placeholder="https://... (Enter za navigaciju)"
           />
-          {/* Jedna tipka: ako browser nije otvoren → "Otvori Chromium", inače → navigira na URL */}
+          {/* Jedna tipka: ako browser nije otvoren â†’ "Otvori Chromium", inaÄŤe â†’ navigira na URL */}
           <button
             onClick={browserOnline ? () => callAgent("browser/navigate", { url }).catch(() => {}) : openBrowser}
             title={browserOnline ? "Idi na URL" : "Otvori Chromium browser"}
@@ -2012,10 +2098,10 @@ ${codeToPolish}`;
             {browserOnline ? "Idi" : "Otvori"}
           </button>
         </div>
-        {/* Snimanje — jedina tipka za snimanje */}
+        {/* Snimanje â€” jedina tipka za snimanje */}
         {!recording && safe.length > 0 && (
           <button onClick={() => toggleRec("append")} disabled={!browserOnline}
-            title="Nastavi snimati i dodaj novi blok na postojeći flow"
+            title="Nastavi snimati i dodaj novi blok na postojeÄ‡i flow"
             className="flex items-center gap-1.5 rounded-lg border border-primary/30 bg-primary/10 px-3 h-8 text-xs font-medium text-primary hover:bg-primary/20 disabled:opacity-40 shrink-0">
             <Redo2 className="h-3 w-3" /> Nastavi
           </button>
@@ -2028,7 +2114,7 @@ ${codeToPolish}`;
           </button>
         )}
         <button onClick={() => toggleRec(recording ? recordMode : "replace")} disabled={!browserOnline && !recording}
-          title={recording ? "Zaustavi snimanje" : "Počni snimati klikove u browseru"}
+          title={recording ? "Zaustavi snimanje" : "PoÄŤni snimati klikove u browseru"}
           className={cn(
             "flex items-center gap-1.5 rounded-lg px-3 h-8 text-xs font-medium transition-all shrink-0",
             recording ? "bg-destructive text-destructive-foreground animate-pulse"
@@ -2041,7 +2127,7 @@ ${codeToPolish}`;
       {/* Main grid: [koraci | sirovi kod | AI kod | kontrole] */}
       <div className="grid flex-1 min-h-0 grid-cols-[220px_minmax(0,1fr)_minmax(0,1fr)_280px] gap-2 overflow-hidden">
 
-        {/* KORACI — uži panel */}
+        {/* KORACI â€” uĹľi panel */}
         <div className="flex flex-col rounded-xl border border-border bg-card overflow-hidden">
           <div className="shrink-0 border-b border-border px-2.5 py-2 flex items-center justify-between">
             <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
@@ -2060,9 +2146,9 @@ ${codeToPolish}`;
                         <Icon className="h-2.5 w-2.5" />
                       </div>
                       <div className="min-w-0 flex-1">
-                        <div className="text-[9px] uppercase tracking-wider text-muted-foreground/70 font-semibold">{i+1} · {step.type}</div>
+                        <div className="text-[9px] uppercase tracking-wider text-muted-foreground/70 font-semibold">{i+1} Â· {step.type}</div>
                         <div className="truncate font-mono text-[10px] leading-tight mt-0.5">{step.url || step.target}</div>
-                        {step.value && <div className="truncate text-[10px] text-primary/80 mt-0.5">→ {step.value}</div>}
+                        {step.value && <div className="truncate text-[10px] text-primary/80 mt-0.5">â†’ {step.value}</div>}
                       </div>
                       <button onClick={() => setSteps(safe.filter((_, idx) => idx !== i))}
                         className="opacity-0 group-hover:opacity-100 rounded p-0.5 text-muted-foreground/40 hover:text-destructive transition-colors shrink-0">
@@ -2087,7 +2173,7 @@ ${codeToPolish}`;
           <div className="shrink-0 border-b border-border px-2.5 py-2 flex items-center justify-between gap-2">
             <div className="flex items-center gap-1.5">
               <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Sirovi kod</span>
-              <span className="text-[9px] text-muted-foreground/40">{codeEdited ? "✏" : "auto"}</span>
+              <span className="text-[9px] text-muted-foreground/40">{codeEdited ? "âśŹ" : "auto"}</span>
             </div>
             <div className="flex items-center gap-1">
               {codeEdited && (
@@ -2098,7 +2184,7 @@ ${codeToPolish}`;
                   </button>
                   <button onClick={() => { setCodeEdited(false); setEditedCode(""); setSavedCode(""); }}
                     className="text-[9px] text-muted-foreground/50 hover:text-muted-foreground border border-border/60 rounded px-1.5 py-0.5">
-                    ↺
+                    â†ş
                   </button>
                 </>
               )}
@@ -2110,7 +2196,7 @@ ${codeToPolish}`;
                     <Plus className="h-2 w-2" /> Ubaci
                   </button>
                   <button onClick={() => applyRecordedBlock("raw", "replace")}
-                    title="Zamijeni označeni dio zadnjim snimljenim blokom"
+                    title="Zamijeni oznaÄŤeni dio zadnjim snimljenim blokom"
                     className="flex items-center gap-1 text-[9px] border border-border/60 text-muted-foreground rounded px-1.5 py-0.5 hover:bg-accent">
                     <Scissors className="h-2 w-2" /> Zamijeni
                   </button>
@@ -2122,7 +2208,7 @@ ${codeToPolish}`;
                 title="Testiraj sirovi kod u Chromium-u"
                 className="flex items-center gap-1 text-[9px] border border-primary/30 bg-primary/10 text-primary rounded px-1.5 py-0.5 hover:bg-primary/20 disabled:opacity-40">
                 {testing ? <Loader2 className="h-2 w-2 animate-spin" /> : <Play className="h-2 w-2" />}
-                {testing ? "Teče" : "Test"}
+                {testing ? "TeÄŤe" : "Test"}
               </button>
             </div>
           </div>
@@ -2141,7 +2227,7 @@ ${codeToPolish}`;
               spellCheck={false}
               className="absolute inset-0 w-full h-full resize-none bg-transparent p-3 font-mono text-[10px] text-muted-foreground leading-relaxed outline-none focus:outline-none border-0 stellan-scroll"
               style={{ fontFamily: "ui-monospace,'Cascadia Code',monospace" }}
-              placeholder="# Sirovi kod — auto-generiran iz koraka"
+              placeholder="# Sirovi kod â€” auto-generiran iz koraka"
             />
           </div>
         </div>
@@ -2153,13 +2239,13 @@ ${codeToPolish}`;
               <Sparkles className="h-3 w-3 text-primary" />
               <span className="text-[10px] uppercase tracking-wider text-primary/80 font-semibold">AI kod</span>
               {aiCode && <span className="text-[9px] text-muted-foreground/50">{aiCode.split("\n").length}L</span>}
-              {aiCode && aiCode !== aiCodeSaved && <span className="text-[9px] text-yellow-400">✏</span>}
+              {aiCode && aiCode !== aiCodeSaved && <span className="text-[9px] text-yellow-400">âśŹ</span>}
             </div>
             <div className="flex items-center gap-1">
               <button disabled={polishing} onClick={polish}
                 className="flex items-center gap-1 text-[9px] gradient-primary text-white rounded px-1.5 py-0.5 hover:opacity-90 disabled:opacity-40">
                 {polishing ? <Loader2 className="h-2 w-2 animate-spin" /> : <Sparkles className="h-2 w-2" />}
-                {polishing ? "..." : "Ulašti"}
+                {polishing ? "..." : "UlaĹˇti"}
               </button>
               {aiCode && aiCode !== aiCodeSaved && (
                 <button onClick={saveAiCode}
@@ -2176,7 +2262,7 @@ ${codeToPolish}`;
                     <Plus className="h-2 w-2" /> Ubaci
                   </button>
                   <button onClick={() => applyRecordedBlock("ai", "replace")}
-                    title="Zamijeni označeni AI blok zadnjim snimljenim koracima"
+                    title="Zamijeni oznaÄŤeni AI blok zadnjim snimljenim koracima"
                     className="flex items-center gap-1 text-[9px] border border-border/60 text-muted-foreground rounded px-1.5 py-0.5 hover:bg-accent">
                     <Scissors className="h-2 w-2" /> Zamijeni
                   </button>
@@ -2184,10 +2270,10 @@ ${codeToPolish}`;
               )}
               {aiCode && aiCode !== aiCodeOriginal && (
                 <button
-                  onClick={() => { setAiCode(aiCodeOriginal); addLog("↺ AI kod vraćen na originalni"); }}
+                  onClick={() => { setAiCode(aiCodeOriginal); addLog("â†ş AI kod vraÄ‡en na originalni"); }}
                   title="Vrati na AI originalni"
                   className="text-[9px] text-muted-foreground/50 hover:text-muted-foreground border border-border/60 rounded px-1.5 py-0.5">
-                  ↺
+                  â†ş
                 </button>
               )}
               {aiCode && (
@@ -2197,15 +2283,15 @@ ${codeToPolish}`;
                   title="Testiraj AI kod u Chromium-u"
                   className="flex items-center gap-1 text-[9px] border border-green-500/30 bg-green-500/10 text-green-400 rounded px-1.5 py-0.5 hover:bg-green-500/20 disabled:opacity-40">
                   {testingAi ? <Loader2 className="h-2 w-2 animate-spin" /> : <Play className="h-2 w-2" />}
-                  {testingAi ? "Teče" : "Test"}
+                  {testingAi ? "TeÄŤe" : "Test"}
                 </button>
               )}
               {aiCode && (
                 <button
-                  onClick={() => { setEditedCode(aiCode); setCodeEdited(true); addLog("← AI kod prebačen u Sirovi"); }}
+                  onClick={() => { setEditedCode(aiCode); setCodeEdited(true); addLog("â† AI kod prebaÄŤen u Sirovi"); }}
                   title="Kopiraj AI kod u Sirovi panel"
                   className="text-[9px] border border-border/60 text-muted-foreground rounded px-1.5 py-0.5 hover:bg-accent">
-                  ← Sirovi
+                  â† Sirovi
                 </button>
               )}
             </div>
@@ -2235,25 +2321,25 @@ ${codeToPolish}`;
                 spellCheck={false}
                 className="absolute inset-0 w-full h-full resize-none bg-transparent p-3 font-mono text-[10px] text-muted-foreground leading-relaxed outline-none focus:outline-none border-0 stellan-scroll"
                 style={{ fontFamily: "ui-monospace,'Cascadia Code',monospace" }}
-                placeholder="# AI usavršen kod"
+                placeholder="# AI usavrĹˇen kod"
               />
             ) : (
               <div className="flex flex-col items-center justify-center h-full gap-2 text-center p-4">
                 <Sparkles className="h-6 w-6 text-primary/20" />
-                <p className="text-[10px] text-muted-foreground/40">Klikni "Ulašti" da AI<br/>poboljša sirovi kod</p>
+                <p className="text-[10px] text-muted-foreground/40">Klikni "UlaĹˇti" da AI<br/>poboljĹˇa sirovi kod</p>
               </div>
             )}
           </div>
         </div>
 
-        {/* KONTROLE — desni panel */}
+        {/* KONTROLE â€” desni panel */}
         <div className="flex flex-col rounded-xl border border-border bg-card overflow-hidden">
           <div className="shrink-0 border-b border-border p-3 space-y-2.5 bg-background/30">
             <div className="flex items-start justify-between gap-2">
               <div>
-                <p className="text-[9px] uppercase tracking-[0.18em] text-primary/80">Učenje i draftovi</p>
+                <p className="text-[9px] uppercase tracking-[0.18em] text-primary/80">UÄŤenje i draftovi</p>
                 <h3 className="mt-0.5 text-sm font-semibold text-foreground">Shadow cockpit</h3>
-                <p className="text-[10px] text-muted-foreground">Radi normalno po portalu, a Stellan paralelno uči obrazac rada.</p>
+                <p className="text-[10px] text-muted-foreground">Radi normalno po portalu, a Stellan paralelno uÄŤi obrazac rada.</p>
               </div>
               <span className={cn("rounded border px-1.5 py-0.5 text-[9px] shrink-0", shadowStateClass(activeLearningState))}>
                 {activeLearningConfidence}% 
@@ -2271,7 +2357,7 @@ ${codeToPolish}`;
             <div className="grid grid-cols-4 gap-1 text-center">
               {[
                 { l: "Koraci", v: safe.length },
-                { l: "Stanje", v: recording ? "REC" : safe.length > 0 ? "OK" : "—", danger: recording },
+                { l: "Stanje", v: recording ? "REC" : safe.length > 0 ? "OK" : "â€”", danger: recording },
                 { l: "Grupe", v: shadowGroups.length },
                 { l: "Ready", v: learnedGroupsReady },
               ].map(s => (
@@ -2286,8 +2372,8 @@ ${codeToPolish}`;
             <div className="grid grid-cols-1 gap-2">
               <div className="rounded-lg border border-border bg-background/40 p-2 space-y-2">
                 <div>
-                  <label className="text-[9px] uppercase tracking-wider text-muted-foreground">Kontekst učenja</label>
-                  <p className="mt-0.5 text-[9px] text-muted-foreground/60">Opiši tip postupka i što želiš da Stellan izvuče iz sesije.</p>
+                  <label className="text-[9px] uppercase tracking-wider text-muted-foreground">Kontekst uÄŤenja</label>
+                  <p className="mt-0.5 text-[9px] text-muted-foreground/60">OpiĹˇi tip postupka i Ĺˇto ĹľeliĹˇ da Stellan izvuÄŤe iz sesije.</p>
                 </div>
                 <textarea
                   value={learningContext}
@@ -2321,11 +2407,11 @@ ${codeToPolish}`;
               <div className="rounded-lg border border-primary/15 bg-primary/5 p-2 space-y-1.5">
                 <div className="flex items-center justify-between gap-2">
                   <div>
-                    <p className="text-[9px] uppercase tracking-wider text-primary/80">Memorija učenja</p>
+                    <p className="text-[9px] uppercase tracking-wider text-primary/80">Memorija uÄŤenja</p>
                     <div className="text-[10px] text-muted-foreground">Koliko je Stellan siguran za trenutni obrazac rada.</div>
                   </div>
                   <span className={cn("rounded border px-1.5 py-0.5 text-[9px]", shadowStateClass(activeLearningState))}>
-                    {activeLearningConfidence}% · {shadowStateLabel(activeLearningState)}
+                    {activeLearningConfidence}% Â· {shadowStateLabel(activeLearningState)}
                   </span>
                 </div>
                 <div className="grid grid-cols-3 gap-1">
@@ -2346,7 +2432,7 @@ ${codeToPolish}`;
             </div>
             {shadowInsight && (
               <div className="border-t border-border/60 pt-2 space-y-1.5">
-                <p className="text-[9px] uppercase tracking-wider text-emerald-400">Shadow učenje</p>
+                <p className="text-[9px] uppercase tracking-wider text-emerald-400">Shadow uÄŤenje</p>
                 <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-2 space-y-1.5">
                   <div className="text-[10px] font-semibold text-foreground">{shadowInsight.summary}</div>
                   <div className="flex flex-wrap gap-1">
@@ -2354,26 +2440,26 @@ ${codeToPolish}`;
                     <span className="rounded border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 text-[9px] text-emerald-400">{shadowInsight.flow_type}</span>
                     <span className="rounded border border-border px-1.5 py-0.5 text-[9px] text-muted-foreground">{shadowInsight.stats?.step_count || 0} koraka</span>
                     <span className={cn("rounded border px-1.5 py-0.5 text-[9px]", shadowStateClass(shadowInsight.learning_state))}>
-                      {shadowInsight.confidence ?? 0}% · {shadowStateLabel(shadowInsight.learning_state)}
+                      {shadowInsight.confidence ?? 0}% Â· {shadowStateLabel(shadowInsight.learning_state)}
                     </span>
                   </div>
                   <div>
                     <div className="text-[9px] uppercase tracking-wider text-muted-foreground/60">Faze</div>
                     <div className="mt-1 space-y-1">
-                      {shadowInsight.phases.slice(0, 4).map(phase => <div key={phase} className="text-[10px] text-muted-foreground">• {phase}</div>)}
+                      {shadowInsight.phases.slice(0, 4).map(phase => <div key={phase} className="text-[10px] text-muted-foreground">â€˘ {phase}</div>)}
                     </div>
                   </div>
                   <div>
                     <div className="text-[9px] uppercase tracking-wider text-muted-foreground/60">Checklist</div>
                     <div className="mt-1 space-y-1">
-                      {shadowInsight.checklist.slice(0, 5).map(item => <div key={item} className="text-[10px] text-muted-foreground">• {item}</div>)}
+                      {shadowInsight.checklist.slice(0, 5).map(item => <div key={item} className="text-[10px] text-muted-foreground">â€˘ {item}</div>)}
                     </div>
                   </div>
                   {!!shadowInsight.risks?.length && (
                     <div>
                       <div className="text-[9px] uppercase tracking-wider text-muted-foreground/60">Rizici</div>
                       <div className="mt-1 space-y-1">
-                        {shadowInsight.risks.slice(0, 3).map(item => <div key={item} className="text-[10px] text-amber-300">• {item}</div>)}
+                        {shadowInsight.risks.slice(0, 3).map(item => <div key={item} className="text-[10px] text-amber-300">â€˘ {item}</div>)}
                       </div>
                     </div>
                   )}
@@ -2381,11 +2467,11 @@ ${codeToPolish}`;
                     <div>
                       <div className="text-[9px] uppercase tracking-wider text-muted-foreground/60">Upozorenja</div>
                       <div className="mt-1 space-y-1">
-                        {shadowInsight.warnings.slice(0, 3).map(item => <div key={item} className="text-[10px] text-orange-300">• {item}</div>)}
+                        {shadowInsight.warnings.slice(0, 3).map(item => <div key={item} className="text-[10px] text-orange-300">â€˘ {item}</div>)}
                       </div>
                     </div>
                   )}
-                  <div className="text-[9px] text-muted-foreground/60">Predloženi naziv: <span className="font-mono text-foreground">{shadowInsight.suggested_name}</span></div>
+                  <div className="text-[9px] text-muted-foreground/60">PredloĹľeni naziv: <span className="font-mono text-foreground">{shadowInsight.suggested_name}</span></div>
                   {shadowInsight.auto_playbook_ready && (
                     <div className="rounded border border-primary/30 bg-primary/10 px-1.5 py-1 text-[9px] text-primary">
                       Prag je dosegnut: ova grupa je spremna za automatski draft playbooka.
@@ -2406,7 +2492,7 @@ ${codeToPolish}`;
             )}
             {!!shadowGroups.length && (
               <div className="border-t border-border/60 pt-2 space-y-1.5">
-                <p className="text-[9px] uppercase tracking-wider text-primary/80">Naučene grupe</p>
+                <p className="text-[9px] uppercase tracking-wider text-primary/80">NauÄŤene grupe</p>
                 <div className="space-y-1">
                   {shadowGroups.slice(0, 3).map(group => (
                     <div key={`${group.portal}-${group.flow_type}`} className="rounded-lg border border-border bg-background/40 p-2 space-y-1">
@@ -2420,7 +2506,7 @@ ${codeToPolish}`;
                         </span>
                       </div>
                       <div className="text-[9px] text-muted-foreground/70">
-                        {group.session_count} sesija · prosjek {group.avg_steps} koraka
+                        {group.session_count} sesija Â· prosjek {group.avg_steps} koraka
                       </div>
                       <div className="text-[9px] text-muted-foreground/60">{shadowStateLabel(group.learning_state)}</div>
                       {!!group.latest_name && (
@@ -2451,20 +2537,20 @@ ${codeToPolish}`;
                     <span className="rounded border border-primary/30 bg-primary/10 px-1.5 py-0.5 text-[9px] text-primary">{shadowPlaybook.flow_type}</span>
                     <span className="rounded border border-border px-1.5 py-0.5 text-[9px] text-muted-foreground">{shadowPlaybook.stats?.session_count || shadowPlaybook.based_on_sessions.length} sesija</span>
                     <span className={cn("rounded border px-1.5 py-0.5 text-[9px]", shadowStateClass(shadowPlaybook.learning_state))}>
-                      {shadowPlaybook.confidence ?? shadowPlaybook.stats?.confidence ?? 0}% · {shadowStateLabel(shadowPlaybook.learning_state)}
+                      {shadowPlaybook.confidence ?? shadowPlaybook.stats?.confidence ?? 0}% Â· {shadowStateLabel(shadowPlaybook.learning_state)}
                     </span>
                   </div>
                   <div className="text-[9px] text-muted-foreground/60">
                     Flow draft: <span className="font-mono text-foreground">{shadowPlaybook.name}</span>
                   </div>
                   <div className="text-[9px] text-muted-foreground/60">
-                    Koraci: {shadowPlaybook.steps.length} • Faze: {shadowPlaybook.phases.length}
+                    Koraci: {shadowPlaybook.steps.length} â€˘ Faze: {shadowPlaybook.phases.length}
                   </div>
                   {!!shadowPlaybook.warnings?.length && (
                     <div>
                       <div className="text-[9px] uppercase tracking-wider text-muted-foreground/60">Upozorenja za draft</div>
                       <div className="mt-1 space-y-1">
-                        {shadowPlaybook.warnings.slice(0, 3).map(item => <div key={item} className="text-[10px] text-orange-300">• {item}</div>)}
+                        {shadowPlaybook.warnings.slice(0, 3).map(item => <div key={item} className="text-[10px] text-orange-300">â€˘ {item}</div>)}
                       </div>
                     </div>
                   )}
@@ -2476,8 +2562,8 @@ ${codeToPolish}`;
             )}
             <div className="border-t border-border/60 pt-2 space-y-1">
               <p className="text-[9px] uppercase tracking-wider text-muted-foreground/50">Savjeti</p>
-              {["← briše zadnji korak", "Enter = navigiraj URL", "Snimaj = snima klikove", "Tab = indent u editoru", "Ctrl+S = spremi kod"]
-                .map(t => <div key={t} className="flex gap-1.5 text-[9px] text-muted-foreground/50"><span className="text-primary/60">›</span>{t}</div>)}
+              {["â† briĹˇe zadnji korak", "Enter = navigiraj URL", "Snimaj = snima klikove", "Tab = indent u editoru", "Ctrl+S = spremi kod"]
+                .map(t => <div key={t} className="flex gap-1.5 text-[9px] text-muted-foreground/50"><span className="text-primary/60">â€ş</span>{t}</div>)}
             </div>
           </div>
         </div>
@@ -2486,7 +2572,7 @@ ${codeToPolish}`;
   );
 }
 
-// ─── POKRETANJE TAB ───────────────────────────────────────────────────────────
+// â”€â”€â”€ POKRETANJE TAB â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 type StepStatus = "pending" | "running" | "done" | "error";
 
@@ -2532,7 +2618,7 @@ function RunTab({ callAgent }: { callAgent: ReturnType<typeof makeCallAgent> }) 
 
   const run = async () => {
     if (!flow || missingParams.length > 0) {
-      addLog(`⚠ Upiši parametre: ${missingParams.join(", ")}`);
+      addLog(`âš  UpiĹˇi parametre: ${missingParams.join(", ")}`);
       return;
     }
     stopRef.current = false;
@@ -2540,12 +2626,12 @@ function RunTab({ callAgent }: { callAgent: ReturnType<typeof makeCallAgent> }) 
     startRef.current = Date.now();
     setStatuses(flow.steps.map(() => "pending"));
     setErrors({});
-    addLog(`▶ Pokrećem: ${flow.name}`);
+    addLog(`â–¶ PokreÄ‡em: ${flow.name}`);
 
     for (let i = 0; i < flow.steps.length; i++) {
       // Provjeri je li korisnik pritisnuo Stop
       if (stopRef.current) {
-        addLog("⏹ Zaustavljeno od korisnika");
+        addLog("âŹą Zaustavljeno od korisnika");
         // Reset preostalih koraka na pending
         setStatuses(p => p.map((s, idx) => idx >= i ? "pending" : s));
         break;
@@ -2553,10 +2639,10 @@ function RunTab({ callAgent }: { callAgent: ReturnType<typeof makeCallAgent> }) 
 
       setStatuses(p => { const c = [...p]; c[i] = "running"; return c; });
       const s = flow.steps[i];
-      // Prikaži vrijednost s resolvanim parametrima
+      // PrikaĹľi vrijednost s resolvanim parametrima
       const resolvedTarget = s.target?.replace(/\{(\w+)\}/g, (_: string, k: string) => params[k] || `{${k}}`);
       const resolvedValue  = s.value?.replace(/\{(\w+)\}/g, (_: string, k: string) => params[k] || `{${k}}`);
-      addLog(`  ${i + 1}/${flow.steps.length} · ${s.type}${resolvedTarget ? ` → ${resolvedTarget.slice(0, 40)}` : ""}${resolvedValue ? ` = ${resolvedValue.slice(0, 30)}` : ""}`);
+      addLog(`  ${i + 1}/${flow.steps.length} Â· ${s.type}${resolvedTarget ? ` â†’ ${resolvedTarget.slice(0, 40)}` : ""}${resolvedValue ? ` = ${resolvedValue.slice(0, 30)}` : ""}`);
 
       try {
         const res = await callAgent("flows/run_step", {
@@ -2565,22 +2651,22 @@ function RunTab({ callAgent }: { callAgent: ReturnType<typeof makeCallAgent> }) 
           params,  // Pravi params, ne {username} string
         });
         setStatuses(p => { const c = [...p]; c[i] = "done"; return c; });
-        if (res?.url) addLog(`     📍 ${res.url.slice(0, 60)}`);
+        if (res?.url) addLog(`     đź“Ť ${res.url.slice(0, 60)}`);
       } catch (e: any) {
         setStatuses(p => { const c = [...p]; c[i] = "error"; return c; });
         setErrors(p => ({ ...p, [i]: e.message }));
-        addLog(`     ✗ ${e.message.slice(0, 80)}`);
-        // Nastavi dalje — ne prekidaj cijeli flow zbog jedne greške
+        addLog(`     âś— ${e.message.slice(0, 80)}`);
+        // Nastavi dalje â€” ne prekidaj cijeli flow zbog jedne greĹˇke
       }
     }
 
-    if (!stopRef.current) addLog("✅ Završeno");
+    if (!stopRef.current) addLog("âś… ZavrĹˇeno");
     setRunning(false);
   };
 
   const stop = () => {
     stopRef.current = true;
-    addLog("⏹ Zaustavljam...");
+    addLog("âŹą Zaustavljam...");
   };
 
   const done = statuses.filter(s => s === "done").length;
@@ -2590,12 +2676,12 @@ function RunTab({ callAgent }: { callAgent: ReturnType<typeof makeCallAgent> }) 
     <div className="flex h-full min-h-0 flex-col overflow-hidden px-4 py-4">
       <div className="mb-4 shrink-0">
         <h1 className="text-lg font-bold">Pokretanje <span className="text-gradient">flowa</span></h1>
-        <p className="text-xs text-muted-foreground">Odaberi flow, upiši parametre i pokreni.</p>
+        <p className="text-xs text-muted-foreground">Odaberi flow, upiĹˇi parametre i pokreni.</p>
       </div>
 
       {missingParams.length > 0 && (
         <div className="mb-2 shrink-0 rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-3 py-2 text-xs text-yellow-400">
-          ⚠ Upiši parametre prije pokretanja: <strong>{missingParams.join(", ")}</strong>
+          âš  UpiĹˇi parametre prije pokretanja: <strong>{missingParams.join(", ")}</strong>
         </div>
       )}
 
@@ -2652,7 +2738,7 @@ function RunTab({ callAgent }: { callAgent: ReturnType<typeof makeCallAgent> }) 
               <div>
                 <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Status</div>
                 <div className="text-sm font-semibold">
-                  {running ? `${done + 1}/${total}` : done === total && total > 1 ? "Gotovo ✓" : "Spremno"}
+                  {running ? `${done + 1}/${total}` : done === total && total > 1 ? "Gotovo âś“" : "Spremno"}
                 </div>
               </div>
               <div className="flex items-center gap-1 text-xs text-muted-foreground">
@@ -2681,7 +2767,7 @@ function RunTab({ callAgent }: { callAgent: ReturnType<typeof makeCallAgent> }) 
                     {st === "pending" && <Circle className="h-4 w-4 text-muted-foreground/30" />}
                   </div>
                   <div className="min-w-0 flex-1">
-                    <div className="text-[9px] uppercase text-muted-foreground">{i + 1} • {step.type}</div>
+                    <div className="text-[9px] uppercase text-muted-foreground">{i + 1} â€˘ {step.type}</div>
                     <div className="truncate font-mono text-[10px]">{step.url || step.target}</div>
                     {errors[i] && <div className="text-[10px] text-destructive mt-0.5">{errors[i].slice(0, 60)}</div>}
                   </div>
@@ -2695,7 +2781,7 @@ function RunTab({ callAgent }: { callAgent: ReturnType<typeof makeCallAgent> }) 
   );
 }
 
-// ─── CAD TAB ──────────────────────────────────────────────────────────────────
+// â”€â”€â”€ CAD TAB â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 type DrawTool   = "select"|"line"|"rect"|"circle"|"arc"|"polyline"|"polygon"|"text"|"dim";
 type ModifyTool = "move"|"copy"|"rotate"|"scale"|"trim"|"extend"|"offset"|"mirror";
@@ -2753,7 +2839,7 @@ function CADTab() {
   const [polySides, setPolySides] = useState(6);
   const [cursor,  setCursor] = useState<Point>({x:0,y:0});
   const [snapHit, setSnapHit] = useState<SnapHit|null>(null);
-  const [hist,    setHist]   = useState<string[]>(["StellanCAD · F8 Ortho · F9 Snap · Space pan · Wheel zoom"]);
+  const [hist,    setHist]   = useState<string[]>(["StellanCAD Â· F8 Ortho Â· F9 Snap Â· Space pan Â· Wheel zoom"]);
   const [osnap]              = useState<OSnapSettings>(defaultOsnap);
   const [offDist, setOffDist] = useState(20);
   const [mirAxis, setMirAxis] = useState<Point|null>(null);
@@ -3006,7 +3092,7 @@ function CADTab() {
           </div>
           <div className="flex items-center gap-2 border-t border-border px-3 py-1.5">
             <span className="font-mono text-[11px] text-primary">Command:</span>
-            <input placeholder="L R C A D X F · koordinate: 100,200 ili @50,0"
+            <input placeholder="L R C A D X F Â· koordinate: 100,200 ili @50,0"
               className="flex-1 bg-transparent font-mono text-[12px] outline-none placeholder:text-muted-foreground/30"
               onKeyDown={e=>{
                 if(e.key!=="Enter") return;
@@ -3052,14 +3138,14 @@ function CADTab() {
           ))}
         </div>
         <div className="flex-1 min-h-0 overflow-y-auto border-t border-border px-3 py-2 font-mono text-[10px] text-muted-foreground/40 space-y-0.5">
-          {["L Line · P Poly · R Rect","C Circle · A Arc · G Poly","S Sel · M Move · Y Copy","F8 Ortho · F9 Snap · ⎵ Pan","Ctrl+Z Undo · DXF export"].map(h=><div key={h}>{h}</div>)}
+          {["L Line Â· P Poly Â· R Rect","C Circle Â· A Arc Â· G Poly","S Sel Â· M Move Â· Y Copy","F8 Ortho Â· F9 Snap Â· âŽµ Pan","Ctrl+Z Undo Â· DXF export"].map(h=><div key={h}>{h}</div>)}
         </div>
       </aside>
     </div>
   );
 }
 
-// ─── CAD Helpers ──────────────────────────────────────────────────────────────
+// â”€â”€â”€ CAD Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function ShapeNode({shape,color,selected,scale}:{shape:Shape;color:string;selected:boolean;scale:number}){
   const st=selected?"oklch(0.68 0.22 295)":color,sw=(selected?2:1.6)/scale,da=selected?`${6/scale} ${4/scale}`:undefined;
@@ -3140,3 +3226,4 @@ function shapeInBox(s:Shape,mnX:number,mnY:number,mxX:number,mxY:number,cross:bo
   if(s.type==="rect"){const cs=[{x:s.x,y:s.y},{x:s.x+s.w,y:s.y},{x:s.x+s.w,y:s.y+s.h},{x:s.x,y:s.y+s.h}];return cross?cs.some(c=>ptIn(c.x,c.y)):cs.every(c=>ptIn(c.x,c.y));}
   return false;
 }
+

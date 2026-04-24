@@ -2525,9 +2525,24 @@ async def record_build_playbook(req: dict = {}, _: str = Depends(verify_api_key)
     context = (req.get("context") if req else None) or ""
     portal = (req.get("portal") if req else None) or ""
     flow_type = (req.get("flow_type") if req else None) or ""
+    phase_overrides = req.get("phase_overrides") if req and isinstance(req.get("phase_overrides"), list) else None
+    checklist_overrides = req.get("checklist_overrides") if req and isinstance(req.get("checklist_overrides"), list) else None
+    risk_overrides = req.get("risk_overrides") if req and isinstance(req.get("risk_overrides"), list) else None
+    warning_overrides = req.get("warning_overrides") if req and isinstance(req.get("warning_overrides"), list) else None
     req_steps = req.get("steps") if req else None
     source_steps = req_steps if isinstance(req_steps, list) and req_steps else _recorded_steps
-    draft = build_shadow_playbook(name, start_url, source_steps or [], context, portal, flow_type)
+    draft = build_shadow_playbook(
+        name,
+        start_url,
+        source_steps or [],
+        context,
+        portal,
+        flow_type,
+        phase_overrides=phase_overrides,
+        checklist_overrides=checklist_overrides,
+        risk_overrides=risk_overrides,
+        warning_overrides=warning_overrides,
+    )
     return {
         "success": True,
         "draft": draft,
@@ -3530,6 +3545,12 @@ def merge_unique_text(items: list[str], limit: int | None = None) -> list[str]:
     return out
 
 
+def apply_text_overrides(overrides: list[str] | None, fallback: list[str], limit: int | None = None) -> list[str]:
+    if overrides is None:
+        return merge_unique_text(fallback, limit=limit)
+    return merge_unique_text(list(overrides or []), limit=limit)
+
+
 def load_shadow_sessions() -> list[dict]:
     ensure_flow_dirs()
     sessions: list[dict] = []
@@ -3698,7 +3719,18 @@ def build_shadow_warning_rules(current_steps: list[dict], candidates: list[dict]
     return warnings
 
 
-def build_shadow_playbook(name: str, start_url: str, steps: list[dict], context: str = "", portal: str = "", flow_type: str = "") -> dict:
+def build_shadow_playbook(
+    name: str,
+    start_url: str,
+    steps: list[dict],
+    context: str = "",
+    portal: str = "",
+    flow_type: str = "",
+    phase_overrides: list[str] | None = None,
+    checklist_overrides: list[str] | None = None,
+    risk_overrides: list[str] | None = None,
+    warning_overrides: list[str] | None = None,
+) -> dict:
     current = analyze_shadow_session(name, start_url, steps, context)
     detected_portal = portal or current.get("portal") or guess_portal_from_url(start_url)
     detected_type = flow_type or current.get("flow_type") or infer_flow_type(context)
@@ -3749,15 +3781,19 @@ def build_shadow_playbook(name: str, start_url: str, steps: list[dict], context:
             "draft",
         ] if part
     ).strip()
-    checklist = merge_unique_text(all_checklist, limit=8)
-    risks = merge_unique_text(all_risks, limit=5)
-    phases = merge_unique_text(all_phases, limit=6)
+    checklist = apply_text_overrides(checklist_overrides, all_checklist, limit=8)
+    risks = apply_text_overrides(risk_overrides, all_risks, limit=5)
+    phases = apply_text_overrides(phase_overrides, all_phases, limit=6)
     tags = merge_unique_text(all_tags + ["shadow_playbook", detected_type, detected_portal.lower().replace(" ", "_")], limit=8)
     page_list = merge_unique_text(all_pages, limit=8)
     avg_steps = round(sum(len((s.get("steps") or [])) for s in sessions_used) / max(len(sessions_used), 1), 1)
     confidence = calculate_shadow_confidence(len(sessions_used), avg_steps)
     learning_state = shadow_learning_state(confidence)
-    warnings = build_shadow_warning_rules(current.get("steps") or [], candidates)
+    warnings = apply_text_overrides(
+        warning_overrides,
+        build_shadow_warning_rules(current.get("steps") or [], candidates),
+        limit=4,
+    )
 
     draft = {
         "name": canonical_name,
