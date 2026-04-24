@@ -349,6 +349,7 @@ function FlowsTab({ callAgent, onEdit, onNavigate }: {
   const [shadowGroups, setShadowGroups] = useState<ShadowGroupSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [menuFor, setMenuFor] = useState<string | null>(null);
+  const [selectedGroupKey, setSelectedGroupKey] = useState<string>("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -404,6 +405,25 @@ function FlowsTab({ callAgent, onEdit, onNavigate }: {
     .slice(0, 3);
   const polishedCount = flows.filter(flow => !!flow.polishedCode).length;
   const readyFlowCount = flows.filter(flow => flow.status === "ready").length;
+  const groupKey = (group: ShadowGroupSummary) => `${group.portal}__${group.flow_type}`;
+  const selectedGroup = shadowGroups.find(group => groupKey(group) === selectedGroupKey) ?? latestLearned[0] ?? shadowGroups[0] ?? null;
+  const selectedGroupFlows = selectedGroup
+    ? flows.filter(flow => {
+        const haystack = `${flow.name} ${flow.startUrl || ""}`.toLowerCase();
+        const flowTypeWords = selectedGroup.flow_type.toLowerCase().split(/[^a-z0-9čćžšđ]+/i).filter(Boolean);
+        return haystack.includes(selectedGroup.portal.toLowerCase())
+          || flowTypeWords.some(word => word.length > 3 && haystack.includes(word));
+      })
+    : [];
+
+  useEffect(() => {
+    if (!shadowGroups.length) {
+      if (selectedGroupKey) setSelectedGroupKey("");
+      return;
+    }
+    const exists = shadowGroups.some(group => groupKey(group) === selectedGroupKey);
+    if (!exists) setSelectedGroupKey(groupKey(shadowGroups[0]));
+  }, [shadowGroups, selectedGroupKey]);
 
   return (
     <div className="h-full overflow-y-auto px-5 py-5">
@@ -460,7 +480,16 @@ function FlowsTab({ callAgent, onEdit, onNavigate }: {
           </div>
           <div className="mt-4 space-y-2">
             {latestLearned.length > 0 ? latestLearned.map(group => (
-              <div key={`${group.portal}-${group.flow_type}`} className="rounded-xl border border-border bg-background/40 p-3">
+              <button
+                key={`${group.portal}-${group.flow_type}`}
+                onClick={() => setSelectedGroupKey(groupKey(group))}
+                className={cn(
+                  "block w-full rounded-xl border bg-background/40 p-3 text-left transition-colors",
+                  selectedGroup && groupKey(selectedGroup) === groupKey(group)
+                    ? "border-primary/40 bg-primary/10"
+                    : "border-border hover:border-primary/20"
+                )}
+              >
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <div className="truncate text-sm font-semibold text-foreground">{group.portal}</div>
@@ -480,7 +509,7 @@ function FlowsTab({ callAgent, onEdit, onNavigate }: {
                     Zadnje nauceno: <span className="text-foreground">{group.latest_name}</span>
                   </div>
                 )}
-              </div>
+              </button>
             )) : (
               <div className="rounded-xl border border-dashed border-border bg-background/30 p-5 text-center">
                 <Workflow className="mx-auto mb-2 h-6 w-6 text-muted-foreground/30" />
@@ -491,6 +520,97 @@ function FlowsTab({ callAgent, onEdit, onNavigate }: {
           </div>
         </div>
       </div>
+
+      {selectedGroup && (
+        <div className="mb-4 grid gap-3 xl:grid-cols-[1.1fr_0.9fr]">
+          <div className="rounded-xl border border-border bg-card p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-[11px] uppercase tracking-[0.18em] text-primary/80">Aktivna naucena grupa</div>
+                <h3 className="mt-1 text-base font-semibold text-foreground">{selectedGroup.flow_type}</h3>
+                <div className="mt-1 text-sm text-muted-foreground">{selectedGroup.portal}</div>
+              </div>
+              <span className={cn("rounded border px-2 py-1 text-[10px]", shadowStateClass(selectedGroup.learning_state))}>
+                {selectedGroup.confidence}% · {shadowStateLabel(selectedGroup.learning_state)}
+              </span>
+            </div>
+
+            <div className="mt-4 grid gap-2 sm:grid-cols-3">
+              <div className="rounded-lg border border-border bg-background/40 p-3">
+                <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Sesije</div>
+                <div className="mt-1 text-lg font-semibold text-foreground">{selectedGroup.session_count}</div>
+              </div>
+              <div className="rounded-lg border border-border bg-background/40 p-3">
+                <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Prosjek koraka</div>
+                <div className="mt-1 text-lg font-semibold text-foreground">{selectedGroup.avg_steps}</div>
+              </div>
+              <div className="rounded-lg border border-border bg-background/40 p-3">
+                <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Povezani flowovi</div>
+                <div className="mt-1 text-lg font-semibold text-foreground">{selectedGroupFlows.length}</div>
+              </div>
+            </div>
+
+            <div className="mt-4 flex flex-wrap gap-2">
+              <button
+                onClick={() => onNavigate("record")}
+                className="inline-flex items-center gap-2 rounded-lg gradient-primary px-3 py-2 text-sm font-medium text-white hover:opacity-90"
+              >
+                <Circle className="h-4 w-4" /> Nastavi ucenje ove grupe
+              </button>
+              <button
+                onClick={() => onNavigate("run")}
+                className="inline-flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-sm hover:bg-accent"
+              >
+                <Play className="h-4 w-4" /> Idi na pokretanje
+              </button>
+            </div>
+
+            {selectedGroup.latest_name && (
+              <div className="mt-4 rounded-lg border border-border bg-background/40 p-3 text-sm text-muted-foreground">
+                Zadnji nauceni primjer za ovaj obrazac rada: <span className="font-medium text-foreground">{selectedGroup.latest_name}</span>
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-xl border border-border bg-card p-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="text-[11px] uppercase tracking-[0.18em] text-primary/80">Povezani playbookovi</div>
+                <h3 className="mt-1 text-sm font-semibold text-foreground">Sto vec imamo za ovaj obrazac</h3>
+              </div>
+              <span className="rounded-lg border border-border bg-background/60 px-2 py-1 text-[10px] text-muted-foreground">
+                {selectedGroupFlows.length}
+              </span>
+            </div>
+            <div className="mt-3 space-y-2">
+              {selectedGroupFlows.length > 0 ? selectedGroupFlows.slice(0, 4).map(flow => {
+                const s = statusCfg[flow.status as keyof typeof statusCfg] ?? statusCfg.raw;
+                return (
+                  <button
+                    key={flow.id}
+                    onClick={() => onEdit(flow)}
+                    className="block w-full rounded-lg border border-border bg-background/40 p-3 text-left transition-colors hover:border-primary/30"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-medium text-foreground">{flow.name}</div>
+                        <div className="mt-1 text-[10px] text-muted-foreground">{formatRelativeTime(flow.updatedAt || flow.createdAt)}</div>
+                      </div>
+                      <span className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] ${s.cls}`}>
+                        <s.Icon className="h-2.5 w-2.5" /> {s.label}
+                      </span>
+                    </div>
+                  </button>
+                );
+              }) : (
+                <div className="rounded-lg border border-dashed border-border bg-background/30 p-4 text-sm text-muted-foreground">
+                  Jos nema jasno povezanih playbookova za ovu grupu. To je dobar kandidat za novu shadow sesiju ili novu doradu drafta.
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="mb-4 grid gap-3 lg:grid-cols-3">
         <div className="rounded-xl border border-border bg-card p-4">
