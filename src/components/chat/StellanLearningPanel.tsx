@@ -161,6 +161,43 @@ function recordedStepsToSnippet(steps: FlowStep[]) {
   }).filter(Boolean).join("\n");
 }
 
+function formatRelativeTime(timestamp?: number) {
+  if (!timestamp) return "nikada";
+  const minutes = Math.floor((Date.now() - timestamp) / 60000);
+  if (minutes < 1) return "upravo sad";
+  if (minutes < 60) return `prije ${minutes} min`;
+  if (minutes < 1440) return `prije ${Math.floor(minutes / 60)} h`;
+  return new Date(timestamp).toLocaleDateString("hr");
+}
+
+function shadowStateLabel(state?: string) {
+  switch (state) {
+    case "spreman_za_automatiku":
+      return "Spreman za automatiku";
+    case "spreman_za_draft":
+      return "Spreman za draft";
+    case "učenje_u_tijeku":
+    case "uÄŤenje_u_tijeku":
+      return "Učenje u tijeku";
+    default:
+      return "Premalo podataka";
+  }
+}
+
+function shadowStateClass(state?: string) {
+  switch (state) {
+    case "spreman_za_automatiku":
+      return "text-green-400 border-green-500/30 bg-green-500/10";
+    case "spreman_za_draft":
+      return "text-primary border-primary/30 bg-primary/10";
+    case "učenje_u_tijeku":
+    case "uÄŤenje_u_tijeku":
+      return "text-amber-300 border-amber-500/30 bg-amber-500/10";
+    default:
+      return "text-muted-foreground border-border bg-background/40";
+  }
+}
+
 // ─── callAgent helper ─────────────────────────────────────────────────────────
 
 const DEFAULT_AGENT_API_KEY = "stellan-agent-2026-v2-x7k9m2p";
@@ -234,7 +271,7 @@ function makeCallAgent(agentServerUrl: string, apiKey: string) {
 // ─── Glavni panel ─────────────────────────────────────────────────────────────
 
 export default function StellanLearningPanel({ onClose, agentServerUrl, apiKey }: Props) {
-  const [activeTab, setActiveTab] = useState<PanelTab>("flows");
+  const [activeTab, setActiveTab] = useState<PanelTab>("record");
   const [editFlow, setEditFlow] = useState<SavedFlow | null>(null);
 
   const callAgent = useCallback(
@@ -253,8 +290,8 @@ export default function StellanLearningPanel({ onClose, agentServerUrl, apiKey }
   };
 
   const tabs = [
-    { id: "flows" as PanelTab,  label: "Flowovi",    icon: <Workflow className="w-3.5 h-3.5" /> },
-    { id: "record" as PanelTab, label: "Snimanje",   icon: <Circle   className="w-3.5 h-3.5" /> },
+    { id: "record" as PanelTab, label: "Učenje",     icon: <Circle   className="w-3.5 h-3.5" /> },
+    { id: "flows" as PanelTab,  label: "Memorija",   icon: <Workflow className="w-3.5 h-3.5" /> },
     { id: "run" as PanelTab,    label: "Pokretanje", icon: <Play     className="w-3.5 h-3.5" /> },
     { id: "cad" as PanelTab,    label: "CAD",        icon: <Slash    className="w-3.5 h-3.5" /> },
   ];
@@ -267,6 +304,10 @@ export default function StellanLearningPanel({ onClose, agentServerUrl, apiKey }
           <ArrowLeft className="w-3.5 h-3.5" /> Natrag
         </button>
         <div className="h-4 w-px bg-border" />
+        <div className="hidden min-w-0 shrink-0 md:block">
+          <div className="text-sm font-semibold text-foreground">Stellan učenje</div>
+          <div className="text-[10px] text-muted-foreground">Shadow sesije, naučene grupe i playbookovi</div>
+        </div>
         <nav className="flex items-center gap-1 flex-1">
           {tabs.map(tab => (
             <button key={tab.id} onClick={() => navigate(tab.id)}
@@ -305,16 +346,37 @@ function FlowsTab({ callAgent, onEdit, onNavigate }: {
   onNavigate: (t: PanelTab) => void;
 }) {
   const [flows, setFlows] = useState<SavedFlow[]>([]);
+  const [shadowGroups, setShadowGroups] = useState<ShadowGroupSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [menuFor, setMenuFor] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const d = await callAgent("flows/list");
-      setFlows(Array.isArray(d?.flows) ? d.flows : Array.isArray(d?.actions) ? d.actions : []);
-    } catch { setFlows([]); }
-    finally { setLoading(false); }
+      const [flowResponse, shadowResponse] = await Promise.allSettled([
+        callAgent("flows/list"),
+        callAgent("record/shadow_summary"),
+      ]);
+
+      if (flowResponse.status === "fulfilled") {
+        const data = flowResponse.value;
+        setFlows(Array.isArray(data?.flows) ? data.flows : Array.isArray(data?.actions) ? data.actions : []);
+      } else {
+        setFlows([]);
+      }
+
+      if (shadowResponse.status === "fulfilled") {
+        const data = shadowResponse.value;
+        setShadowGroups(Array.isArray(data?.groups) ? data.groups : []);
+      } else {
+        setShadowGroups([]);
+      }
+    } catch {
+      setFlows([]);
+      setShadowGroups([]);
+    } finally {
+      setLoading(false);
+    }
   }, [callAgent]);
 
   useEffect(() => { load(); }, [load]);
@@ -325,75 +387,155 @@ function FlowsTab({ callAgent, onEdit, onNavigate }: {
     load();
   };
 
-  const fmt = (t?: number) => {
-    if (!t) return "nikada";
-    const m = Math.floor((Date.now() - t) / 60000);
-    if (m < 1) return "upravo sad";
-    if (m < 60) return `prije ${m} min`;
-    if (m < 1440) return `prije ${Math.floor(m / 60)} h`;
-    return new Date(t).toLocaleDateString("hr");
-  };
-
   const statusCfg = {
-    polished: { label: "AI poliran", cls: "text-primary border-primary/30 bg-primary/10",   Icon: Sparkles      },
-    ready:    { label: "Spreman",    cls: "text-green-400 border-green-500/30 bg-green-500/10", Icon: CheckCircle2 },
-    raw:      { label: "Sirov",      cls: "text-muted-foreground border-border bg-muted",    Icon: Circle        },
-    failing:  { label: "Greška",     cls: "text-destructive border-destructive/30 bg-destructive/10", Icon: AlertCircle },
+    polished: { label: "AI poliran", cls: "text-primary border-primary/30 bg-primary/10", Icon: Sparkles },
+    ready: { label: "Spreman", cls: "text-green-400 border-green-500/30 bg-green-500/10", Icon: CheckCircle2 },
+    raw: { label: "Sirov", cls: "text-muted-foreground border-border bg-muted", Icon: Circle },
+    failing: { label: "Greska", cls: "text-destructive border-destructive/30 bg-destructive/10", Icon: AlertCircle },
   } as const;
+
+  const readyGroups = shadowGroups.filter(group => group.confidence >= 60).length;
+  const automationReadyGroups = shadowGroups.filter(group => group.learning_state === "spreman_za_automatiku").length;
+  const averageConfidence = shadowGroups.length
+    ? Math.round(shadowGroups.reduce((sum, group) => sum + (group.confidence || 0), 0) / shadowGroups.length)
+    : 0;
+  const latestLearned = [...shadowGroups]
+    .sort((a, b) => (b.confidence || 0) - (a.confidence || 0))
+    .slice(0, 3);
+  const polishedCount = flows.filter(flow => !!flow.polishedCode).length;
+  const readyFlowCount = flows.filter(flow => flow.status === "ready").length;
 
   return (
     <div className="h-full overflow-y-auto px-5 py-5">
-      {/* Hero */}
-      <div className="mb-5 rounded-2xl border border-border bg-card p-5">
-        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-          <div>
-            <span className="mb-2 inline-flex items-center gap-1 rounded border border-primary/30 bg-primary/10 px-2 py-0.5 text-[11px] text-primary">
-              <Sparkles className="h-3 w-3" /> AI Web Automation
-            </span>
-            <h1 className="text-xl font-bold">Tvoji <span className="text-gradient">flowovi</span></h1>
-            <p className="mt-0.5 text-xs text-muted-foreground">Snimi klikove jednom, AI ih ulašti, pokreni kad trebaš.</p>
+      <div className="mb-5 grid gap-4 xl:grid-cols-[1.4fr_0.9fr]">
+        <div className="rounded-2xl border border-border bg-card p-5">
+          <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+            <div className="space-y-2">
+              <span className="inline-flex items-center gap-1 rounded border border-primary/30 bg-primary/10 px-2 py-0.5 text-[11px] text-primary">
+                <Sparkles className="h-3 w-3" /> Novi learning cockpit
+              </span>
+              <div>
+                <h1 className="text-xl font-bold">Memorija <span className="text-gradient">ucenja</span></h1>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Ovdje drzimo naucene SDGE obrasce rada, confidence i playbooke spremne za doradu ili pokretanje.
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-2 shrink-0">
+              <button onClick={() => onNavigate("record")}
+                className="inline-flex items-center gap-2 rounded-lg gradient-primary px-4 py-2 text-sm font-medium text-white hover:opacity-90">
+                <Circle className="h-4 w-4" /> Novo ucenje
+              </button>
+              <button onClick={() => onNavigate("run")}
+                className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2 text-sm hover:bg-accent">
+                <Play className="h-4 w-4" /> Testiraj izvedbu
+              </button>
+            </div>
           </div>
-          <div className="flex gap-2 shrink-0">
-            <button onClick={() => onNavigate("record")}
-              className="inline-flex items-center gap-2 rounded-lg gradient-primary px-4 py-2 text-sm font-medium text-white hover:opacity-90">
-              <Plus className="h-4 w-4" /> Snimi novi
-            </button>
-            <button onClick={() => onNavigate("run")}
-              className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2 text-sm hover:bg-accent">
-              <Play className="h-4 w-4" /> Pokreni
-            </button>
+          <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+            {[
+              { l: "Naucene grupe", v: shadowGroups.length, hint: "portal + tip postupka" },
+              { l: "Spremne za draft", v: readyGroups, hint: "confidence >= 60%" },
+              { l: "Auto-playbook", v: automationReadyGroups, hint: "spremno za automatiku" },
+              { l: "Prosjecni confidence", v: `${averageConfidence}%`, hint: "koliko je Stellan siguran" },
+            ].map(stat => (
+              <div key={stat.l} className="rounded-xl border border-border bg-background/50 p-3">
+                <div className="text-lg font-semibold text-foreground">{stat.v}</div>
+                <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{stat.l}</div>
+                <div className="mt-1 text-[10px] text-muted-foreground/70">{stat.hint}</div>
+              </div>
+            ))}
           </div>
         </div>
-        <div className="mt-4 grid grid-cols-4 gap-2">
-          {[
-            { l: "Ukupno",   v: flows.length },
-            { l: "AI verzija", v: flows.filter(f => !!f.polishedCode).length },
-            { l: "Spremni",  v: flows.filter(f => f.status === "ready").length },
-            { l: "Raw verzija",   v: flows.filter(f => !!f.rawCode || f.status === "raw").length },
-          ].map(s => (
-            <div key={s.l} className="rounded-lg border border-border bg-background/50 p-2.5">
-              <div className="text-xl font-bold">{s.v}</div>
-              <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{s.l}</div>
+
+        <div className="rounded-2xl border border-border bg-card p-5">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-[11px] uppercase tracking-[0.18em] text-primary/80">Sto je trenutno najvaznije</p>
+              <h2 className="mt-1 text-sm font-semibold text-foreground">Najjace naucene grupe</h2>
             </div>
-          ))}
+            <span className="rounded-lg border border-border bg-background/60 px-2 py-1 text-[10px] text-muted-foreground">
+              {latestLearned.length} prikaza
+            </span>
+          </div>
+          <div className="mt-4 space-y-2">
+            {latestLearned.length > 0 ? latestLearned.map(group => (
+              <div key={`${group.portal}-${group.flow_type}`} className="rounded-xl border border-border bg-background/40 p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-semibold text-foreground">{group.portal}</div>
+                    <div className="text-[11px] text-muted-foreground">{group.flow_type}</div>
+                  </div>
+                  <span className={cn("rounded border px-1.5 py-0.5 text-[10px]", shadowStateClass(group.learning_state))}>
+                    {group.confidence}%
+                  </span>
+                </div>
+                <div className="mt-2 flex flex-wrap gap-1.5 text-[10px] text-muted-foreground">
+                  <span className="rounded border border-border bg-background/60 px-1.5 py-0.5">{group.session_count} sesija</span>
+                  <span className="rounded border border-border bg-background/60 px-1.5 py-0.5">avg {group.avg_steps} koraka</span>
+                  <span className="rounded border border-border bg-background/60 px-1.5 py-0.5">{shadowStateLabel(group.learning_state)}</span>
+                </div>
+                {group.latest_name && (
+                  <div className="mt-2 text-[10px] text-muted-foreground/80">
+                    Zadnje nauceno: <span className="text-foreground">{group.latest_name}</span>
+                  </div>
+                )}
+              </div>
+            )) : (
+              <div className="rounded-xl border border-dashed border-border bg-background/30 p-5 text-center">
+                <Workflow className="mx-auto mb-2 h-6 w-6 text-muted-foreground/30" />
+                <div className="text-sm font-medium text-foreground">Jos nemamo naucene grupe</div>
+                <div className="mt-1 text-xs text-muted-foreground">Kreni iz Ucenje taba sa shadow sesijom i Stellan ce ovdje poceti slagati znanje.</div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* Lista */}
+      <div className="mb-4 grid gap-3 lg:grid-cols-3">
+        <div className="rounded-xl border border-border bg-card p-4">
+          <div className="text-sm font-semibold text-foreground">Playbook biblioteka</div>
+          <div className="mt-1 text-xs text-muted-foreground">Sve sto mozes dalje urediti, polirati i vezati uz konkretan portal.</div>
+          <div className="mt-3 flex items-center gap-2 text-[11px] text-muted-foreground">
+            <Workflow className="h-3.5 w-3.5" /> {flows.length} spremljenih flowova
+          </div>
+          <div className="mt-1 flex items-center gap-2 text-[11px] text-muted-foreground">
+            <Sparkles className="h-3.5 w-3.5" /> {polishedCount} AI poliranih
+          </div>
+          <div className="mt-1 flex items-center gap-2 text-[11px] text-muted-foreground">
+            <CheckCircle2 className="h-3.5 w-3.5" /> {readyFlowCount} spremnih za pokretanje
+          </div>
+        </div>
+        <div className="rounded-xl border border-border bg-card p-4">
+          <div className="text-sm font-semibold text-foreground">Preporuceni tok rada</div>
+          <ol className="mt-3 space-y-2 text-xs text-muted-foreground">
+            <li>1. U Ucenje tabu odradi shadow sesiju po portalu.</li>
+            <li>2. Pregledaj faze, checklistu i warninge.</li>
+            <li>3. Iz memorije otvori draft i doradi ga samo gdje treba.</li>
+          </ol>
+        </div>
+        <div className="rounded-xl border border-primary/20 bg-primary/5 p-4">
+          <div className="text-sm font-semibold text-foreground">Sto smo maknuli u drugi plan</div>
+          <div className="mt-2 text-xs text-muted-foreground">
+            Stari flow-first pogled vise nije glavni ekran. Sad su znanje, confidence i playbookovi prvi, a sirovi flow ostaje alat iza toga.
+          </div>
+        </div>
+      </div>
+
       {loading ? (
         <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>
       ) : flows.length === 0 ? (
         <div className="rounded-xl border border-dashed border-border bg-card/50 p-10 text-center">
           <Workflow className="mx-auto mb-3 h-8 w-8 text-muted-foreground/30" />
-          <p className="font-medium">Još nema flowova</p>
-          <p className="mt-1 text-sm text-muted-foreground">Otvori Snimanje i počni.</p>
+          <p className="font-medium">Jos nema spremljenih playbookova</p>
+          <p className="mt-1 text-sm text-muted-foreground">To je ok. Kreni iz Ucenje taba i iz shadow sesije cemo sloziti prvi draft.</p>
           <button onClick={() => onNavigate("record")}
             className="mt-3 inline-flex items-center gap-2 rounded-lg gradient-primary px-4 py-2 text-sm text-white">
-            <Plus className="h-4 w-4" /> Snimi prvi flow
+            <Circle className="h-4 w-4" /> Pokreni ucenje
           </button>
         </div>
       ) : (
-        <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           {flows.map(flow => {
             const s = statusCfg[flow.status as keyof typeof statusCfg] ?? statusCfg.raw;
             return (
@@ -412,7 +554,7 @@ function FlowsTab({ callAgent, onEdit, onNavigate }: {
                       <div className="absolute right-0 top-7 z-10 w-40 rounded-lg border border-border bg-card p-1 shadow-lg">
                         <button onClick={() => remove(flow.id)}
                           className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm text-destructive hover:bg-destructive/10">
-                          <Trash2 className="h-3.5 w-3.5" /> Obriši
+                          <Trash2 className="h-3.5 w-3.5" /> Obrisi
                         </button>
                       </div>
                     )}
@@ -445,13 +587,16 @@ function FlowsTab({ callAgent, onEdit, onNavigate }: {
                     ))}
                   </div>
                 )}
+                <div className="mt-3 rounded-lg border border-border bg-background/40 p-2 text-[10px] text-muted-foreground">
+                  Zadnja izvedba: <span className="text-foreground">{formatRelativeTime(flow.lastRun)}</span>
+                </div>
                 <div className="mt-2.5 flex items-center justify-between border-t border-border pt-2.5">
                   <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
-                    <Calendar className="h-3 w-3" /> {fmt(flow.lastRun)}
+                    <Calendar className="h-3 w-3" /> {formatRelativeTime(flow.updatedAt || flow.createdAt)}
                   </span>
                   <button onClick={() => onEdit(flow)}
                     className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium text-primary hover:bg-primary/10">
-                    <Pencil className="h-3 w-3" /> Uredi
+                    <Pencil className="h-3 w-3" /> Otvori
                   </button>
                 </div>
               </div>
@@ -1057,10 +1202,10 @@ ${codeToPolish}`;
       <div className="flex items-start justify-between shrink-0">
         <div>
           <h1 className="text-lg font-bold">
-            {isEditing ? "Uređivanje" : "Snimanje"} <span className="text-gradient">flowa</span>
+            {isEditing ? "Doradi" : "Pokreni"} <span className="text-gradient">učenje</span>
           </h1>
           <p className="text-xs text-muted-foreground">
-            {isEditing ? `"${editFlow!.name}" · nastavi snimati ili ulašti` : `Klikni Snimaj, radi po portalu, zaustavi i spremi.`}
+            {isEditing ? `"${editFlow!.name}" · nastavi sesiju, pročisti kod ili izgradi playbook.` : `Radi po portalu normalno, a Stellan paralelno uči faze, checklistu i upozorenja.`}
           </p>
         </div>
         {isEditing && (
@@ -1344,10 +1489,10 @@ ${codeToPolish}`;
             </div>
 
             <label className="block">
-              <span className="text-[9px] uppercase tracking-wider text-muted-foreground">Ime flowa</span>
+              <span className="text-[9px] uppercase tracking-wider text-muted-foreground">Naziv sesije / playbooka</span>
               <input value={name} onChange={e => setName(e.target.value)}
                 className="mt-1 w-full rounded border border-border bg-background px-2 py-1.5 text-xs outline-none focus:border-primary"
-                placeholder="Novi flow"
+                placeholder="npr. OSS parcelacija - predaja"
               />
             </label>
 
