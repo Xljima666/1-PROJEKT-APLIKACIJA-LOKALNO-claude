@@ -2535,6 +2535,16 @@ async def record_build_playbook(req: dict = {}, _: str = Depends(verify_api_key)
         "message": f"Playbook draft slozen ({draft['stats']['session_count']} sesija)",
     }
 
+
+@app.get("/record/shadow_summary")
+async def record_shadow_summary(_: str = Depends(verify_api_key)):
+    groups = summarize_shadow_groups()
+    return {
+        "success": True,
+        "groups": groups,
+        "count": len(groups),
+    }
+
 @app.post("/record/run")
 async def record_run(req: dict, _: str = Depends(verify_api_key)):
     """
@@ -3386,6 +3396,18 @@ def analyze_shadow_session(name: str, start_url: str, steps: list[dict], context
     if len(timestamps) >= 2:
         duration_ms = max(timestamps) - min(timestamps)
 
+    historical_candidates = pick_shadow_session_candidates(portal, flow_type, context, limit=20)
+    historical_count = len(historical_candidates)
+    avg_steps = round(
+        (
+            len(normalized_steps) +
+            sum(len((s.get("steps") or [])) for s in historical_candidates)
+        ) / max(historical_count + 1, 1),
+        1,
+    )
+    confidence = calculate_shadow_confidence(historical_count + 1, avg_steps)
+    learning_state = shadow_learning_state(confidence)
+
     suggested_name = normalize_flow_name(name or f"{portal}_{flow_type}_{datetime.now().strftime('%Y%m%d_%H%M')}")
     summary = (
         f"Shadow session za {portal}: {len(normalized_steps)} koraka kroz faze "
@@ -3408,7 +3430,11 @@ def analyze_shadow_session(name: str, start_url: str, steps: list[dict], context
             "page_count": len(pages),
             "counts": counts,
             "duration_ms": duration_ms,
+            "avg_steps": avg_steps,
+            "related_sessions": historical_count + 1,
         },
+        "confidence": confidence,
+        "learning_state": learning_state,
         "steps": normalized_steps,
         "context": context,
         "start_url": start_url,
@@ -3455,6 +3481,69 @@ def load_shadow_sessions() -> list[dict]:
         except Exception:
             continue
     return sessions
+
+
+def summarize_shadow_groups() -> list[dict]:
+    groups: dict[str, dict] = {}
+    for session in load_shadow_sessions():
+        portal = str(session.get("portal") or "Web portal").strip() or "Web portal"
+        flow_type = str(session.get("flow_type") or "sdge_postupak").strip() or "sdge_postupak"
+        key = f"{portal.lower()}::{flow_type.lower()}"
+        stats = session.get("stats") or {}
+        group = groups.setdefault(key, {
+            "portal": portal,
+            "flow_type": flow_type,
+            "session_count": 0,
+            "total_steps": 0,
+            "avg_steps": 0,
+            "latest_session": "",
+            "latest_name": "",
+            "tags": [],
+        })
+        group["session_count"] += 1
+        group["total_steps"] += int(stats.get("step_count") or 0)
+        captured_at = str(session.get("captured_at") or session.get("saved_at") or "")
+        if captured_at >= group["latest_session"]:
+            group["latest_session"] = captured_at
+            group["latest_name"] = str(session.get("name") or session.get("suggested_name") or "shadow")
+        group["tags"] = merge_unique_text(group["tags"] + list(session.get("tags") or []), limit=8)
+
+    result: list[dict] = []
+    for group in groups.values():
+        count = int(group["session_count"] or 0)
+        total_steps = int(group["total_steps"] or 0)
+        avg_steps = round(total_steps / count, 1) if count else 0
+        confidence = calculate_shadow_confidence(count, avg_steps)
+        result.append({
+            **group,
+            "avg_steps": avg_steps,
+            "confidence": confidence,
+            "learning_state": shadow_learning_state(confidence),
+        })
+    result.sort(key=lambda item: (item["confidence"], item["session_count"], item["avg_steps"]), reverse=True)
+    return result
+
+
+def calculate_shadow_confidence(session_count: int, avg_steps: float) -> int:
+    score = 25
+    score += min(session_count, 5) * 12
+    if avg_steps >= 12:
+        score += 15
+    elif avg_steps >= 6:
+        score += 8
+    elif avg_steps >= 3:
+        score += 4
+    return max(0, min(100, int(score)))
+
+
+def shadow_learning_state(confidence: int) -> str:
+    if confidence >= 80:
+        return "spreman_za_automatiku"
+    if confidence >= 60:
+        return "spreman_za_draft"
+    if confidence >= 40:
+        return "učenje_u_tijeku"
+    return "premalo_podataka"
 
 
 def pick_shadow_session_candidates(portal: str, flow_type: str, context: str = "", limit: int = 5) -> list[dict]:
@@ -3546,6 +3635,9 @@ def build_shadow_playbook(name: str, start_url: str, steps: list[dict], context:
     phases = merge_unique_text(all_phases, limit=6)
     tags = merge_unique_text(all_tags + ["shadow_playbook", detected_type, detected_portal.lower().replace(" ", "_")], limit=8)
     page_list = merge_unique_text(all_pages, limit=8)
+    avg_steps = round(sum(len((s.get("steps") or [])) for s in sessions_used) / max(len(sessions_used), 1), 1)
+    confidence = calculate_shadow_confidence(len(sessions_used), avg_steps)
+    learning_state = shadow_learning_state(confidence)
 
     draft = {
         "name": canonical_name,
@@ -3576,7 +3668,11 @@ def build_shadow_playbook(name: str, start_url: str, steps: list[dict], context:
             "session_count": len(sessions_used),
             "page_count": len(page_list),
             "pages": page_list,
+            "avg_steps": avg_steps,
+            "confidence": confidence,
         },
+        "confidence": confidence,
+        "learning_state": learning_state,
         "metadata": {
             "name": display_name or canonical_name,
             "display_name": display_name or canonical_name,
@@ -3590,6 +3686,8 @@ def build_shadow_playbook(name: str, start_url: str, steps: list[dict], context:
             "risks": risks,
             "shadow_session_count": len(sessions_used),
             "shadow_based_on": [s.get("session_id") or s.get("_path") or "current_session" for s in sessions_used],
+            "shadow_confidence": confidence,
+            "shadow_learning_state": learning_state,
             "start_url": start_url or exemplar.get("start_url") or "",
             "steps": exemplar_steps,
             "status": "raw",

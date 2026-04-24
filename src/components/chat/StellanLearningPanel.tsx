@@ -80,6 +80,8 @@ interface ShadowInsight {
     duration_ms?: number;
     counts?: Record<string, number>;
   };
+  confidence?: number;
+  learning_state?: string;
 }
 
 interface ShadowPlaybookDraft {
@@ -104,12 +106,27 @@ interface ShadowPlaybookDraft {
     step_count?: number;
     session_count?: number;
     page_count?: number;
+    avg_steps?: number;
+    confidence?: number;
   };
+  confidence?: number;
+  learning_state?: string;
   metadata?: Record<string, unknown>;
   saved?: {
     playbook_id?: string;
     path?: string;
   };
+}
+
+interface ShadowGroupSummary {
+  portal: string;
+  flow_type: string;
+  session_count: number;
+  avg_steps: number;
+  confidence: number;
+  learning_state: string;
+  latest_name?: string;
+  tags?: string[];
 }
 
 interface Props {
@@ -465,6 +482,7 @@ function RecordTab({ callAgent, editFlow, onSaved }: {
   const [shadowSavedPath, setShadowSavedPath] = useState("");
   const [shadowPlaybook, setShadowPlaybook] = useState<ShadowPlaybookDraft | null>(null);
   const [buildingPlaybook, setBuildingPlaybook] = useState(false);
+  const [shadowGroups, setShadowGroups] = useState<ShadowGroupSummary[]>([]);
   const [polishing, setPol]   = useState(false);
   const [testing, setTesting] = useState(false);
   const [testingAi, setTestingAi] = useState(false);
@@ -500,6 +518,31 @@ function RecordTab({ callAgent, editFlow, onSaved }: {
     const seconds = totalSeconds % 60;
     return minutes > 0 ? `${minutes} min ${seconds}s` : `${seconds}s`;
   };
+  const shadowStateLabel = (state?: string) => {
+    switch (state) {
+      case "spreman_za_automatiku": return "Spreman za automatiku";
+      case "spreman_za_draft": return "Spreman za draft";
+      case "učenje_u_tijeku": return "Učenje u tijeku";
+      default: return "Premalo podataka";
+    }
+  };
+  const shadowStateClass = (state?: string) => {
+    switch (state) {
+      case "spreman_za_automatiku": return "text-green-400 border-green-500/30 bg-green-500/10";
+      case "spreman_za_draft": return "text-primary border-primary/30 bg-primary/10";
+      case "učenje_u_tijeku": return "text-amber-300 border-amber-500/30 bg-amber-500/10";
+      default: return "text-muted-foreground border-border bg-background/40";
+    }
+  };
+
+  const loadShadowSummary = useCallback(async () => {
+    try {
+      const r = await callAgent("record/shadow_summary");
+      setShadowGroups(Array.isArray(r?.groups) ? r.groups : []);
+    } catch {
+      setShadowGroups([]);
+    }
+  }, [callAgent]);
 
   // Status browsera pri otvaranju
   useEffect(() => {
@@ -507,6 +550,10 @@ function RecordTab({ callAgent, editFlow, onSaved }: {
       setBo(r?.online || false);
     }).catch(() => setBo(false));
   }, [callAgent]);
+
+  useEffect(() => {
+    loadShadowSummary();
+  }, [loadShadowSummary]);
 
   // Učitaj korake I .py kod iz agenta pri edit modu
   useEffect(() => {
@@ -622,6 +669,7 @@ function RecordTab({ callAgent, editFlow, onSaved }: {
         setShadowInsight(r.analysis);
         setShadowSavedPath(r?.saved?.path || "");
         setShadowPlaybook(null);
+        await loadShadowSummary();
         addLog(`🧠 Shadow analiza: ${r.analysis.portal} / ${r.analysis.flow_type}`);
         addLog(`🧾 Checklist: ${(r.analysis.checklist || []).length} stavki`);
       }
@@ -680,7 +728,8 @@ function RecordTab({ callAgent, editFlow, onSaved }: {
 
       addLog(`🛠 Playbook draft spremljen: ${draft.name}`);
       addLog(`📚 Sesije ukljucene: ${draft.stats?.session_count || draft.based_on_sessions.length}`);
-      onSaved();
+      await loadShadowSummary();
+      addLog("✅ Draft je spremljen u flowove; možeš ga odmah dalje doraditi ili prijeći na Flowove.");
     } catch (e: any) {
       addLog(`Playbook builder nije uspio: ${e.message}`);
     } finally {
@@ -1312,6 +1361,9 @@ ${codeToPolish}`;
                     <span className="rounded border border-border px-1.5 py-0.5 text-[9px] text-muted-foreground">{shadowInsight.portal}</span>
                     <span className="rounded border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 text-[9px] text-emerald-400">{shadowInsight.flow_type}</span>
                     <span className="rounded border border-border px-1.5 py-0.5 text-[9px] text-muted-foreground">{shadowInsight.stats?.step_count || 0} koraka</span>
+                    <span className={cn("rounded border px-1.5 py-0.5 text-[9px]", shadowStateClass(shadowInsight.learning_state))}>
+                      {shadowInsight.confidence ?? 0}% · {shadowStateLabel(shadowInsight.learning_state)}
+                    </span>
                   </div>
                   <div>
                     <div className="text-[9px] uppercase tracking-wider text-muted-foreground/60">Faze</div>
@@ -1347,6 +1399,30 @@ ${codeToPolish}`;
                 </div>
               </div>
             )}
+            {!!shadowGroups.length && (
+              <div className="border-t border-border/60 pt-1.5 space-y-1.5">
+                <p className="text-[9px] uppercase tracking-wider text-primary/80">Naučene grupe</p>
+                <div className="space-y-1">
+                  {shadowGroups.slice(0, 3).map(group => (
+                    <div key={`${group.portal}-${group.flow_type}`} className="rounded-lg border border-border bg-background/40 p-2 space-y-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="truncate text-[10px] font-semibold text-foreground">{group.portal}</div>
+                          <div className="text-[9px] text-muted-foreground">{group.flow_type}</div>
+                        </div>
+                        <span className={cn("shrink-0 rounded border px-1.5 py-0.5 text-[9px]", shadowStateClass(group.learning_state))}>
+                          {group.confidence}% 
+                        </span>
+                      </div>
+                      <div className="text-[9px] text-muted-foreground/70">
+                        {group.session_count} sesija · prosjek {group.avg_steps} koraka
+                      </div>
+                      <div className="text-[9px] text-muted-foreground/60">{shadowStateLabel(group.learning_state)}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             {shadowPlaybook && (
               <div className="border-t border-border/60 pt-1.5 space-y-1.5">
                 <p className="text-[9px] uppercase tracking-wider text-primary">Playbook draft</p>
@@ -1357,6 +1433,9 @@ ${codeToPolish}`;
                     <span className="rounded border border-border px-1.5 py-0.5 text-[9px] text-muted-foreground">{shadowPlaybook.portal}</span>
                     <span className="rounded border border-primary/30 bg-primary/10 px-1.5 py-0.5 text-[9px] text-primary">{shadowPlaybook.flow_type}</span>
                     <span className="rounded border border-border px-1.5 py-0.5 text-[9px] text-muted-foreground">{shadowPlaybook.stats?.session_count || shadowPlaybook.based_on_sessions.length} sesija</span>
+                    <span className={cn("rounded border px-1.5 py-0.5 text-[9px]", shadowStateClass(shadowPlaybook.learning_state))}>
+                      {shadowPlaybook.confidence ?? shadowPlaybook.stats?.confidence ?? 0}% · {shadowStateLabel(shadowPlaybook.learning_state)}
+                    </span>
                   </div>
                   <div className="text-[9px] text-muted-foreground/60">
                     Flow draft: <span className="font-mono text-foreground">{shadowPlaybook.name}</span>
