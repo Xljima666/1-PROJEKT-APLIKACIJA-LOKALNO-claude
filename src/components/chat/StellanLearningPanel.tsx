@@ -110,6 +110,7 @@ interface ShadowPlaybookDraft {
   stats?: {
     step_count?: number;
     session_count?: number;
+    correction_count?: number;
     page_count?: number;
     avg_steps?: number;
     confidence?: number;
@@ -971,6 +972,8 @@ function RecordTab({ callAgent, editFlow, onSaved }: {
   const [shadowPlaybook, setShadowPlaybook] = useState<ShadowPlaybookDraft | null>(null);
   const [reviewState, setReviewState] = useState<ShadowReviewState>({ phases: [], checklist: [], risks: [], warnings: [] });
   const [reviewDirty, setReviewDirty] = useState(false);
+  const [teachingCorrection, setTeachingCorrection] = useState(false);
+  const [correctionSavedPath, setCorrectionSavedPath] = useState("");
   const [buildingPlaybook, setBuildingPlaybook] = useState(false);
   const [shadowGroups, setShadowGroups] = useState<ShadowGroupSummary[]>([]);
   const [polishing, setPol]   = useState(false);
@@ -1187,6 +1190,7 @@ function RecordTab({ callAgent, editFlow, onSaved }: {
         const analysis = r.analysis as ShadowInsight;
         setShadowInsight(analysis);
         setShadowSavedPath(r?.saved?.path || "");
+        setCorrectionSavedPath("");
         setShadowPlaybook(null);
         await loadShadowSummary();
         addLog(`đź§  Shadow analiza: ${analysis.portal} / ${analysis.flow_type}`);
@@ -1228,6 +1232,7 @@ function RecordTab({ callAgent, editFlow, onSaved }: {
 
       const draft = r.draft as ShadowPlaybookDraft;
       setShadowPlaybook(draft);
+      setCorrectionSavedPath("");
 
       await callAgent("record/save", {
         name: draft.name,
@@ -1264,6 +1269,39 @@ function RecordTab({ callAgent, editFlow, onSaved }: {
       addLog(`Playbook builder nije uspio: ${e.message}`);
     } finally {
       setBuildingPlaybook(false);
+    }
+  };
+
+  const teachFromCorrection = async () => {
+    const activeInsight = shadowInsight;
+    if (!activeInsight) {
+      addLog("Nemamo shadow analizu iz koje bismo ucili.");
+      return;
+    }
+    setTeachingCorrection(true);
+    try {
+      const r = await callAgent("record/teach_from_correction", {
+        name,
+        context: learningContext,
+        portal: activeInsight.portal,
+        flow_type: activeInsight.flow_type,
+        source_session_id: shadowSavedPath ? String(shadowSavedPath).split("\\").pop()?.replace(".json", "") : "",
+        source_playbook: shadowPlaybook?.name || "",
+        phases: uniqueReviewItems(reviewState.phases),
+        checklist: uniqueReviewItems(reviewState.checklist),
+        risks: uniqueReviewItems(reviewState.risks),
+        warnings: uniqueReviewItems(reviewState.warnings),
+        summary: `Rucna korekcija za ${activeInsight.portal} / ${activeInsight.flow_type}`,
+        tags: activeInsight.tags || [],
+      });
+      setCorrectionSavedPath(r?.saved?.path || "");
+      addLog("Naucio sam iz tvoje ispravke i spremio je u memoriju.");
+      await loadShadowSummary();
+      setReviewDirty(false);
+    } catch (e: any) {
+      addLog(`Spremanje korekcije nije uspjelo: ${e.message}`);
+    } finally {
+      setTeachingCorrection(false);
     }
   };
 
@@ -1918,15 +1956,26 @@ ${codeToPolish}`;
                     </div>
                   )}
 
-                  <button
-                    disabled={buildingPlaybook}
-                    onClick={() => buildShadowPlaybook()}
-                    className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 py-2 text-xs font-medium text-emerald-300 hover:bg-emerald-500/20 disabled:opacity-40"
-                  >
-                    {buildingPlaybook ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Workflow className="h-3.5 w-3.5" />}
-                    Napravi playbook iz ove sesije
-                  </button>
+                  <div className="grid gap-2 md:grid-cols-2">
+                    <button
+                      disabled={teachingCorrection}
+                      onClick={teachFromCorrection}
+                      className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-primary/30 bg-primary/10 py-2 text-xs font-medium text-primary hover:bg-primary/20 disabled:opacity-40"
+                    >
+                      {teachingCorrection ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+                      Nauci iz ispravka
+                    </button>
+                    <button
+                      disabled={buildingPlaybook}
+                      onClick={() => buildShadowPlaybook()}
+                      className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 py-2 text-xs font-medium text-emerald-300 hover:bg-emerald-500/20 disabled:opacity-40"
+                    >
+                      {buildingPlaybook ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Workflow className="h-3.5 w-3.5" />}
+                      Napravi playbook
+                    </button>
+                  </div>
                   {shadowSavedPath && <div className="text-[11px] text-muted-foreground/60 break-all">{shadowSavedPath}</div>}
+                  {correctionSavedPath && <div className="text-[11px] text-primary/70 break-all">{correctionSavedPath}</div>}
                 </div>
               ) : (
                 <div className="mt-3 rounded-xl border border-dashed border-border bg-background/30 px-4 py-10 text-center text-sm text-muted-foreground">

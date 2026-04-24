@@ -2657,6 +2657,35 @@ async def record_shadow_session_review(req: dict = {}, _: str = Depends(verify_a
         "message": "Shadow sesija azurirana.",
     }
 
+
+@app.post("/record/teach_from_correction")
+async def record_teach_from_correction(req: dict = {}, _: str = Depends(verify_api_key)):
+    portal = str((req or {}).get("portal") or "").strip() or "Web portal"
+    flow_type = str((req or {}).get("flow_type") or "").strip() or "sdge_postupak"
+    name = str((req or {}).get("name") or "").strip() or f"{portal}_{flow_type}_correction"
+    context = str((req or {}).get("context") or "").strip()
+    payload = {
+        "name": name,
+        "portal": portal,
+        "flow_type": flow_type,
+        "context": context,
+        "source_session_id": str((req or {}).get("source_session_id") or "").strip(),
+        "source_playbook": str((req or {}).get("source_playbook") or "").strip(),
+        "phases": merge_unique_text(list((req or {}).get("phases") or []), limit=8),
+        "checklist": merge_unique_text(list((req or {}).get("checklist") or []), limit=10),
+        "risks": merge_unique_text(list((req or {}).get("risks") or []), limit=6),
+        "warnings": merge_unique_text(list((req or {}).get("warnings") or []), limit=6),
+        "tags": merge_unique_text(list((req or {}).get("tags") or []) + ["teach_from_correction", flow_type, portal.lower().replace(" ", "_")], limit=8),
+        "summary": str((req or {}).get("summary") or "").strip() or f"Rucna korekcija za {portal} / {flow_type}",
+    }
+    saved = save_shadow_correction(payload)
+    return {
+        "success": True,
+        "saved": saved,
+        "correction": payload,
+        "message": "Korekcija spremljena u Stellan memoriju.",
+    }
+
 @app.post("/record/run")
 async def record_run(req: dict, _: str = Depends(verify_api_key)):
     """
@@ -3163,6 +3192,7 @@ FLOW_META_DIR = Path(WORKSPACE_DIR) / "2 AGENT" / "_flow_meta"
 FLOW_VERSIONS_DIR = Path(WORKSPACE_DIR) / "2 AGENT" / "_flow_versions"
 SHADOW_SESSION_DIR = Path(WORKSPACE_DIR) / "2 AGENT" / "_shadow_sessions"
 SHADOW_PLAYBOOK_DIR = Path(WORKSPACE_DIR) / "2 AGENT" / "_shadow_playbooks"
+SHADOW_CORRECTION_DIR = Path(WORKSPACE_DIR) / "2 AGENT" / "_shadow_corrections"
 
 def ensure_flow_dirs():
     ensure_workspace()
@@ -3170,6 +3200,7 @@ def ensure_flow_dirs():
     FLOW_VERSIONS_DIR.mkdir(parents=True, exist_ok=True)
     SHADOW_SESSION_DIR.mkdir(parents=True, exist_ok=True)
     SHADOW_PLAYBOOK_DIR.mkdir(parents=True, exist_ok=True)
+    SHADOW_CORRECTION_DIR.mkdir(parents=True, exist_ok=True)
 
 def normalize_flow_name(name: str) -> str:
     return (name or "").strip().replace(" ", "_").lower()
@@ -3624,6 +3655,38 @@ def find_shadow_session_path(session_id: str) -> Path | None:
     return None
 
 
+def save_shadow_correction(payload: dict) -> dict:
+    ensure_flow_dirs()
+    correction_id = f"{normalize_flow_name(payload.get('name') or payload.get('suggested_name') or 'correction')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    path = SHADOW_CORRECTION_DIR / f"{correction_id}.json"
+    document = dict(payload)
+    document["correction_id"] = correction_id
+    document["saved_at"] = datetime.now().isoformat()
+    path.write_text(json.dumps(document, ensure_ascii=False, indent=2), encoding="utf-8")
+    return {"correction_id": correction_id, "path": str(path)}
+
+
+def load_shadow_corrections(portal: str = "", flow_type: str = "", limit: int = 8) -> list[dict]:
+    ensure_flow_dirs()
+    corrections: list[dict] = []
+    for path in sorted(SHADOW_CORRECTION_DIR.glob("*.json"), reverse=True):
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            correction_portal = str(payload.get("portal") or "").strip()
+            correction_flow_type = str(payload.get("flow_type") or "").strip()
+            if portal and correction_portal.lower() != portal.lower():
+                continue
+            if flow_type and correction_flow_type.lower() != flow_type.lower():
+                continue
+            payload["_path"] = str(path)
+            corrections.append(payload)
+            if len(corrections) >= max(1, limit):
+                break
+        except Exception:
+            continue
+    return corrections
+
+
 def summarize_shadow_groups() -> list[dict]:
     groups: dict[str, dict] = {}
     for session in load_shadow_sessions():
@@ -3796,6 +3859,7 @@ def build_shadow_playbook(
     detected_type = flow_type or current.get("flow_type") or infer_flow_type(context)
 
     candidates = pick_shadow_session_candidates(detected_portal, detected_type, context, limit=5)
+    correction_candidates = load_shadow_corrections(detected_portal, detected_type, limit=6)
     session_ids: set[str] = set()
     sessions_used: list[dict] = []
 
@@ -3831,6 +3895,19 @@ def build_shadow_playbook(
         all_tags.extend(session.get("tags") or [])
         all_pages.extend((session.get("stats") or {}).get("pages") or [])
 
+    correction_phases: list[str] = []
+    correction_checklist: list[str] = []
+    correction_risks: list[str] = []
+    correction_warnings: list[str] = []
+    correction_tags: list[str] = []
+
+    for correction in correction_candidates:
+        correction_phases.extend(correction.get("phases") or [])
+        correction_checklist.extend(correction.get("checklist") or [])
+        correction_risks.extend(correction.get("risks") or [])
+        correction_warnings.extend(correction.get("warnings") or [])
+        correction_tags.extend(correction.get("tags") or [])
+
     canonical_name = normalize_flow_name(
         name if name and name.lower() != "novi flow" else f"{detected_type}_{detected_portal}_draft"
     )
@@ -3841,17 +3918,17 @@ def build_shadow_playbook(
             "draft",
         ] if part
     ).strip()
-    checklist = apply_text_overrides(checklist_overrides, all_checklist, limit=8)
-    risks = apply_text_overrides(risk_overrides, all_risks, limit=5)
-    phases = apply_text_overrides(phase_overrides, all_phases, limit=6)
-    tags = merge_unique_text(all_tags + ["shadow_playbook", detected_type, detected_portal.lower().replace(" ", "_")], limit=8)
+    checklist = apply_text_overrides(checklist_overrides, correction_checklist + all_checklist, limit=8)
+    risks = apply_text_overrides(risk_overrides, correction_risks + all_risks, limit=5)
+    phases = apply_text_overrides(phase_overrides, correction_phases + all_phases, limit=6)
+    tags = merge_unique_text(correction_tags + all_tags + ["shadow_playbook", detected_type, detected_portal.lower().replace(" ", "_")], limit=8)
     page_list = merge_unique_text(all_pages, limit=8)
     avg_steps = round(sum(len((s.get("steps") or [])) for s in sessions_used) / max(len(sessions_used), 1), 1)
     confidence = calculate_shadow_confidence(len(sessions_used), avg_steps)
     learning_state = shadow_learning_state(confidence)
     warnings = apply_text_overrides(
         warning_overrides,
-        build_shadow_warning_rules(current.get("steps") or [], candidates),
+        correction_warnings + build_shadow_warning_rules(current.get("steps") or [], candidates),
         limit=4,
     )
 
@@ -3879,10 +3956,18 @@ def build_shadow_playbook(
                 "step_count": len(s.get("steps") or []),
             }
             for s in sessions_used
+        ] + [
+            {
+                "session_id": c.get("correction_id") or c.get("_path") or "correction",
+                "name": c.get("name") or "correction",
+                "step_count": len(c.get("checklist") or []) + len(c.get("phases") or []),
+            }
+            for c in correction_candidates
         ],
         "stats": {
             "step_count": len(exemplar_steps),
             "session_count": len(sessions_used),
+            "correction_count": len(correction_candidates),
             "page_count": len(page_list),
             "pages": page_list,
             "avg_steps": avg_steps,
@@ -3902,7 +3987,9 @@ def build_shadow_playbook(
             "checklist": checklist,
             "risks": risks,
             "shadow_session_count": len(sessions_used),
+            "shadow_correction_count": len(correction_candidates),
             "shadow_based_on": [s.get("session_id") or s.get("_path") or "current_session" for s in sessions_used],
+            "shadow_corrections": [c.get("correction_id") or c.get("_path") or "correction" for c in correction_candidates],
             "shadow_confidence": confidence,
             "shadow_learning_state": learning_state,
             "start_url": start_url or exemplar.get("start_url") or "",
