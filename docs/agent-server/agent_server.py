@@ -2568,7 +2568,7 @@ async def record_shadow_group_detail(req: dict = {}, _: str = Depends(verify_api
     limit = int((req or {}).get("limit") or 12)
     sessions: list[dict] = []
 
-    for session in load_shadow_sessions():
+    for session in load_shadow_sessions(include_excluded=True):
         session_portal = str(session.get("portal") or "").strip()
         session_flow_type = str(session.get("flow_type") or "").strip()
         if portal and session_portal.lower() != portal.lower():
@@ -2596,6 +2596,8 @@ async def record_shadow_group_detail(req: dict = {}, _: str = Depends(verify_api
             "page_count": int(stats.get("page_count") or len(stats.get("pages") or [])),
             "duration_ms": int(stats.get("duration_ms") or 0),
             "path": session.get("_path") or "",
+            "review_status": session.get("review_status") or "pending",
+            "excluded_from_learning": bool(session.get("excluded_from_learning")),
         })
 
     sessions.sort(
@@ -2614,6 +2616,45 @@ async def record_shadow_group_detail(req: dict = {}, _: str = Depends(verify_api
         "flow_type": flow_type,
         "sessions": sessions,
         "count": len(sessions),
+    }
+
+
+@app.post("/record/shadow_session_review")
+async def record_shadow_session_review(req: dict = {}, _: str = Depends(verify_api_key)):
+    session_id = str((req or {}).get("session_id") or "").strip()
+    action = str((req or {}).get("action") or "").strip().lower()
+    path = find_shadow_session_path(session_id)
+    if not path or not path.exists():
+        return {"success": False, "error": "Shadow sesija nije pronadena."}
+
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    now = datetime.now().isoformat()
+
+    if action == "exclude":
+        payload["excluded_from_learning"] = True
+        payload["review_status"] = "excluded"
+    elif action == "bad":
+        payload["excluded_from_learning"] = True
+        payload["review_status"] = "bad"
+    elif action == "restore":
+        payload["excluded_from_learning"] = False
+        payload["review_status"] = "restored"
+    elif action == "approve":
+        payload["excluded_from_learning"] = False
+        payload["review_status"] = "approved"
+    else:
+        return {"success": False, "error": "Nepoznata review akcija."}
+
+    payload["reviewed_at"] = now
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    return {
+        "success": True,
+        "session_id": payload.get("session_id") or session_id,
+        "review_status": payload.get("review_status") or "pending",
+        "excluded_from_learning": bool(payload.get("excluded_from_learning")),
+        "reviewed_at": now,
+        "message": "Shadow sesija azurirana.",
     }
 
 @app.post("/record/run")
@@ -3551,17 +3592,36 @@ def apply_text_overrides(overrides: list[str] | None, fallback: list[str], limit
     return merge_unique_text(list(overrides or []), limit=limit)
 
 
-def load_shadow_sessions() -> list[dict]:
+def load_shadow_sessions(include_excluded: bool = False) -> list[dict]:
     ensure_flow_dirs()
     sessions: list[dict] = []
     for path in sorted(SHADOW_SESSION_DIR.glob("*.json"), reverse=True):
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
+            if not include_excluded and payload.get("excluded_from_learning"):
+                continue
             payload["_path"] = str(path)
             sessions.append(payload)
         except Exception:
             continue
     return sessions
+
+
+def find_shadow_session_path(session_id: str) -> Path | None:
+    ensure_flow_dirs()
+    if not session_id:
+        return None
+    direct = SHADOW_SESSION_DIR / f"{session_id}.json"
+    if direct.exists():
+        return direct
+    for path in SHADOW_SESSION_DIR.glob("*.json"):
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            if str(payload.get("session_id") or "") == session_id:
+                return path
+        except Exception:
+            continue
+    return None
 
 
 def summarize_shadow_groups() -> list[dict]:

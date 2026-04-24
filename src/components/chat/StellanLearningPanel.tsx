@@ -161,6 +161,8 @@ interface ShadowSessionDetail {
   page_count: number;
   duration_ms: number;
   path?: string;
+  review_status?: string;
+  excluded_from_learning?: boolean;
 }
 
 interface Props {
@@ -224,6 +226,34 @@ function shadowStateClass(state?: string) {
       return "text-amber-300 border-amber-500/30 bg-amber-500/10";
     default:
       return "text-muted-foreground border-border bg-background/40";
+  }
+}
+
+function reviewStatusLabel(status?: string, excluded?: boolean) {
+  if (excluded && status === "bad") return "Loša";
+  if (excluded) return "Isključena";
+  switch (status) {
+    case "approved":
+      return "Odobrena";
+    case "restored":
+      return "Vraćena";
+    case "bad":
+      return "Loša";
+    default:
+      return "Aktivna";
+  }
+}
+
+function reviewStatusClass(status?: string, excluded?: boolean) {
+  if (excluded && status === "bad") return "text-destructive border-destructive/30 bg-destructive/10";
+  if (excluded) return "text-muted-foreground border-border bg-background/60";
+  switch (status) {
+    case "approved":
+      return "text-green-400 border-green-500/30 bg-green-500/10";
+    case "restored":
+      return "text-primary border-primary/30 bg-primary/10";
+    default:
+      return "text-emerald-300 border-emerald-500/20 bg-emerald-500/5";
   }
 }
 
@@ -392,6 +422,7 @@ function FlowsTab({ callAgent, onEdit, onNavigate }: {
   const [shadowGroups, setShadowGroups] = useState<ShadowGroupSummary[]>([]);
   const [groupSessions, setGroupSessions] = useState<ShadowSessionDetail[]>([]);
   const [groupSessionsLoading, setGroupSessionsLoading] = useState(false);
+  const [sessionActionId, setSessionActionId] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [menuFor, setMenuFor] = useState<string | null>(null);
   const [selectedGroupKey, setSelectedGroupKey] = useState<string>("");
@@ -493,6 +524,19 @@ function FlowsTab({ callAgent, onEdit, onNavigate }: {
   useEffect(() => {
     loadGroupSessions(selectedGroup);
   }, [selectedGroup, loadGroupSessions]);
+
+  const reviewShadowSession = useCallback(async (sessionId: string, action: "bad" | "exclude" | "restore" | "approve") => {
+    if (!sessionId) return;
+    setSessionActionId(sessionId);
+    try {
+      await callAgent("record/shadow_session_review", { session_id: sessionId, action });
+      await Promise.all([load(), loadGroupSessions(selectedGroup)]);
+    } catch {
+      // noop
+    } finally {
+      setSessionActionId("");
+    }
+  }, [callAgent, load, loadGroupSessions, selectedGroup]);
 
   return (
     <div className="h-full overflow-y-auto px-5 py-5">
@@ -670,9 +714,14 @@ function FlowsTab({ callAgent, onEdit, onNavigate }: {
                             {session.step_count} koraka Â· {session.page_count} stranica Â· {formatRelativeTime(session.captured_at ? Date.parse(session.captured_at) : undefined)}
                           </div>
                         </div>
-                        <span className={cn("inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px]", shadowStateClass(session.learning_state))}>
-                          {session.confidence}% 
-                        </span>
+                        <div className="flex flex-col items-end gap-1">
+                          <span className={cn("inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px]", shadowStateClass(session.learning_state))}>
+                            {session.confidence}%
+                          </span>
+                          <span className={cn("inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px]", reviewStatusClass(session.review_status, session.excluded_from_learning))}>
+                            {reviewStatusLabel(session.review_status, session.excluded_from_learning)}
+                          </span>
+                        </div>
                       </div>
                       <div className="mt-2 text-[11px] text-muted-foreground">{session.summary}</div>
                       {!!session.tags?.length && (
@@ -689,6 +738,47 @@ function FlowsTab({ callAgent, onEdit, onNavigate }: {
                           Warning: {session.warnings[0]}
                         </div>
                       )}
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {session.excluded_from_learning ? (
+                          <button
+                            onClick={() => reviewShadowSession(session.session_id, "restore")}
+                            disabled={sessionActionId === session.session_id}
+                            className="inline-flex items-center gap-1 rounded-lg border border-primary/30 bg-primary/10 px-2 py-1 text-[10px] text-primary hover:bg-primary/20 disabled:opacity-40"
+                          >
+                            {sessionActionId === session.session_id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Undo2 className="h-3 w-3" />}
+                            Vrati u ucenje
+                          </button>
+                        ) : (
+                          <>
+                            <button
+                              onClick={() => reviewShadowSession(session.session_id, "bad")}
+                              disabled={sessionActionId === session.session_id}
+                              className="inline-flex items-center gap-1 rounded-lg border border-destructive/30 bg-destructive/10 px-2 py-1 text-[10px] text-destructive hover:bg-destructive/20 disabled:opacity-40"
+                            >
+                              {sessionActionId === session.session_id ? <Loader2 className="h-3 w-3 animate-spin" /> : <X className="h-3 w-3" />}
+                              Oznaci kao losu
+                            </button>
+                            <button
+                              onClick={() => reviewShadowSession(session.session_id, "exclude")}
+                              disabled={sessionActionId === session.session_id}
+                              className="inline-flex items-center gap-1 rounded-lg border border-border bg-background px-2 py-1 text-[10px] text-muted-foreground hover:bg-accent disabled:opacity-40"
+                            >
+                              {sessionActionId === session.session_id ? <Loader2 className="h-3 w-3 animate-spin" /> : <EyeOff className="h-3 w-3" />}
+                              Iskljuci iz ucenja
+                            </button>
+                            {(session.review_status === "approved" || session.review_status === "restored") ? null : (
+                              <button
+                                onClick={() => reviewShadowSession(session.session_id, "approve")}
+                                disabled={sessionActionId === session.session_id}
+                                className="inline-flex items-center gap-1 rounded-lg border border-green-500/30 bg-green-500/10 px-2 py-1 text-[10px] text-green-400 hover:bg-green-500/20 disabled:opacity-40"
+                              >
+                                {sessionActionId === session.session_id ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3" />}
+                                Odobri
+                              </button>
+                            )}
+                          </>
+                        )}
+                      </div>
                     </div>
                   ))}
                 </>
