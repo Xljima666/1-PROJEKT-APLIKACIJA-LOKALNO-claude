@@ -80,6 +80,8 @@ interface ShadowInsight {
     page_count?: number;
     duration_ms?: number;
     counts?: Record<string, number>;
+    avg_steps?: number;
+    related_sessions?: number;
   };
   confidence?: number;
   learning_state?: string;
@@ -514,6 +516,10 @@ function RecordTab({ callAgent, editFlow, onSaved }: {
   const safe = Array.isArray(steps) ? steps : [];
   const lastRecordedSnippet = useMemo(() => recordedStepsToSnippet(lastRecordedSteps), [lastRecordedSteps]);
   const addLog = (m: string) => setLogs(p => [...p.slice(-50), m]);
+  const shadowWarningCount = shadowInsight?.warnings?.length || 0;
+  const learnedGroupsReady = shadowGroups.filter(group => group.confidence >= 60).length;
+  const activeLearningConfidence = shadowPlaybook?.confidence ?? shadowInsight?.confidence ?? 0;
+  const activeLearningState = shadowPlaybook?.learning_state ?? shadowInsight?.learning_state;
   const formatShadowDuration = (durationMs?: number) => {
     if (!durationMs || durationMs < 1000) return "kratka sesija";
     const totalSeconds = Math.floor(durationMs / 1000);
@@ -1116,7 +1122,7 @@ ${codeToPolish}`;
       </div>
 
       {/* Main grid: [koraci | sirovi kod | AI kod | kontrole] */}
-      <div className="grid flex-1 min-h-0 grid-cols-[220px_1fr_1fr_190px] gap-2 overflow-hidden">
+      <div className="grid flex-1 min-h-0 grid-cols-[220px_minmax(0,1fr)_minmax(0,1fr)_280px] gap-2 overflow-hidden">
 
         {/* KORACI — uži panel */}
         <div className="flex flex-col rounded-xl border border-border bg-card overflow-hidden">
@@ -1325,28 +1331,47 @@ ${codeToPolish}`;
 
         {/* KONTROLE — desni panel */}
         <div className="flex flex-col rounded-xl border border-border bg-card overflow-hidden">
-          <div className="shrink-0 border-b border-border p-2.5">
-            <label className="text-[9px] uppercase tracking-wider text-muted-foreground">Ime flowa</label>
-            <input value={name} onChange={e => setName(e.target.value)}
-              className="mt-1 w-full rounded border border-border bg-background px-2 py-1.5 text-xs outline-none focus:border-primary"
-              placeholder="Novi flow"
-            />
-            <div className="mt-1.5 grid grid-cols-2 gap-1 text-center">
+          <div className="shrink-0 border-b border-border p-3 space-y-2.5 bg-background/30">
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <p className="text-[9px] uppercase tracking-[0.18em] text-primary/80">Učenje i draftovi</p>
+                <h3 className="mt-0.5 text-sm font-semibold text-foreground">Shadow cockpit</h3>
+                <p className="text-[10px] text-muted-foreground">Radi normalno po portalu, a Stellan paralelno uči obrazac rada.</p>
+              </div>
+              <span className={cn("rounded border px-1.5 py-0.5 text-[9px] shrink-0", shadowStateClass(activeLearningState))}>
+                {activeLearningConfidence}% 
+              </span>
+            </div>
+
+            <label className="block">
+              <span className="text-[9px] uppercase tracking-wider text-muted-foreground">Ime flowa</span>
+              <input value={name} onChange={e => setName(e.target.value)}
+                className="mt-1 w-full rounded border border-border bg-background px-2 py-1.5 text-xs outline-none focus:border-primary"
+                placeholder="Novi flow"
+              />
+            </label>
+
+            <div className="grid grid-cols-4 gap-1 text-center">
               {[
                 { l: "Koraci", v: safe.length },
-                { l: "Status", v: recording ? "🔴 REC" : safe.length > 0 ? "✓" : "—" },
+                { l: "Stanje", v: recording ? "REC" : safe.length > 0 ? "OK" : "—", danger: recording },
+                { l: "Grupe", v: shadowGroups.length },
+                { l: "Ready", v: learnedGroupsReady },
               ].map(s => (
-                <div key={s.l} className="rounded border border-border bg-background/50 p-1">
-                  <div className={cn("text-xs font-bold", recording && s.l === "Status" ? "text-destructive" : "")}>{s.v}</div>
+                <div key={s.l} className="rounded border border-border bg-background/50 p-1.5">
+                  <div className={cn("text-xs font-bold", s.danger ? "text-destructive" : "text-foreground")}>{s.v}</div>
                   <div className="text-[8px] uppercase text-muted-foreground">{s.l}</div>
                 </div>
               ))}
             </div>
           </div>
           <div className="flex-1 overflow-y-auto p-2.5 space-y-1.5 stellan-scroll">
-            <div className="grid grid-cols-1 gap-1.5">
-              <div className="rounded-lg border border-border bg-background/40 p-2">
-                <label className="text-[9px] uppercase tracking-wider text-muted-foreground">Kontekst učenja</label>
+            <div className="grid grid-cols-1 gap-2">
+              <div className="rounded-lg border border-border bg-background/40 p-2 space-y-2">
+                <div>
+                  <label className="text-[9px] uppercase tracking-wider text-muted-foreground">Kontekst učenja</label>
+                  <p className="mt-0.5 text-[9px] text-muted-foreground/60">Opiši tip postupka i što želiš da Stellan izvuče iz sesije.</p>
+                </div>
                 <textarea
                   value={learningContext}
                   onChange={e => setLearningContext(e.target.value)}
@@ -1354,18 +1379,56 @@ ${codeToPolish}`;
                   className="mt-1 w-full resize-none rounded border border-border bg-background px-2 py-1.5 text-[11px] outline-none focus:border-primary"
                   placeholder="npr. parcelacija, upis, predaja priloga, kontrola PDF-a..."
                 />
+                <div className="grid grid-cols-2 gap-1.5">
+                  <div className="rounded border border-border bg-background/60 p-1.5">
+                    <div className="text-[8px] uppercase text-muted-foreground">Warnings</div>
+                    <div className="mt-0.5 text-xs font-semibold text-orange-300">{shadowWarningCount}</div>
+                  </div>
+                  <div className="rounded border border-border bg-background/60 p-1.5">
+                    <div className="text-[8px] uppercase text-muted-foreground">Stanje</div>
+                    <div className="mt-0.5 text-[10px] font-semibold text-foreground">{shadowStateLabel(activeLearningState)}</div>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-1.5">
+                  <button disabled={saving} onClick={() => save("raw")}
+                    className="flex items-center justify-center gap-1 rounded-lg border border-border bg-card py-2 text-xs hover:bg-accent disabled:opacity-40">
+                    <Save className="h-3 w-3" /> Spremi
+                  </button>
+                  <button disabled={saving} onClick={() => save("polished", true)}
+                    className="flex items-center justify-center gap-1 rounded-lg border border-primary/40 bg-primary/10 py-2 text-xs text-primary hover:bg-primary/20 disabled:opacity-40">
+                    <Save className="h-3 w-3" /> Spremi i zatvori
+                  </button>
+                </div>
               </div>
-              <button disabled={saving} onClick={() => save("raw")}
-                className="flex items-center justify-center gap-1 rounded-lg border border-border bg-card py-2 text-xs hover:bg-accent disabled:opacity-40">
-                <Save className="h-3 w-3" /> Spremi
-              </button>
-              <button disabled={saving} onClick={() => save("polished", true)}
-                className="flex items-center justify-center gap-1 rounded-lg border border-primary/40 bg-primary/10 py-2 text-xs text-primary hover:bg-primary/20 disabled:opacity-40">
-                <Save className="h-3 w-3" /> Spremi i zatvori
-              </button>
+
+              <div className="rounded-lg border border-primary/15 bg-primary/5 p-2 space-y-1.5">
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <p className="text-[9px] uppercase tracking-wider text-primary/80">Memorija učenja</p>
+                    <div className="text-[10px] text-muted-foreground">Koliko je Stellan siguran za trenutni obrazac rada.</div>
+                  </div>
+                  <span className={cn("rounded border px-1.5 py-0.5 text-[9px]", shadowStateClass(activeLearningState))}>
+                    {activeLearningConfidence}% · {shadowStateLabel(activeLearningState)}
+                  </span>
+                </div>
+                <div className="grid grid-cols-3 gap-1">
+                  <div className="rounded border border-border bg-background/60 p-1.5">
+                    <div className="text-[8px] uppercase text-muted-foreground">Sesije</div>
+                    <div className="mt-0.5 text-xs font-semibold text-foreground">{shadowInsight?.stats?.related_sessions || shadowPlaybook?.stats?.session_count || 0}</div>
+                  </div>
+                  <div className="rounded border border-border bg-background/60 p-1.5">
+                    <div className="text-[8px] uppercase text-muted-foreground">Prosjek</div>
+                    <div className="mt-0.5 text-xs font-semibold text-foreground">{shadowInsight?.stats?.avg_steps || shadowPlaybook?.stats?.avg_steps || 0}</div>
+                  </div>
+                  <div className="rounded border border-border bg-background/60 p-1.5">
+                    <div className="text-[8px] uppercase text-muted-foreground">Ready</div>
+                    <div className="mt-0.5 text-xs font-semibold text-foreground">{shadowInsight?.auto_playbook_ready ? "DA" : "NE"}</div>
+                  </div>
+                </div>
+              </div>
             </div>
             {shadowInsight && (
-              <div className="border-t border-border/60 pt-1.5 space-y-1.5">
+              <div className="border-t border-border/60 pt-2 space-y-1.5">
                 <p className="text-[9px] uppercase tracking-wider text-emerald-400">Shadow učenje</p>
                 <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-2 space-y-1.5">
                   <div className="text-[10px] font-semibold text-foreground">{shadowInsight.summary}</div>
@@ -1425,7 +1488,7 @@ ${codeToPolish}`;
               </div>
             )}
             {!!shadowGroups.length && (
-              <div className="border-t border-border/60 pt-1.5 space-y-1.5">
+              <div className="border-t border-border/60 pt-2 space-y-1.5">
                 <p className="text-[9px] uppercase tracking-wider text-primary/80">Naučene grupe</p>
                 <div className="space-y-1">
                   {shadowGroups.slice(0, 3).map(group => (
@@ -1461,7 +1524,7 @@ ${codeToPolish}`;
               </div>
             )}
             {shadowPlaybook && (
-              <div className="border-t border-border/60 pt-1.5 space-y-1.5">
+              <div className="border-t border-border/60 pt-2 space-y-1.5">
                 <p className="text-[9px] uppercase tracking-wider text-primary">Playbook draft</p>
                 <div className="rounded-lg border border-primary/20 bg-primary/5 p-2 space-y-1.5">
                   <div className="text-[10px] font-semibold text-foreground">{shadowPlaybook.display_name}</div>
@@ -1494,7 +1557,7 @@ ${codeToPolish}`;
                 </div>
               </div>
             )}
-            <div className="border-t border-border/60 pt-1.5 space-y-1">
+            <div className="border-t border-border/60 pt-2 space-y-1">
               <p className="text-[9px] uppercase tracking-wider text-muted-foreground/50">Savjeti</p>
               {["← briše zadnji korak", "Enter = navigiraj URL", "Snimaj = snima klikove", "Tab = indent u editoru", "Ctrl+S = spremi kod"]
                 .map(t => <div key={t} className="flex gap-1.5 text-[9px] text-muted-foreground/50"><span className="text-primary/60">›</span>{t}</div>)}
