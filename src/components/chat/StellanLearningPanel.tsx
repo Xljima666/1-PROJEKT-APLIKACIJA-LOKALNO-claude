@@ -208,9 +208,10 @@ function shadowStateLabel(state?: string) {
       return "Spreman za automatiku";
     case "spreman_za_draft":
       return "Spreman za draft";
+    case "učenje_u_tijeku":
     case "uÄŤenje_u_tijeku":
     case "uĂ„Ĺ¤enje_u_tijeku":
-      return "UÄŤenje u tijeku";
+      return "Učenje u tijeku";
     default:
       return "Premalo podataka";
   }
@@ -222,6 +223,7 @@ function shadowStateClass(state?: string) {
       return "text-green-400 border-green-500/30 bg-green-500/10";
     case "spreman_za_draft":
       return "text-primary border-primary/30 bg-primary/10";
+    case "učenje_u_tijeku":
     case "uÄŤenje_u_tijeku":
     case "uĂ„Ĺ¤enje_u_tijeku":
       return "text-amber-300 border-amber-500/30 bg-amber-500/10";
@@ -364,7 +366,7 @@ export default function StellanLearningPanel({ onClose, agentServerUrl, apiKey }
   };
 
   const tabs = [
-    { id: "record" as PanelTab, label: "UÄŤenje",     icon: <Circle   className="w-3.5 h-3.5" /> },
+    { id: "record" as PanelTab, label: "Učenje",     icon: <Circle   className="w-3.5 h-3.5" /> },
     { id: "flows" as PanelTab,  label: "Memorija",   icon: <Workflow className="w-3.5 h-3.5" /> },
     { id: "run" as PanelTab,    label: "Pokretanje", icon: <Play     className="w-3.5 h-3.5" /> },
     { id: "cad" as PanelTab,    label: "CAD",        icon: <Slash    className="w-3.5 h-3.5" /> },
@@ -379,8 +381,8 @@ export default function StellanLearningPanel({ onClose, agentServerUrl, apiKey }
         </button>
         <div className="h-4 w-px bg-border" />
         <div className="hidden min-w-0 shrink-0 md:block">
-          <div className="text-sm font-semibold text-foreground">Stellan uÄŤenje</div>
-          <div className="text-[10px] text-muted-foreground">Shadow sesije, nauÄŤene grupe i playbookovi</div>
+          <div className="text-sm font-semibold text-foreground">Stellan učenje</div>
+          <div className="text-[10px] text-muted-foreground">Shadow sesije, naučene grupe i playbookovi</div>
         </div>
         <nav className="flex items-center gap-1 flex-1">
           {tabs.map(tab => (
@@ -487,7 +489,7 @@ function FlowsTab({ callAgent, onEdit, onNavigate }: {
   const selectedGroupFlows = selectedGroup
     ? flows.filter(flow => {
         const haystack = `${flow.name} ${flow.startUrl || ""}`.toLowerCase();
-        const flowTypeWords = selectedGroup.flow_type.toLowerCase().split(/[^a-z0-9ÄŤÄ‡ĹľĹˇÄ‘]+/i).filter(Boolean);
+        const flowTypeWords = selectedGroup.flow_type.toLowerCase().split(/[^a-z0-9čćžšđ]+/i).filter(Boolean);
         return haystack.includes(selectedGroup.portal.toLowerCase())
           || flowTypeWords.some(word => word.length > 3 && haystack.includes(word));
       })
@@ -549,16 +551,16 @@ function FlowsTab({ callAgent, onEdit, onNavigate }: {
                 <Sparkles className="h-3 w-3" /> Novi learning cockpit
               </span>
               <div>
-                <h1 className="text-xl font-bold">Memorija <span className="text-gradient">ucenja</span></h1>
+                <h1 className="text-xl font-bold">Memorija <span className="text-gradient">učenja</span></h1>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Ovdje drzimo naucene SDGE obrasce rada, confidence i playbooke spremne za doradu ili pokretanje.
+                  Ovdje držimo naučene SDGE obrasce rada, confidence i playbooke spremne za doradu ili pokretanje.
                 </p>
               </div>
             </div>
             <div className="flex gap-2 shrink-0">
               <button onClick={() => onNavigate("record")}
                 className="inline-flex items-center gap-2 rounded-lg gradient-primary px-4 py-2 text-sm font-medium text-white hover:opacity-90">
-                <Circle className="h-4 w-4" /> Novo ucenje
+                <Circle className="h-4 w-4" /> Novo učenje
               </button>
               <button onClick={() => onNavigate("run")}
                 className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2 text-sm hover:bg-accent">
@@ -568,10 +570,10 @@ function FlowsTab({ callAgent, onEdit, onNavigate }: {
           </div>
           <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
             {[
-              { l: "Naucene grupe", v: shadowGroups.length, hint: "portal + tip postupka" },
+              { l: "Naučene grupe", v: shadowGroups.length, hint: "portal + tip postupka" },
               { l: "Spremne za draft", v: readyGroups, hint: "confidence >= 60%" },
               { l: "Auto-playbook", v: automationReadyGroups, hint: "spremno za automatiku" },
-              { l: "Prosjecni confidence", v: `${averageConfidence}%`, hint: "koliko je Stellan siguran" },
+              { l: "Prosječni confidence", v: `${averageConfidence}%`, hint: "koliko je Stellan siguran" },
             ].map(stat => (
               <div key={stat.l} className="rounded-xl border border-border bg-background/50 p-3">
                 <div className="text-lg font-semibold text-foreground">{stat.v}</div>
@@ -585,8 +587,8 @@ function FlowsTab({ callAgent, onEdit, onNavigate }: {
         <div className="rounded-2xl border border-border bg-card p-5">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <p className="text-[11px] uppercase tracking-[0.18em] text-primary/80">Sto je trenutno najvaznije</p>
-              <h2 className="mt-1 text-sm font-semibold text-foreground">Najjace naucene grupe</h2>
+              <p className="text-[11px] uppercase tracking-[0.18em] text-primary/80">Što je trenutno najvažnije</p>
+              <h2 className="mt-1 text-sm font-semibold text-foreground">Najjače naučene grupe</h2>
             </div>
             <span className="rounded-lg border border-border bg-background/60 px-2 py-1 text-[10px] text-muted-foreground">
               {latestLearned.length} prikaza
@@ -620,15 +622,15 @@ function FlowsTab({ callAgent, onEdit, onNavigate }: {
                 </div>
                 {group.latest_name && (
                   <div className="mt-2 text-[10px] text-muted-foreground/80">
-                    Zadnje nauceno: <span className="text-foreground">{group.latest_name}</span>
+                    Zadnje naučeno: <span className="text-foreground">{group.latest_name}</span>
                   </div>
                 )}
               </button>
             )) : (
               <div className="rounded-xl border border-dashed border-border bg-background/30 p-5 text-center">
                 <Workflow className="mx-auto mb-2 h-6 w-6 text-muted-foreground/30" />
-                <div className="text-sm font-medium text-foreground">Jos nemamo naucene grupe</div>
-                <div className="mt-1 text-xs text-muted-foreground">Kreni iz Ucenje taba sa shadow sesijom i Stellan ce ovdje poceti slagati znanje.</div>
+                <div className="text-sm font-medium text-foreground">Još nemamo naučene grupe</div>
+                <div className="mt-1 text-xs text-muted-foreground">Kreni iz Učenje taba sa shadow sesijom i Stellan će ovdje početi slagati znanje.</div>
               </div>
             )}
           </div>
@@ -640,12 +642,12 @@ function FlowsTab({ callAgent, onEdit, onNavigate }: {
           <div className="rounded-xl border border-border bg-card p-4">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <div className="text-[11px] uppercase tracking-[0.18em] text-primary/80">Aktivna naucena grupa</div>
+                <div className="text-[11px] uppercase tracking-[0.18em] text-primary/80">Aktivna naučena grupa</div>
                 <h3 className="mt-1 text-base font-semibold text-foreground">{selectedGroup.flow_type}</h3>
                 <div className="mt-1 text-sm text-muted-foreground">{selectedGroup.portal}</div>
               </div>
               <span className={cn("rounded border px-2 py-1 text-[10px]", shadowStateClass(selectedGroup.learning_state))}>
-                {selectedGroup.confidence}% Â· {shadowStateLabel(selectedGroup.learning_state)}
+                {selectedGroup.confidence}% · {shadowStateLabel(selectedGroup.learning_state)}
               </span>
             </div>
 
@@ -669,7 +671,7 @@ function FlowsTab({ callAgent, onEdit, onNavigate }: {
                 onClick={() => onNavigate("record")}
                 className="inline-flex items-center gap-2 rounded-lg gradient-primary px-3 py-2 text-sm font-medium text-white hover:opacity-90"
               >
-                <Circle className="h-4 w-4" /> Nastavi ucenje ove grupe
+                <Circle className="h-4 w-4" /> Nastavi učenje ove grupe
               </button>
               <button
                 onClick={() => onNavigate("run")}
@@ -681,7 +683,7 @@ function FlowsTab({ callAgent, onEdit, onNavigate }: {
 
             {selectedGroup.latest_name && (
               <div className="mt-4 rounded-lg border border-border bg-background/40 p-3 text-sm text-muted-foreground">
-                Zadnji nauceni primjer za ovaj obrazac rada: <span className="font-medium text-foreground">{selectedGroup.latest_name}</span>
+                Zadnji naučeni primjer za ovaj obrazac rada: <span className="font-medium text-foreground">{selectedGroup.latest_name}</span>
               </div>
             )}
           </div>
@@ -712,7 +714,7 @@ function FlowsTab({ callAgent, onEdit, onNavigate }: {
                         <div className="min-w-0">
                           <div className="truncate text-sm font-medium text-foreground">{session.name}</div>
                           <div className="mt-1 text-[10px] text-muted-foreground">
-                            {session.step_count} koraka Â· {session.page_count} stranica Â· {formatRelativeTime(session.captured_at ? Date.parse(session.captured_at) : undefined)}
+                            {session.step_count} koraka · {session.page_count} stranica · {formatRelativeTime(session.captured_at ? Date.parse(session.captured_at) : undefined)}
                           </div>
                         </div>
                         <div className="flex flex-col items-end gap-1">
@@ -747,7 +749,7 @@ function FlowsTab({ callAgent, onEdit, onNavigate }: {
                             className="inline-flex items-center gap-1 rounded-lg border border-primary/30 bg-primary/10 px-2 py-1 text-[10px] text-primary hover:bg-primary/20 disabled:opacity-40"
                           >
                             {sessionActionId === session.session_id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Undo2 className="h-3 w-3" />}
-                            Vrati u ucenje
+                            Vrati u učenje
                           </button>
                         ) : (
                           <>
@@ -785,7 +787,7 @@ function FlowsTab({ callAgent, onEdit, onNavigate }: {
                 </>
               ) : (
                 <div className="rounded-lg border border-dashed border-border bg-background/30 p-4 text-sm text-muted-foreground">
-                  Jos nema stvarnih shadow sesija za ovu grupu ili agent server jos nije vratio detalje.
+                  Još nema stvarnih shadow sesija za ovu grupu ili agent server još nije vratio detalje.
                 </div>
               )}
             </div>
@@ -794,7 +796,7 @@ function FlowsTab({ callAgent, onEdit, onNavigate }: {
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <div className="text-[11px] uppercase tracking-[0.18em] text-primary/80">Povezani playbookovi</div>
-                  <h3 className="mt-1 text-sm font-semibold text-foreground">Sto vec imamo za ovaj obrazac</h3>
+                  <h3 className="mt-1 text-sm font-semibold text-foreground">Što već imamo za ovaj obrazac</h3>
                 </div>
                 <span className="rounded-lg border border-border bg-background/60 px-2 py-1 text-[10px] text-muted-foreground">
                   {selectedGroupFlows.length}
@@ -822,7 +824,7 @@ function FlowsTab({ callAgent, onEdit, onNavigate }: {
                 );
                 }) : (
                   <div className="rounded-lg border border-dashed border-border bg-background/30 p-4 text-sm text-muted-foreground">
-                    Jos nema jasno povezanih playbookova za ovu grupu. To je dobar kandidat za novu shadow sesiju ili novu doradu drafta.
+                    Još nema jasno povezanih playbookova za ovu grupu. To je dobar kandidat za novu shadow sesiju ili novu doradu drafta.
                   </div>
                 )}
               </div>
@@ -834,7 +836,7 @@ function FlowsTab({ callAgent, onEdit, onNavigate }: {
       <div className="mb-4 grid gap-3 lg:grid-cols-3">
         <div className="rounded-xl border border-border bg-card p-4">
           <div className="text-sm font-semibold text-foreground">Playbook biblioteka</div>
-          <div className="mt-1 text-xs text-muted-foreground">Sve sto mozes dalje urediti, polirati i vezati uz konkretan portal.</div>
+          <div className="mt-1 text-xs text-muted-foreground">Sve što možeš dalje urediti, polirati i vezati uz konkretan portal.</div>
           <div className="mt-3 flex items-center gap-2 text-[11px] text-muted-foreground">
             <Workflow className="h-3.5 w-3.5" /> {flows.length} spremljenih flowova
           </div>
@@ -846,17 +848,17 @@ function FlowsTab({ callAgent, onEdit, onNavigate }: {
           </div>
         </div>
         <div className="rounded-xl border border-border bg-card p-4">
-          <div className="text-sm font-semibold text-foreground">Preporuceni tok rada</div>
+          <div className="text-sm font-semibold text-foreground">Preporučeni tok rada</div>
           <ol className="mt-3 space-y-2 text-xs text-muted-foreground">
-            <li>1. U Ucenje tabu odradi shadow sesiju po portalu.</li>
+            <li>1. U Učenje tabu odradi shadow sesiju po portalu.</li>
             <li>2. Pregledaj faze, checklistu i warninge.</li>
             <li>3. Iz memorije otvori draft i doradi ga samo gdje treba.</li>
           </ol>
         </div>
         <div className="rounded-xl border border-primary/20 bg-primary/5 p-4">
-          <div className="text-sm font-semibold text-foreground">Sto smo maknuli u drugi plan</div>
+          <div className="text-sm font-semibold text-foreground">Što smo maknuli u drugi plan</div>
           <div className="mt-2 text-xs text-muted-foreground">
-            Stari flow-first pogled vise nije glavni ekran. Sad su znanje, confidence i playbookovi prvi, a sirovi flow ostaje alat iza toga.
+            Stari flow-first pogled više nije glavni ekran. Sad su znanje, confidence i playbookovi prvi, a sirovi flow ostaje alat iza toga.
           </div>
         </div>
       </div>
@@ -866,11 +868,11 @@ function FlowsTab({ callAgent, onEdit, onNavigate }: {
       ) : flows.length === 0 ? (
         <div className="rounded-xl border border-dashed border-border bg-card/50 p-10 text-center">
           <Workflow className="mx-auto mb-3 h-8 w-8 text-muted-foreground/30" />
-          <p className="font-medium">Jos nema spremljenih playbookova</p>
-          <p className="mt-1 text-sm text-muted-foreground">To je ok. Kreni iz Ucenje taba i iz shadow sesije cemo sloziti prvi draft.</p>
+          <p className="font-medium">Još nema spremljenih playbookova</p>
+          <p className="mt-1 text-sm text-muted-foreground">To je ok. Kreni iz Učenje taba i iz shadow sesije ćemo složiti prvi draft.</p>
           <button onClick={() => onNavigate("record")}
             className="mt-3 inline-flex items-center gap-2 rounded-lg gradient-primary px-4 py-2 text-sm text-white">
-            <Circle className="h-4 w-4" /> Pokreni ucenje
+            <Circle className="h-4 w-4" /> Pokreni učenje
           </button>
         </div>
       ) : (
@@ -998,7 +1000,7 @@ function RecordTab({ callAgent, editFlow, onSaved }: {
     ai: { start: 0, end: 0 },
   });
   const [logs, setLogs]       = useState<string[]>(
-    isEditing ? [`đź“‚ UÄŤitan: "${editFlow!.name}" (${editFlow!.steps?.length ?? 0} koraka)`] : []
+    isEditing ? [`Učitan: "${editFlow!.name}" (${editFlow!.steps?.length ?? 0} koraka)`] : []
   );
 
   const safe = Array.isArray(steps) ? steps : [];
@@ -1019,7 +1021,10 @@ function RecordTab({ callAgent, editFlow, onSaved }: {
     switch (state) {
       case "spreman_za_automatiku": return "Spreman za automatiku";
       case "spreman_za_draft": return "Spreman za draft";
-      case "uÄŤenje_u_tijeku": return "UÄŤenje u tijeku";
+      case "učenje_u_tijeku":
+      case "uÄŤenje_u_tijeku":
+      case "uĂ„Ĺ¤enje_u_tijeku":
+        return "Učenje u tijeku";
       default: return "Premalo podataka";
     }
   };
@@ -1027,7 +1032,10 @@ function RecordTab({ callAgent, editFlow, onSaved }: {
     switch (state) {
       case "spreman_za_automatiku": return "text-green-400 border-green-500/30 bg-green-500/10";
       case "spreman_za_draft": return "text-primary border-primary/30 bg-primary/10";
-      case "uÄŤenje_u_tijeku": return "text-amber-300 border-amber-500/30 bg-amber-500/10";
+      case "učenje_u_tijeku":
+      case "uÄŤenje_u_tijeku":
+      case "uĂ„Ĺ¤enje_u_tijeku":
+        return "text-amber-300 border-amber-500/30 bg-amber-500/10";
       default: return "text-muted-foreground border-border bg-background/40";
     }
   };
@@ -1076,7 +1084,7 @@ function RecordTab({ callAgent, editFlow, onSaved }: {
     loadShadowSummary();
   }, [loadShadowSummary]);
 
-  // UÄŤitaj korake I .py kod iz agenta pri edit modu
+  // Učitaj korake i .py kod iz agenta pri edit modu
   useEffect(() => {
     if (!editFlow) return;
     callAgent("record/read", { name: editFlow.id }).then(r => {
@@ -1084,19 +1092,19 @@ function RecordTab({ callAgent, editFlow, onSaved }: {
         const loaded = Array.isArray(r.metadata?.steps) ? r.metadata.steps
           : Array.isArray(editFlow.steps) ? editFlow.steps : [];
         setSteps(loaded);
-        addLog(`âś“ UÄŤitano ${loaded.length} koraka`);
-        // UÄŤitaj .py kod u editor
+        addLog(`Učitano ${loaded.length} koraka`);
+        // Učitaj .py kod u editor
         if (typeof r.content === "string" && r.content.trim()) {
           setEditedCode(r.content);
           setSavedCode(r.content);
           setCodeEdited(true);
-          addLog(`đź“ť UÄŤitan kod (${r.content.length} znakova)`);
+          addLog(`Učitan kod (${r.content.length} znakova)`);
         }
       } else {
-        // Ako nema .py, bar uÄŤitaj korake iz editFlow
+        // Ako nema .py, bar učitaj korake iz editFlow
         const loaded = Array.isArray(editFlow.steps) ? editFlow.steps : [];
         setSteps(loaded);
-        if (loaded.length) addLog(`âś“ UÄŤitano ${loaded.length} koraka (iz cache-a)`);
+        if (loaded.length) addLog(`Učitano ${loaded.length} koraka (iz cache-a)`);
       }
     }).catch(() => {
       // Fallback
@@ -1159,12 +1167,12 @@ function RecordTab({ callAgent, editFlow, onSaved }: {
   }, [recording, callAgent]);
 
   const openBrowser = async () => {
-    addLog(`đźŚ Otvaranje: ${url}`);
+    addLog(`Otvaranje: ${url}`);
     try {
       const r = await callAgent("browser/reset", { url });
-      if (r?.success) { setBo(true); addLog(`âś“ Browser otvoren: ${r.url}`); }
-      else addLog(`âś— ${r?.error}`);
-    } catch (e: any) { addLog(`âś— ${e.message}`); }
+      if (r?.success) { setBo(true); addLog(`Browser otvoren: ${r.url}`); }
+      else addLog(`Greška: ${r?.error}`);
+    } catch (e: any) { addLog(`Greška: ${e.message}`); }
   };
 
   const goBack = async () => {
@@ -1172,7 +1180,7 @@ function RecordTab({ callAgent, editFlow, onSaved }: {
       await callAgent("browser/back", {});
       if (recording && safe.length > 0) {
         setSteps(prev => (Array.isArray(prev) ? prev : []).slice(0, -1));
-        addLog("â† Unazad â€” zadnji korak uklonjen");
+        addLog("Unazad: zadnji korak uklonjen");
       }
     } catch {}
   };
@@ -1193,10 +1201,10 @@ function RecordTab({ callAgent, editFlow, onSaved }: {
         setCorrectionSavedPath("");
         setShadowPlaybook(null);
         await loadShadowSummary();
-        addLog(`đź§  Shadow analiza: ${analysis.portal} / ${analysis.flow_type}`);
-        addLog(`đź§ľ Checklist: ${(analysis.checklist || []).length} stavki`);
+        addLog(`Shadow analiza: ${analysis.portal} / ${analysis.flow_type}`);
+        addLog(`Checklist: ${(analysis.checklist || []).length} stavki`);
         if ((analysis.warnings || []).length > 0) {
-          addLog(`âš  Upozorenja: ${(analysis.warnings || []).length}`);
+          addLog(`Upozorenja: ${(analysis.warnings || []).length}`);
         }
         if (analysis.auto_playbook_ready) {
           addLog("Dovoljno znanja za draft. Pregledaj rezultat i klikni Napravi playbook kad si zadovoljan.");
@@ -1261,10 +1269,10 @@ function RecordTab({ callAgent, editFlow, onSaved }: {
         },
       });
 
-      addLog(`đź›  Playbook draft spremljen: ${draft.name}`);
-      addLog(`đź“š Sesije ukljucene: ${draft.stats?.session_count || draft.based_on_sessions.length}`);
+      addLog(`Playbook draft spremljen: ${draft.name}`);
+      addLog(`Sesije uključene: ${draft.stats?.session_count || draft.based_on_sessions.length}`);
       await loadShadowSummary();
-      addLog("âś… Draft je spremljen u flowove; moĹľeĹˇ ga odmah dalje doraditi ili prijeÄ‡i na Flowove.");
+      addLog("Draft je spremljen u flowove; možeš ga odmah dalje doraditi ili prijeći na Flowove.");
     } catch (e: any) {
       addLog(`Playbook builder nije uspio: ${e.message}`);
     } finally {
@@ -1275,7 +1283,7 @@ function RecordTab({ callAgent, editFlow, onSaved }: {
   const teachFromCorrection = async () => {
     const activeInsight = shadowInsight;
     if (!activeInsight) {
-      addLog("Nemamo shadow analizu iz koje bismo ucili.");
+      addLog("Nemamo shadow analizu iz koje bismo učili.");
       return;
     }
     setTeachingCorrection(true);
@@ -1291,11 +1299,11 @@ function RecordTab({ callAgent, editFlow, onSaved }: {
         checklist: uniqueReviewItems(reviewState.checklist),
         risks: uniqueReviewItems(reviewState.risks),
         warnings: uniqueReviewItems(reviewState.warnings),
-        summary: `Rucna korekcija za ${activeInsight.portal} / ${activeInsight.flow_type}`,
+        summary: `Ručna korekcija za ${activeInsight.portal} / ${activeInsight.flow_type}`,
         tags: activeInsight.tags || [],
       });
       setCorrectionSavedPath(r?.saved?.path || "");
-      addLog("Naucio sam iz tvoje ispravke i spremio je u memoriju.");
+      addLog("Naučio sam iz tvoje ispravke i spremio je u memoriju.");
       await loadShadowSummary();
       setReviewDirty(false);
     } catch (e: any) {
@@ -1314,7 +1322,7 @@ function RecordTab({ callAgent, editFlow, onSaved }: {
         const mergedSteps = mode === "append" ? [...recordBaseStepsRef.current, ...cleanArr] : cleanArr;
         setLastRecordedSteps(cleanArr);
         setSteps(mergedSteps);
-        addLog(`âŹą Zaustavljeno â€” ${arr.length} koraka`);
+        addLog(`Zaustavljeno: ${arr.length} koraka ukupno`);
         if (!codeEdited) setSavedCode("");
         addLog(`Zaustavljeno: ${cleanArr.length} novih koraka`);
         if (mode === "shadow") {
@@ -1325,10 +1333,10 @@ function RecordTab({ callAgent, editFlow, onSaved }: {
           const saveId = isEditing ? editFlow!.id : name.replace(/\s+/g, "_").toLowerCase();
           try {
             await callAgent("record/save", { name: saveId, display_name: name, url, steps: mergedSteps, status: "raw" });
-            addLog(`đź’ľ Auto-spremljeno: "${saveId}"`);
-          } catch (e: any) { addLog(`âš  Auto-save: ${e.message}`); }
+            addLog(`Auto-spremljeno: "${saveId}"`);
+          } catch (e: any) { addLog(`Auto-save: ${e.message}`); }
         }
-      } catch (e: any) { addLog(`âś— ${e.message}`); }
+      } catch (e: any) { addLog(`Greška: ${e.message}`); }
       setRec(false);
     } else {
       try {
@@ -1344,18 +1352,18 @@ function RecordTab({ callAgent, editFlow, onSaved }: {
         await callAgent("record/start", { name, url });
         setRec(true);
         if (mode === "append") addLog(`Nastavak snimanja: ${url}`);
-        if (mode === "shadow") addLog(`đź§  Shadow uÄŤenje: ${url}`);
-        addLog(`â–¶ Snimanje: ${url}`);
+        if (mode === "shadow") addLog(`Shadow učenje: ${url}`);
+        addLog(`Snimanje: ${url}`);
         if (!browserOnline) setBo(true);
-      } catch (e: any) { addLog(`âś— ${e.message}`); }
+      } catch (e: any) { addLog(`Greška: ${e.message}`); }
     }
   };
 
   const polish = async () => {
     const codeToPolish = rawCurrentCode;
-    if (!codeToPolish.trim() || codeToPolish.startsWith("# Koraci")) return addLog("Nema koda za ulaĹˇti.");
+    if (!codeToPolish.trim() || codeToPolish.startsWith("# Koraci")) return addLog("Nema koda za ulaštiti.");
     setPol(true);
-    addLog("đź¤– AI usavrĹˇava kod...");
+    addLog("AI usavršava kod...");
     try {
       const { data: { session } } = await supabase.auth.getSession();
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
@@ -1365,26 +1373,26 @@ function RecordTab({ callAgent, editFlow, onSaved }: {
         .filter(l => /page\.(click|fill|press|hover|wait_for_selector)\(/.test(l))
         .map(l => l.trim());
 
-      const prompt = `Ti si Playwright Python expert. UsavrĹˇi ovaj kod za automatizaciju web portala.
+      const prompt = `Ti si Playwright Python expert. Usavrši ovaj kod za automatizaciju web portala.
 
-NAJVAĹ˝NIJE PRAVILO: SELEKTORI SE NE SMIJU MIJENJATI.
-Ovi selektori su snimljeni sa stvarnog portala i MORAJU ostati toÄŤno isti znak po znak:
+NAJVAŽNIJE PRAVILO: SELEKTORI SE NE SMIJU MIJENJATI.
+Ovi selektori su snimljeni sa stvarnog portala i MORAJU ostati točno isti znak po znak:
 ${existingSelectors.map(l => `  ${l}`).join("\n")}
 
 SMIJE SE SAMO:
 1. Dodati await page.wait_for_timeout(1500) nakon page.click() gdje portal treba vremena
 2. Dodati await page.wait_for_selector("...", state="visible") ISPRED click/fill â€” koristiti ISTE selektore
 3. Zamijeniti hardkodirane lozinke s os.environ.get("OSS_USERNAME") i os.environ.get("OSS_PASSWORD")
-4. Dodati "import os" na vrh ako koristiĹˇ os.environ
+4. Dodati "import os" na vrh ako koristiš os.environ
 5. Dodati wait_until="domcontentloaded" u page.goto() ako nema
 
 NE SMIJE:
 - Promijeniti IKOJI selektor (makar i jedan znak)
 - Dodati try/except
 - Promijeniti redoslijed koraka
-- Dodati niĹˇta drugo
+- Dodati ništa drugo
 
-Vrati SAMO ÄŤisti Python kod, bez markdown backtickova, bez objaĹˇnjenja.
+Vrati SAMO čisti Python kod, bez markdown backtickova, bez objašnjenja.
 
 KOD:
 ${codeToPolish}`;
@@ -1501,14 +1509,14 @@ ${codeToPolish}`;
 
   const save = async (status: "raw" | "polished", closeAfter = false) => {
     if (!safe.length && !rawCurrentCode.trim() && !(status === "polished" && aiCode.trim())) {
-      addLog("âš  Nema Ĺˇto spremiti"); return;
+      addLog("Nema što spremiti"); return;
     }
     setSav(true);
     try {
       const saveId = isEditing ? editFlow!.id : name.replace(/\s+/g, "_").toLowerCase();
-      if (!saveId) { addLog("âš  Postavi ime flowa"); return; }
+      if (!saveId) { addLog("Postavi ime flowa"); return; }
       const payload: any = { name: saveId, display_name: name, url, steps: safe, status };
-      // Ako je korisnik editirao kod ruÄŤno, spremi i to
+      // Ako je korisnik editirao kod ručno, spremi i to
       if (status === "polished" && aiCode.trim()) payload.code = aiCode;
       else if (rawCurrentCode.trim()) payload.code = rawCurrentCode;
       const r = await callAgent("record/save", payload);
@@ -1519,12 +1527,12 @@ ${codeToPolish}`;
         } else if (rawCurrentCode.trim()) {
           setSavedCode(rawCurrentCode);
         }
-        addLog(`âś… Spremljeno â€” ${safe.length} koraka (${status})`);
+      addLog(`Spremljeno: ${safe.length} koraka (${status})`);
         if (closeAfter) onSaved();
       } else {
-        addLog(`âś— ${r?.error || "greĹˇka pri spremi"}`);
+        addLog(`Greška: ${r?.error || "greška pri spremi"}`);
       }
-    } catch (e: any) { addLog(`âś— ${e.message}`); }
+    } catch (e: any) { addLog(`Greška: ${e.message}`); }
     finally { setSav(false); }
   };
 
@@ -1547,7 +1555,7 @@ ${codeToPolish}`;
     } : selectionRef.current[kind];
     const currentValue = kind === "raw" ? resolvedRawCode : aiCode;
     if (mode === "replace" && currentSelection.start === currentSelection.end) {
-      addLog("OznaÄŤi dio koda koji ĹľeliĹˇ zamijeniti.");
+      addLog("Označi dio koda koji želiš zamijeniti.");
       return;
     }
     const nextValue = `${currentValue.slice(0, currentSelection.start)}${lastRecordedSnippet}${currentValue.slice(currentSelection.end)}`;
@@ -1568,9 +1576,29 @@ ${codeToPolish}`;
     });
   };
 
+  const resetLearningSession = () => {
+    if (recording) return;
+    setName("Nova sesija");
+    setSteps([]);
+    setLastRecordedSteps([]);
+    setSavedCode("");
+    setEditedCode("");
+    setCodeEdited(false);
+    setAiCode("");
+    setAiCodeOriginal("");
+    setAiCodeSaved("");
+    setShadowInsight(null);
+    setShadowPlaybook(null);
+    setShadowSavedPath("");
+    setCorrectionSavedPath("");
+    resetReviewState(null);
+    recordBaseStepsRef.current = [];
+    setLogs(["Sesija je poništena. Klikni Počni snimanje za novi pokušaj."]);
+  };
+
   // Live kod generacija
   const liveCode = useMemo(() => {
-    if (!safe.length) return "# Koraci Ä‡e se prikazati ovdje...\n# Snimaj klikove, AI ih pretvori u ÄŤist kod.";
+    if (!safe.length) return "# Koraci će se prikazati ovdje...\n# Snimaj klikove, AI ih pretvori u čist kod.";
     const fn = name.toLowerCase().replace(/\s+/g, "_") || "flow";
     const lines = [
       "import asyncio",
@@ -1605,6 +1633,29 @@ ${codeToPolish}`;
   const recentSteps = safe.slice(-12);
   const memorySessions = shadowInsight?.stats?.related_sessions || shadowPlaybook?.stats?.session_count || 0;
   const memoryAverage = shadowInsight?.stats?.avg_steps || shadowPlaybook?.stats?.avg_steps || 0;
+  const workflowSteps = [
+    {
+      title: "1. Otvori Stellan Chrome",
+      body: browserOnline ? "Preglednik je spreman." : "Klikni Otvori Stellan Chrome.",
+      status: browserOnline ? "done" : "active",
+    },
+    {
+      title: "2. Radi i snimaj",
+      body: recording ? "Snimanje traje." : safe.length > 0 ? `${safe.length} koraka snimljeno.` : "Klikni Počni snimanje.",
+      status: recording ? "active" : safe.length > 0 ? "done" : "pending",
+    },
+    {
+      title: "3. Zaustavi i spremi",
+      body: shadowInsight ? "Analiza je spremna." : safe.length > 0 ? "Provjeri rezultat i spremi." : "Na kraju Stellan složi checklistu.",
+      status: shadowInsight ? "done" : safe.length > 0 && !recording ? "active" : "pending",
+    },
+  ];
+  const workflowStepClass = (status: string) =>
+    status === "done"
+      ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
+      : status === "active"
+        ? "border-primary/40 bg-primary/10 text-primary"
+        : "border-border bg-background/40 text-muted-foreground";
   const renderReviewSection = (
     section: keyof ShadowReviewState,
     title: string,
@@ -1623,7 +1674,7 @@ ${codeToPolish}`;
       <div>
         <div className="mb-2 flex items-center justify-between gap-3">
           <div className="text-[11px] uppercase tracking-wider text-muted-foreground">{title}</div>
-          <div className="text-[10px] text-muted-foreground">{selected.length}/{items.length} ukljuceno</div>
+          <div className="text-[10px] text-muted-foreground">{selected.length}/{items.length} uključeno</div>
         </div>
         <div className="space-y-1.5">
           {items.map(item => {
@@ -1663,16 +1714,16 @@ ${codeToPolish}`;
           <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
             <div className="space-y-3">
               <span className="inline-flex items-center gap-1 rounded border border-primary/30 bg-primary/10 px-2 py-0.5 text-[11px] text-primary">
-                <Sparkles className="h-3 w-3" /> Shadow learning cockpit
+                <Sparkles className="h-3 w-3" /> Učenje rada na portalu
               </span>
               <div>
                 <h1 className="text-xl font-bold text-foreground">
-                  {isEditing ? "Doradi" : "Pokreni"} <span className="text-gradient">ucenje</span>
+                  {isEditing ? "Doradi" : "Pokreni"} <span className="text-gradient">učenje</span>
                 </h1>
                 <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
                   {isEditing
-                    ? `Otvorili smo "${editFlow!.name}". Sada ga mozemo nastaviti uciti, procistiti rezultat i iz njega sloziti bolji playbook.`
-                    : "Ovdje radis stvarno ucenje: otvori portal, pokreni shadow sesiju, radi normalno i pusti Stellana da izvuce faze, checklistu, warninge i draft postupka."}
+                    ? `Otvorili smo "${editFlow!.name}". Možeš ga nastaviti učiti, pročistiti rezultat i složiti bolji playbook.`
+                    : "Stellan otvara poseban Chrome. U njemu radiš SDGE/OSS postupak normalno, a Stellan zapisuje korake i na kraju složi faze, checklistu i playbook."}
                 </p>
               </div>
             </div>
@@ -1680,7 +1731,7 @@ ${codeToPolish}`;
             <div className="grid gap-2 sm:grid-cols-2 xl:w-[430px]">
               {[
                 { label: "Browser", value: browserOnline ? "Spreman" : "Nije otvoren", cls: browserOnline ? "text-green-400" : "text-muted-foreground" },
-                { label: "Sesija", value: recording ? "Snima se" : safe.length > 0 ? "Pripremljena" : "Ceka start", cls: recording ? "text-destructive" : "text-foreground" },
+                { label: "Sesija", value: recording ? "Snima se" : safe.length > 0 ? "Pripremljena" : "Čeka start", cls: recording ? "text-destructive" : "text-foreground" },
                 { label: "Memorija", value: `${shadowGroups.length} grupa`, cls: "text-foreground" },
                 { label: "Confidence", value: `${activeLearningConfidence}%`, cls: activeLearningConfidence >= 60 ? "text-primary" : "text-foreground" },
               ].map((item) => (
@@ -1690,6 +1741,22 @@ ${codeToPolish}`;
                 </div>
               ))}
             </div>
+          </div>
+
+          <div className="mt-4 grid gap-2 lg:grid-cols-3">
+            {workflowSteps.map((step) => (
+              <div key={step.title} className={cn("rounded-xl border px-3 py-2", workflowStepClass(step.status))}>
+                <div className="flex items-center gap-2 text-xs font-semibold">
+                  {step.status === "done" ? <CheckCircle2 className="h-3.5 w-3.5" /> : step.status === "active" ? <Circle className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+                  {step.title}
+                </div>
+                <div className="mt-1 text-[11px] opacity-80">{step.body}</div>
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-3 rounded-xl border border-primary/20 bg-primary/5 px-3 py-2 text-xs text-muted-foreground">
+            Početak je gumb <span className="font-semibold text-primary">Počni snimanje</span>. Kraj je isti gumb dok snima, tada piše <span className="font-semibold text-destructive">Zaustavi i analiziraj</span>.
           </div>
 
           <div className="mt-4 flex flex-wrap items-center gap-2">
@@ -1721,7 +1788,7 @@ ${codeToPolish}`;
                   browserOnline ? "text-primary hover:bg-primary/10" : "text-green-400 hover:bg-green-500/10"
                 )}
               >
-                {browserOnline ? "Idi" : "Otvori"}
+                {browserOnline ? "Idi" : "Otvori Stellan Chrome"}
               </button>
             </div>
             {!recording && safe.length > 0 && (
@@ -1730,7 +1797,7 @@ ${codeToPolish}`;
                 disabled={!browserOnline}
                 className="flex h-9 items-center gap-1.5 rounded-xl border border-primary/30 bg-primary/10 px-3 text-xs font-medium text-primary hover:bg-primary/20 disabled:opacity-40"
               >
-                <Redo2 className="h-3.5 w-3.5" /> Nastavi
+                <Redo2 className="h-3.5 w-3.5" /> Nastavi snimanje
               </button>
             )}
             <button
@@ -1743,7 +1810,15 @@ ${codeToPolish}`;
                   : "gradient-primary text-white hover:opacity-90 disabled:opacity-40"
               )}
             >
-              {recording ? <><Square className="h-3.5 w-3.5" /> Zaustavi shadow</> : <><Sparkles className="h-3.5 w-3.5" /> Pokreni shadow</>}
+              {recording ? <><Square className="h-3.5 w-3.5" /> Zaustavi i analiziraj</> : <><Sparkles className="h-3.5 w-3.5" /> Počni snimanje</>}
+            </button>
+            <button
+              onClick={resetLearningSession}
+              disabled={recording}
+              className="flex h-9 items-center gap-1.5 rounded-xl border border-border bg-background/50 px-3 text-xs font-medium text-muted-foreground hover:bg-accent disabled:opacity-40"
+              title={recording ? "Prvo zaustavi snimanje." : "Obriši trenutnu sesiju i kreni ispočetka."}
+            >
+              <Undo2 className="h-3.5 w-3.5" /> Kreni ispočetka
             </button>
           </div>
         </div>
@@ -1753,7 +1828,7 @@ ${codeToPolish}`;
             <div className="rounded-2xl border border-border bg-card p-4">
               <div className="mb-3">
                 <div className="text-[11px] uppercase tracking-[0.18em] text-primary/80">Postavke sesije</div>
-                <h3 className="mt-1 text-sm font-semibold text-foreground">Sto tocno ucimo</h3>
+                <h3 className="mt-1 text-sm font-semibold text-foreground">Što točno učimo</h3>
               </div>
 
               <div className="space-y-3">
@@ -1768,19 +1843,19 @@ ${codeToPolish}`;
                 </label>
 
                 <label className="block">
-                  <span className="text-[11px] text-muted-foreground">Kontekst ucenja</span>
+                  <span className="text-[11px] text-muted-foreground">Kontekst učenja</span>
                   <textarea
                     value={learningContext}
                     onChange={e => setLearningContext(e.target.value)}
                     rows={5}
                     className="mt-1 w-full resize-none rounded-xl border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary"
-                    placeholder="Napr. parcelacija, predaja elaborata, provjera priloga, kontrola PDF-a, ispravak zahtjeva..."
+                    placeholder="Npr. parcelacija, predaja elaborata, provjera priloga, kontrola PDF-a, ispravak zahtjeva..."
                   />
                 </label>
 
                 <div className="grid grid-cols-2 gap-2">
                   <div className="rounded-xl border border-border bg-background/50 p-3">
-                    <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Warnings</div>
+                    <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Upozorenja</div>
                     <div className="mt-1 text-lg font-semibold text-orange-300">{shadowWarningCount}</div>
                   </div>
                   <div className="rounded-xl border border-border bg-background/50 p-3">
@@ -1811,11 +1886,11 @@ ${codeToPolish}`;
             <div className="rounded-2xl border border-border bg-card p-4">
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <div className="text-[11px] uppercase tracking-[0.18em] text-primary/80">Memorija ucenja</div>
-                  <h3 className="mt-1 text-sm font-semibold text-foreground">Koliko smo vec naucili</h3>
+                  <div className="text-[11px] uppercase tracking-[0.18em] text-primary/80">Memorija učenja</div>
+                  <h3 className="mt-1 text-sm font-semibold text-foreground">Koliko smo već naučili</h3>
                 </div>
                 <span className={cn("rounded-lg border px-2 py-1 text-[10px]", shadowStateClass(activeLearningState))}>
-                  {activeLearningConfidence}% Â· {shadowStateLabel(activeLearningState)}
+                  {activeLearningConfidence}% · {shadowStateLabel(activeLearningState)}
                 </span>
               </div>
               <div className="mt-3 grid grid-cols-3 gap-2">
@@ -1828,7 +1903,7 @@ ${codeToPolish}`;
                   <div className="mt-1 text-lg font-semibold text-foreground">{memoryAverage}</div>
                 </div>
                 <div className="rounded-xl border border-border bg-background/50 p-3">
-                  <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Ready</div>
+                  <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Spremno</div>
                   <div className="mt-1 text-lg font-semibold text-foreground">{shadowInsight?.auto_playbook_ready ? "DA" : "NE"}</div>
                 </div>
               </div>
@@ -1840,7 +1915,7 @@ ${codeToPolish}`;
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <div className="text-[11px] uppercase tracking-[0.18em] text-primary/80">Aktivna sesija</div>
-                  <h3 className="mt-1 text-sm font-semibold text-foreground">Sto se upravo dogadalo</h3>
+                  <h3 className="mt-1 text-sm font-semibold text-foreground">Što se upravo dogodilo</h3>
                 </div>
                 <span className={cn("rounded-lg border px-2 py-1 text-[10px]", recording ? "border-destructive/30 bg-destructive/10 text-destructive" : "border-border bg-background/40 text-muted-foreground")}>
                   {recording ? "REC" : `${safe.length} koraka`}
@@ -1850,7 +1925,7 @@ ${codeToPolish}`;
               <div className="mt-3 space-y-2">
                 {recentSteps.length === 0 ? (
                   <div className="rounded-xl border border-dashed border-border bg-background/30 px-4 py-8 text-center text-sm text-muted-foreground">
-                    Pokreni shadow i radi normalno po portalu. Ovdje cemo slagati tok sesije korak po korak.
+                    Klikni Počni snimanje i radi normalno u Stellan Chromeu. Ovdje ćemo slagati tok sesije korak po korak.
                   </div>
                 ) : recentSteps.map((step, index) => {
                   const Icon = STEP_ICONS[step.type] || Circle;
@@ -1863,7 +1938,7 @@ ${codeToPolish}`;
                       <div className="min-w-0 flex-1">
                         <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{stepNumber}. {step.type}</div>
                         <div className="mt-1 truncate font-mono text-xs text-foreground">{step.url || step.target || "bez mete"}</div>
-                        {step.value && <div className="mt-1 truncate text-xs text-primary/80">â†’ {step.value}</div>}
+                        {step.value && <div className="mt-1 truncate text-xs text-primary/80">→ {step.value}</div>}
                       </div>
                       <button
                         onClick={() => setSteps(safe.filter((_, idx) => idx !== stepNumber - 1))}
@@ -1881,7 +1956,7 @@ ${codeToPolish}`;
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <div className="text-[11px] uppercase tracking-[0.18em] text-primary/80">Operativni log</div>
-                  <h3 className="mt-1 text-sm font-semibold text-foreground">Sto smo zadnje napravili</h3>
+                  <h3 className="mt-1 text-sm font-semibold text-foreground">Što smo zadnje napravili</h3>
                 </div>
                 <span className="rounded-lg border border-border bg-background/40 px-2 py-1 text-[10px] text-muted-foreground">
                   {logs.length} stavki
@@ -1890,7 +1965,7 @@ ${codeToPolish}`;
               <div className="mt-3 space-y-2">
                 {recentLogs.length === 0 ? (
                   <div className="rounded-xl border border-dashed border-border bg-background/30 px-4 py-6 text-center text-sm text-muted-foreground">
-                    Kad krenemo raditi, ovdje ce se slagati log sesije.
+                    Kad krenemo raditi, ovdje će se slagati log sesije.
                   </div>
                 ) : recentLogs.map((entry, index) => (
                   <div key={`${entry}-${index}`} className="rounded-lg border border-border bg-background/40 px-3 py-2 font-mono text-xs text-muted-foreground break-all">
@@ -1905,11 +1980,11 @@ ${codeToPolish}`;
             <div className="rounded-2xl border border-border bg-card p-4">
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <div className="text-[11px] uppercase tracking-[0.18em] text-emerald-400">Rezultat ucenja</div>
-                  <h3 className="mt-1 text-sm font-semibold text-foreground">Sto je Stellan izvukao</h3>
+                  <div className="text-[11px] uppercase tracking-[0.18em] text-emerald-400">Rezultat učenja</div>
+                  <h3 className="mt-1 text-sm font-semibold text-foreground">Što je Stellan izvukao</h3>
                 </div>
                 <span className={cn("rounded-lg border px-2 py-1 text-[10px]", shadowStateClass(activeLearningState))}>
-                  {activeLearningConfidence}% Â· {shadowStateLabel(activeLearningState)}
+                  {activeLearningConfidence}% · {shadowStateLabel(activeLearningState)}
                 </span>
               </div>
 
@@ -1927,7 +2002,7 @@ ${codeToPolish}`;
 
                   <div className="flex items-center justify-between gap-3 rounded-xl border border-border bg-background/30 px-3 py-2">
                     <div className="text-[11px] text-muted-foreground">
-                      Procisti rezultat prije spremanja. Ono sto ostane ukljuceno ulazi u playbook.
+                      Pročisti rezultat prije spremanja. Ono što ostane uključeno ulazi u playbook.
                     </div>
                     <button
                       type="button"
@@ -1952,7 +2027,7 @@ ${codeToPolish}`;
 
                   {reviewDirty && (
                     <div className="rounded-xl border border-primary/20 bg-primary/5 px-3 py-2 text-[11px] text-primary">
-                      Koristimo rucno prociscenu verziju analize za draft playbooka.
+                      Koristimo ručno pročišćenu verziju analize za draft playbooka.
                     </div>
                   )}
 
@@ -1963,7 +2038,7 @@ ${codeToPolish}`;
                       className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-primary/30 bg-primary/10 py-2 text-xs font-medium text-primary hover:bg-primary/20 disabled:opacity-40"
                     >
                       {teachingCorrection ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-                      Nauci iz ispravka
+                      Nauči iz ispravka
                     </button>
                     <button
                       disabled={buildingPlaybook}
@@ -1979,15 +2054,15 @@ ${codeToPolish}`;
                 </div>
               ) : (
                 <div className="mt-3 rounded-xl border border-dashed border-border bg-background/30 px-4 py-10 text-center text-sm text-muted-foreground">
-                  Jos nemamo analizu. Pokreni shadow sesiju, odradi postupak i kad stanes ovdje ce se pojaviti faze, checklista i warningi.
+                  Još nemamo analizu. Pokreni snimanje, odradi postupak i kad zaustaviš ovdje će se pojaviti faze, checklista i upozorenja.
                 </div>
               )}
             </div>
 
             {!!recentGroups.length && (
               <div className="rounded-2xl border border-border bg-card p-4">
-                <div className="text-[11px] uppercase tracking-[0.18em] text-primary/80">Naucene grupe</div>
-                <h3 className="mt-1 text-sm font-semibold text-foreground">Najblize sto vec imamo</h3>
+                <div className="text-[11px] uppercase tracking-[0.18em] text-primary/80">Naučene grupe</div>
+                <h3 className="mt-1 text-sm font-semibold text-foreground">Najbliže što već imamo</h3>
                 <div className="mt-3 space-y-2">
                   {recentGroups.map(group => (
                     <div key={`${group.portal}-${group.flow_type}`} className="rounded-xl border border-border bg-background/40 p-3">
@@ -2001,7 +2076,7 @@ ${codeToPolish}`;
                         </span>
                       </div>
                       <div className="mt-2 text-[11px] text-muted-foreground">
-                        {group.session_count} sesija Â· prosjek {group.avg_steps} koraka
+                        {group.session_count} sesija · prosjek {group.avg_steps} koraka
                       </div>
                       {!!group.latest_name && (
                         <div className="mt-1 truncate text-[11px] text-muted-foreground/70">Zadnje: {group.latest_name}</div>
@@ -2043,7 +2118,7 @@ ${codeToPolish}`;
           </summary>
           <div className="border-t border-border px-4 py-4">
             <div className="mb-3 text-sm text-muted-foreground">
-              Stari editor nismo bacili, samo smo ga pomaknuli dolje. Ovdje i dalje mozes testirati, peglati i spremati sirovi i AI kod kad ti to stvarno treba.
+              Stari editor nismo bacili, samo smo ga pomaknuli dolje. Ovdje i dalje možeš testirati, peglati i spremati sirovi i AI kod kad ti to stvarno treba.
             </div>
 
             <div className="grid gap-3 xl:grid-cols-2">
@@ -2051,7 +2126,7 @@ ${codeToPolish}`;
                 <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
                   <div className="flex items-center gap-2">
                     <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Sirovi kod</span>
-                    <span className="text-[10px] text-muted-foreground/60">{codeEdited ? "rucno uredjen" : "auto"}</span>
+                    <span className="text-[10px] text-muted-foreground/60">{codeEdited ? "ručno uređeno" : "auto"}</span>
                   </div>
                   <div className="flex items-center gap-1">
                     {codeEdited && (
@@ -2123,7 +2198,7 @@ ${codeToPolish}`;
                   </div>
                   <div className="flex items-center gap-1">
                     <button disabled={polishing} onClick={polish} className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-primary hover:bg-primary/10 disabled:opacity-40">
-                      {polishing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />} Ulasti
+                      {polishing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />} Ulašti
                     </button>
                     {aiCode && aiCode !== aiCodeSaved && (
                       <button onClick={saveAiCode} className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-green-400 hover:bg-green-500/10">
@@ -2176,12 +2251,12 @@ ${codeToPolish}`;
                       spellCheck={false}
                       className="absolute inset-0 h-full w-full resize-none bg-transparent p-3 font-mono text-[11px] leading-relaxed text-muted-foreground outline-none stellan-scroll"
                       style={{ fontFamily: "ui-monospace,'Cascadia Code',monospace" }}
-                      placeholder="# AI usavrsen kod"
+                      placeholder="# AI usavršen kod"
                     />
                   ) : (
                     <div className="flex h-full flex-col items-center justify-center gap-2 p-4 text-center">
                       <Sparkles className="h-6 w-6 text-primary/20" />
-                      <p className="text-sm text-muted-foreground/50">Klikni "Ulasti" kad zelis da AI ispegla sirovi kod.</p>
+                      <p className="text-sm text-muted-foreground/50">Klikni "Ulašti" kad želiš da AI ispegla sirovi kod.</p>
                     </div>
                   )}
                 </div>
